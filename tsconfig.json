@@ -1,0 +1,23 @@
+{
+	"compilerOptions": {
+		"target": "ES6",
+		"allowJs": true,
+		"module": "commonjs",
+		"lib": ["ES2021", "DOM", "DOM.Iterable"],
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"noImplicitAny": true,
+		"sourceMap": true,
+		"baseUrl": ".",
+		"outDir": "dist",
+		"jsx": "react",
+		"moduleResolution": "node",
+		"resolveJsonModule": true,
+		"paths": {
+			"*": ["node_modules/*"]
+		},
+		"types": ["node"]
+	},
+	"include": ["src/**/*", "webpack.*.ts", "forge.config.ts"],
+	"exclude": ["node_modules", "dist", "out"]
+}

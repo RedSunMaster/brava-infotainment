@@ -1,0 +1,94 @@
+{
+	"name": "brava-infotainment",
+	"productName": "brava-infotainment",
+	"version": "1.0.0",
+	"description": "My Electron application description",
+	"main": ".webpack/main",
+	"private": true,
+	"scripts": {
+		"start": "electron-forge start",
+		"package": "electron-forge package",
+		"make": "electron-forge make",
+		"publish": "electron-forge publish",
+		"lint": "eslint --ext .ts,.tsx .",
+		"start:day": "electron-forge start -- --tod=day",
+		"start:dawn": "electron-forge start -- --tod=dawn",
+		"start:dusk": "electron-forge start -- --tod=dusk",
+		"start:night": "electron-forge start -- --tod=night"
+	},
+	"keywords": [],
+	"author": {
+		"name": "Richard McNulty",
+		"email": "richard.mcnulty20@gmail.com"
+	},
+	"license": "MIT",
+	"devDependencies": {
+		"@electron-forge/cli": "^7.11.1",
+		"@electron-forge/maker-deb": "^7.11.1",
+		"@electron-forge/maker-rpm": "^7.11.1",
+		"@electron-forge/maker-squirrel": "^7.11.1",
+		"@electron-forge/maker-zip": "^7.11.1",
+		"@electron-forge/plugin-auto-unpack-natives": "^7.11.1",
+		"@electron-forge/plugin-fuses": "^7.11.1",
+		"@electron-forge/plugin-webpack": "^7.11.1",
+		"@electron/fuses": "^1.8.0",
+		"@svgr/webpack": "^8.1.0",
+		"@types/dotenv-webpack": "^7.0.8",
+		"@types/mapbox__polyline": "^1.0.5",
+		"@types/mapbox-gl": "^3.4.1",
+		"@types/maplibre-gl": "^1.13.2",
+		"@types/node": "^25.5.0",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@types/three": "^0.183.1",
+		"@typescript-eslint/eslint-plugin": "^5.62.0",
+		"@typescript-eslint/parser": "^5.62.0",
+		"@vercel/webpack-asset-relocator-loader": "^1.7.3",
+		"css-loader": "^6.11.0",
+		"dotenv": "^17.3.1",
+		"dotenv-webpack": "^9.0.0",
+		"electron": "41.0.3",
+		"eslint": "^8.57.1",
+		"eslint-plugin-import": "^2.32.0",
+		"fork-ts-checker-webpack-plugin": "^7.3.0",
+		"node-loader": "^2.1.0",
+		"style-loader": "^3.3.4",
+		"ts-loader": "^9.5.4",
+		"typescript": "~4.5.4"
+	},
+	"dependencies": {
+		"@emotion/react": "^11.14.0",
+		"@emotion/styled": "^11.14.1",
+		"@mapbox/polyline": "^1.2.1",
+		"@mui/icons-material": "^7.3.9",
+		"@mui/material": "^7.3.9",
+		"electron-squirrel-startup": "^1.0.1",
+		"http": "^0.0.1-security",
+		"mapbox-gl": "^3.20.0",
+		"material-symbols": "^0.42.3",
+		"react": "^19.2.4",
+		"react-dom": "^19.2.4",
+		"three": "^0.183.2"
+	},
+	"plugins": [
+		{
+			"name": "@electron-forge/plugin-webpack",
+			"config": {
+				"mainConfig": "./webpack.main.config.js",
+				"renderer": {
+					"config": "./webpack.renderer.config.js",
+					"entryPoints": [
+						{
+							"html": "./src/index.html",
+							"js": "./src/renderer.tsx",
+							"name": "main_window",
+							"preload": {
+								"js": "./src/preload.ts"
+							}
+						}
+					]
+				}
+			}
+		}
+	]
+}
