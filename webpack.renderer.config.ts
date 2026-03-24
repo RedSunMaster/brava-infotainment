@@ -12,4 +12,26 @@ export const rendererConfig: Configuration = {
 	module: { rules },
 	plugins: [new ProgressPlugin(), envDefinePlugin],
 	resolve: { extensions: [".js", ".ts", ".jsx", ".tsx", ".css"] },
+	optimization: {
+		splitChunks: {
+			chunks: "all",
+			cacheGroups: {
+				three: {
+					test: /[\\/]node_modules[\\/]three/,
+					name: "vendor-three",
+					priority: 20,
+				},
+				mui: {
+					test: /[\\/]node_modules[\\/]@mui/,
+					name: "vendor-mui",
+					priority: 20,
+				},
+				mapbox: {
+					test: /[\\/]node_modules[\\/]mapbox-gl/,
+					name: "vendor-mapbox",
+					priority: 20,
+				},
+			},
+		},
+	},
 };
