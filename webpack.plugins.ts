@@ -39,6 +39,9 @@ export const envDefinePlugin = new DefinePlugin({
 	"process.env.MAPBOX_STYLE_NIGHT": JSON.stringify(
 		process.env.MAPBOX_STYLE_NIGHT,
 	),
+	"process.env.SPOTIFY_CLIENT_ID": JSON.stringify(
+		process.env.SPOTIFY_CLIENT_ID,
+	),
 });
 
 export const plugins = [

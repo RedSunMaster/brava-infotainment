@@ -23,8 +23,11 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		// ✅ Use "wheel" and touch pinch events directly — unambiguously user gestures
 		const canvas = map.getCanvas();
 		canvas.addEventListener("wheel", onZoom, { passive: true });
-		canvas.addEventListener("touchstart", onZoom, { passive: true });
-
+		const onTouchStart = (e: TouchEvent) => {
+			if (e.touches.length > 1) return;
+			setMode("overview");
+		};
+		canvas.addEventListener("touchstart", onTouchStart, { passive: true });
 		return () => {
 			map.off("dragstart", onDrag);
 			canvas.removeEventListener("wheel", onZoom);

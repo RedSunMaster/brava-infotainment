@@ -15,6 +15,8 @@ import FanOffIcon from "../../public/icons/fanOff.svg";
 import FanOnIcon from "../../public/icons/fanOn.svg";
 import FanFocusIcon from "../../public/icons/fanFocus.svg";
 import RearDefrostIcon from "../../public/icons/rearWindshieldDefrost.svg";
+import { useSpotify } from "../hooks/useSpotify";
+import SpotifyPopup from "./SpotifyPopup";
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -303,10 +305,11 @@ const MultiAppPopup = ({
 
 const CarControls = () => {
 	const hazardRef = useRef<HTMLDivElement>(null);
+	const spotify = useSpotify();
 
 	// Popup state — only one open at a time
 	const [activePopup, setActivePopup] = useState<
-		"multiApp" | "temp" | "fan" | null
+		"spotify" | "multiApp" | "temp" | "fan" | null
 	>(null);
 	const close = () => setActivePopup(null);
 
@@ -364,7 +367,7 @@ const CarControls = () => {
 			}}
 		>
 			{/* Music */}
-			<Box sx={iconBtnStyle} onClick={handleMusic}>
+			<Box sx={iconBtnStyle} onClick={() => setActivePopup("spotify")}>
 				<MusicNoteRounded sx={{ fontSize: 48 }} />
 			</Box>
 
@@ -395,7 +398,11 @@ const CarControls = () => {
 				value={fanSpeed}
 				onChange={setFanSpeed}
 			/>
-
+			<SpotifyPopup
+				anchorEl={activePopup === "spotify" ? hazardRef.current : null}
+				onClose={close}
+				spotify={spotify}
+			/>
 			{/* Hazard — centre anchor + flash animation */}
 			<Box
 				ref={hazardRef}

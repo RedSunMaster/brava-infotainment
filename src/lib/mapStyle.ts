@@ -26,13 +26,13 @@ export function getTimeOfDay(hour = new Date().getHours()): TimeOfDay {
 }
 
 export function getStyleForPeriod(period: TimeOfDay): string {
-	const map: Record<TimeOfDay, string> = {
+	const base = {
 		dawn: process.env.MAPBOX_STYLE_DAWN,
 		day: process.env.MAPBOX_STYLE_DAY,
 		dusk: process.env.MAPBOX_STYLE_DUSK,
 		night: process.env.MAPBOX_STYLE_NIGHT,
-	};
-	return map[period];
+	}[period];
+	return `${base}?optimize=true`; // ✅
 }
 
 export function getCurrentStyle(): string {

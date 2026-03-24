@@ -158,6 +158,8 @@ export default function App() {
 		const map = mapRef.current;
 		if (map?.getLayer("route")) map.removeLayer("route");
 		if (map?.getSource("route")) map.removeSource("route");
+		if (map?.getLayer("route-bg")) map.removeLayer("route-bg");
+		if (map?.getSource("route-bg")) map.removeSource("route-bg");
 		map?.easeTo({
 			center: lastPosRef.current,
 			zoom: ZOOM_LEVEL,
@@ -184,6 +186,8 @@ export default function App() {
 			bearing: 0,
 			duration: 800,
 		});
+		if (map?.getLayer("route-bg")) map.removeLayer("route-bg");
+		if (map?.getSource("route-bg")) map.removeSource("route-bg");
 	}
 
 	// Add this effect — runs once when map is ready

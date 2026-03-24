@@ -55,63 +55,58 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		drawRoute(result.coords);
 	}
 
+	// drawRoute — add two layers
 	function drawRoute(decoded: [number, number][]) {
 		const map = mapRef.current!;
 		const geojson = toFeature(decoded);
 
-		if (map.getSource("route")) {
-			(map.getSource("route") as mapboxgl.GeoJSONSource).setData(geojson);
-		} else {
+		// Static background route — never updated
+		if (!map.getSource("route-bg")) {
+			map.addSource("route-bg", { type: "geojson", data: geojson });
+			map.addLayer({
+				id: "route-bg",
+				type: "line",
+				source: "route-bg",
+				minzoom: 5,
+				layout: { "line-cap": "round" },
+				paint: {
+					"line-color": alpha(theme.palette.primary.main, 0.25),
+					"line-width": 5,
+				},
+			});
+		}
+
+		// Dynamic remaining route — small GeoJSON, updated each tick
+		if (!map.getSource("route")) {
 			map.addSource("route", {
 				type: "geojson",
 				data: geojson,
 				lineMetrics: true,
 			});
-			map.addLayer(
-				{
-					id: "route",
-					type: "line",
-					source: "route",
-					layout: { "line-cap": "round" },
-					paint: {
-						"line-color": theme.palette.primary.main,
-						"line-width": 5,
-						"line-emissive-strength": 1,
-						"line-gradient": [
-							"interpolate",
-							["linear"],
-							["line-progress"],
-							0,
-							theme.palette.primary.main,
-							1,
-							theme.palette.primary.main,
-						],
-					},
+			map.addLayer({
+				id: "route",
+				type: "line",
+				source: "route",
+				minzoom: 5,
+				layout: { "line-cap": "round" },
+				paint: {
+					"line-color": theme.palette.primary.main,
+					"line-width": 5,
+					"line-emissive-strength": 1,
 				},
-				map.getLayer("puck-matrix-capture") ? "puck-matrix-capture" : undefined,
-			);
+			});
 		}
 	}
 
+	// trimRoute — update only the remaining coords, not paint properties
 	function trimRoute(fromIndex: number) {
 		const map = mapRef.current;
-		if (!map?.getLayer("route")) return;
+		if (!map?.getSource("route")) return;
 
-		const progress = calcDistanceProgress(coordsRef.current, fromIndex);
-
-		map.setPaintProperty("route", "line-gradient", [
-			"interpolate",
-			["linear"],
-			["line-progress"],
-			0,
-			alpha(theme.palette.primary.main, 0),
-			Math.max(0, progress - 0.002),
-			alpha(theme.palette.primary.main, 0),
-			progress,
-			theme.palette.primary.main,
-			1,
-			theme.palette.primary.main,
-		]);
+		const remaining = coordsRef.current.slice(fromIndex);
+		(map.getSource("route") as mapboxgl.GeoJSONSource).setData(
+			toFeature(remaining),
+		);
 	}
 
 	return { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute };
