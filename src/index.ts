@@ -20,7 +20,7 @@ const createWindow = (): void => {
 		height: 1920,
 		width: 1080,
 		webPreferences: {
-			zoomFactor: 1,
+			zoomFactor: 2,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
 			nodeIntegration: true,
 			contextIsolation: false,
