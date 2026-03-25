@@ -53,8 +53,6 @@ ipcMain.on("keyboard-show", () => wvkbdProc?.kill("SIGUSR2"));
 ipcMain.on("keyboard-hide", () => wvkbdProc?.kill("SIGUSR1"));
 
 const createWindow = (): void => {
-	const { height } = screen.getPrimaryDisplay().workAreaSize;
-
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
 	mainWindow = new BrowserWindow({
