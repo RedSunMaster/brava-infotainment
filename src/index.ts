@@ -10,26 +10,23 @@ if (require("electron-squirrel-startup")) app.quit();
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
 app.commandLine.appendSwitch("ozone-platform", "wayland");
 app.commandLine.appendSwitch("touch-events", "enabled");
-app.commandLine.appendSwitch("enable-wayland-ime"); // zwp_text_input_v3
+app.commandLine.appendSwitch("enable-wayland-ime");
+app.commandLine.appendSwitch("disable-vulkan");
+app.commandLine.appendSwitch("use-gl", "egl"); // force EGL instead of Vulkan
 
-// ✅ Removed UseOzonePlatform (redundant) and VirtualKeyboard (ChromeOS-only)
-app.commandLine.appendSwitch(
-	"enable-features",
-	"TouchpadOverscrollHistoryNavigation",
-);
-
-// GPU perf flags (unchanged)
-app.commandLine.appendSwitch("enable-accelerated-video-decode");
-app.commandLine.appendSwitch("enable-gpu-rasterization");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
-app.commandLine.appendSwitch("disable-renderer-backgrounding");
-app.commandLine.appendSwitch("disable-background-timer-throttling");
+// ✅ Only ONE enable-features call — combine everything here
 app.commandLine.appendSwitch(
 	"enable-features",
 	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
 );
 app.commandLine.appendSwitch("enable-blink-features", "PointerEvent");
-app.commandLine.appendSwitch("disable-vulkan");
+
+// GPU perf flags
+app.commandLine.appendSwitch("enable-accelerated-video-decode");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
 
 const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
@@ -58,10 +55,16 @@ ipcMain.on("keyboard-hide", () => wvkbdProc?.kill("SIGUSR1"));
 const createWindow = (): void => {
 	const { height } = screen.getPrimaryDisplay().workAreaSize;
 
+	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+
 	mainWindow = new BrowserWindow({
+		width,
+		height,
+		x: 0,
+		y: 0,
 		frame: false,
 		resizable: false,
-		show: false, // prevent flash before maximize
+		show: false,
 		webPreferences: {
 			zoomFactor: 2,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -70,9 +73,7 @@ const createWindow = (): void => {
 		},
 	});
 
-	mainWindow.maximize();
 	mainWindow.show();
-
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
 			responseHeaders: {
