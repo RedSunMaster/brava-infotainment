@@ -29,6 +29,7 @@ app.commandLine.appendSwitch(
 	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
 );
 app.commandLine.appendSwitch("enable-blink-features", "PointerEvent");
+app.commandLine.appendSwitch("disable-vulkan");
 
 const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
@@ -60,6 +61,7 @@ const createWindow = (): void => {
 	mainWindow = new BrowserWindow({
 		frame: false,
 		resizable: false,
+		show: false, // prevent flash before maximize
 		webPreferences: {
 			zoomFactor: 2,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -69,6 +71,7 @@ const createWindow = (): void => {
 	});
 
 	mainWindow.maximize();
+	mainWindow.show();
 
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
