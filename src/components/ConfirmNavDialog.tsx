@@ -51,7 +51,9 @@ export default function ConfirmNavDialog({
 						{placeName}
 					</Typography>
 					<Typography sx={{ color: "text.secondary", fontSize: 12, mt: 0.3 }}>
-						{duration} · {distance}
+						{duration}
+						{" \u00B7 "}
+						{distance}
 					</Typography>
 				</Box>
 			</Box>

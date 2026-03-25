@@ -8,6 +8,8 @@ const SCOPES = [
 	"user-read-playback-state",
 	"user-modify-playback-state",
 	"user-read-currently-playing",
+	"playlist-read-private",
+	"playlist-read-collaborative",
 ].join(" ");
 
 const TOKEN_KEY = "spotify_access_token";
@@ -68,11 +70,30 @@ export interface SpotifyTrack {
 	shuffle: boolean;
 	repeat: "off" | "track" | "context";
 }
+export interface SpotifyQueueItem {
+	id: string;
+	name: string;
+	artists: string;
+	albumArt: string;
+	durationMs: number;
+	uri: string;
+}
 
+export interface SpotifyPlaylist {
+	id: string;
+	name: string;
+	imageUrl: string;
+	tracksTotal: number;
+	uri: string;
+}
 export interface UseSpotifyReturn {
 	track: SpotifyTrack | null;
 	isConnected: boolean;
 	isLoading: boolean;
+	isLibraryLoading: boolean; // ← new
+	queue: SpotifyQueueItem[]; // ← new
+	playlists: SpotifyPlaylist[]; // ← new
+	searchResults: SpotifyQueueItem[]; // ← new
 	connect: () => Promise<void>;
 	play: () => Promise<void>;
 	pause: () => Promise<void>;
@@ -80,6 +101,11 @@ export interface UseSpotifyReturn {
 	previous: () => Promise<void>;
 	toggleShuffle: () => Promise<void>;
 	cycleRepeat: () => Promise<void>;
+	fetchQueue: () => Promise<void>; // ← new
+	fetchPlaylists: () => Promise<void>; // ← new
+	search: (query: string) => Promise<void>; // ← new
+	playTrack: (uri: string) => Promise<void>; // ← new
+	playContext: (contextUri: string, offsetTrackUri?: string) => Promise<void>; // ← new
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -92,8 +118,12 @@ export function useSpotify(): UseSpotifyReturn {
 	const [isLoading, setIsLoading] = useState(false);
 	const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-	// ── Shared token exchange (used by both Electron IPC and web fallback) ───
+	const [queue, setQueue] = useState<SpotifyQueueItem[]>([]);
+	const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
+	const [searchResults, setSearchResults] = useState<SpotifyQueueItem[]>([]);
+	const [isLibraryLoading, setIsLibraryLoading] = useState(false);
 
+	// ── Shared token exchange (used by both Electron IPC and web fallback) ───
 	const exchangeCode = useCallback((code: string, verifier: string) => {
 		setIsLoading(true);
 		fetch("https://accounts.spotify.com/api/token", {
@@ -208,6 +238,70 @@ export function useSpotify(): UseSpotifyReturn {
 		[token],
 	);
 
+	const fetchQueue = useCallback(async () => {
+		setIsLibraryLoading(true);
+		const data = await spotifyFetch("/me/player/queue");
+		if (data?.queue) {
+			setQueue(
+				(data.queue as any[]).slice(0, 30).map((item) => ({
+					id: item.id,
+					name: item.name,
+					artists: item.artists.map((a: { name: string }) => a.name).join(", "),
+					albumArt: item.album?.images?.[0]?.url ?? "",
+					durationMs: item.duration_ms,
+					uri: item.uri,
+				})),
+			);
+		}
+		setIsLibraryLoading(false);
+	}, [spotifyFetch]);
+
+	const fetchPlaylists = useCallback(async () => {
+		setIsLibraryLoading(true);
+		const data = await spotifyFetch("/me/playlists?limit=50");
+		if (data?.items) {
+			setPlaylists(
+				(data.items as any[]).map((pl) => ({
+					id: pl.id,
+					name: pl.name,
+					imageUrl: pl.images?.[0]?.url ?? "",
+					tracksTotal: pl.tracks?.total ?? 0,
+					uri: pl.uri,
+				})),
+			);
+		}
+		setIsLibraryLoading(false);
+	}, [spotifyFetch]);
+
+	const search = useCallback(
+		async (query: string) => {
+			if (!query.trim()) {
+				setSearchResults([]);
+				return;
+			}
+			setIsLibraryLoading(true);
+			const data = await spotifyFetch(
+				`/search?q=${encodeURIComponent(query)}&type=track&limit=20`,
+			);
+			if (data?.tracks?.items) {
+				setSearchResults(
+					(data.tracks.items as any[]).map((item) => ({
+						id: item.id,
+						name: item.name,
+						artists: item.artists
+							.map((a: { name: string }) => a.name)
+							.join(", "),
+						albumArt: item.album?.images?.[0]?.url ?? "",
+						durationMs: item.duration_ms,
+						uri: item.uri,
+					})),
+				);
+			}
+			setIsLibraryLoading(false);
+		},
+		[spotifyFetch],
+	);
+
 	// ── Polling: fetch current playback every 3 s ────────────────────────────
 
 	const fetchPlayback = useCallback(async () => {
@@ -283,10 +377,32 @@ export function useSpotify(): UseSpotifyReturn {
 		setTrack((t) => t && { ...t, repeat: next });
 	}, [spotifyFetch, track?.repeat]);
 
+	const playTrack = useCallback(
+		async (uri: string) => {
+			await spotifyFetch("/me/player/play", "PUT", { uris: [uri] });
+			setTimeout(fetchPlayback, 600);
+		},
+		[spotifyFetch, fetchPlayback],
+	);
+
+	const playContext = useCallback(
+		async (contextUri: string, offsetTrackUri?: string) => {
+			const body: Record<string, unknown> = { context_uri: contextUri };
+			if (offsetTrackUri) body.offset = { uri: offsetTrackUri };
+			await spotifyFetch("/me/player/play", "PUT", body);
+			setTimeout(fetchPlayback, 600);
+		},
+		[spotifyFetch, fetchPlayback],
+	);
+
 	return {
 		track,
 		isConnected: !!token,
 		isLoading,
+		isLibraryLoading,
+		queue,
+		playlists,
+		searchResults,
 		connect,
 		play,
 		pause,
@@ -294,6 +410,11 @@ export function useSpotify(): UseSpotifyReturn {
 		previous,
 		toggleShuffle,
 		cycleRepeat,
+		fetchQueue,
+		fetchPlaylists,
+		search,
+		playTrack,
+		playContext,
 	};
 }
 // ─── Electron IPC helper ──────────────────────────────────────────────────────

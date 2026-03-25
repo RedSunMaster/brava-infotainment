@@ -71,7 +71,7 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 					<Typography
 						sx={{ color: theme.palette.text.secondary, fontSize: 13, mt: 0.3 }}
 					>
-						{current.length?.toFixed(2)} km ·{" "}
+						{current.length?.toFixed(2)} km{" \u00B7 "}
 						{Math.round((current.time ?? 0) / 60)} min
 					</Typography>
 				</Box>

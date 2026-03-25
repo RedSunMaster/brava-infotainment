@@ -250,7 +250,7 @@ export default function App() {
 					}}
 				>
 					{/* Left 50% — Navigation card */}
-					<Box sx={{ flex: 1, minWidth: 0 }}>
+					<Box sx={{ flex: 1, minWidth: 0, zIndex: 1400 }}>
 						{navActive && (
 							<NavigationCard maneuvers={maneuvers} currentStep={currentStep} />
 						)}
