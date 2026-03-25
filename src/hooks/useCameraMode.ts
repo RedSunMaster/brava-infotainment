@@ -15,18 +15,64 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map) return;
-
-		const onDrag = () => setMode("overview");
-		const onZoom = () => setMode("overview");
-
-		map.on("dragstart", onDrag);
-		// ✅ Use "wheel" and touch pinch events directly — unambiguously user gestures
 		const canvas = map.getCanvas();
-		canvas.addEventListener("wheel", onZoom, { passive: true });
+
+		// ── Single finger drag → overview mode ──
+		const onDrag = () => setMode("overview");
+		const onWheel = () => setMode("overview");
+		map.on("dragstart", onDrag);
+		canvas.addEventListener("wheel", onWheel, { passive: true });
+
+		// ── Manual pinch zoom + rotate ────────────────────────────────────────
+		let lastDist = 0;
+		let lastAngle = 0;
+
+		function getDist(a: Touch, b: Touch) {
+			return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+		}
+		function getAngle(a: Touch, b: Touch) {
+			return (
+				(Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX) * 180) /
+				Math.PI
+			);
+		}
+
+		const onTouchStart = (e: TouchEvent) => {
+			if (e.touches.length === 2) {
+				lastDist = getDist(e.touches[0], e.touches[1]);
+				lastAngle = getAngle(e.touches[0], e.touches[1]);
+			}
+		};
+
+		const onTouchMove = (e: TouchEvent) => {
+			if (e.touches.length !== 2) return;
+			e.preventDefault();
+
+			const dist = getDist(e.touches[0], e.touches[1]);
+			const angle = getAngle(e.touches[0], e.touches[1]);
+
+			map.zoomTo(map.getZoom() + (dist - lastDist) * 0.01, { duration: 0 });
+			map.setBearing(map.getBearing() + (angle - lastAngle));
+
+			lastDist = dist;
+			lastAngle = angle;
+		};
+
+		const onTouchEnd = () => {
+			lastDist = 0;
+			lastAngle = 0;
+		};
+
+		canvas.addEventListener("touchstart", onTouchStart, { passive: true });
+		canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+		canvas.addEventListener("touchend", onTouchEnd, { passive: true });
 
 		return () => {
 			map.off("dragstart", onDrag);
-			canvas.removeEventListener("wheel", onZoom);
+			canvas.removeEventListener("wheel", onWheel);
+			canvas.removeEventListener("touchstart", onTouchStart);
+			canvas.removeEventListener("touchmove", onTouchMove);
+			canvas.removeEventListener("touchend", onTouchEnd);
 		};
 	}, [mapRef.current]);
 
