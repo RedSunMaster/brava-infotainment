@@ -1,20 +1,61 @@
-import { app, BrowserWindow, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 import { screen } from "electron";
+import { spawn, ChildProcess } from "child_process";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
-if (require("electron-squirrel-startup")) {
-	app.quit();
+if (require("electron-squirrel-startup")) app.quit();
+
+// ── Wayland + Touch flags ─────────────────────────────────────────────────────
+app.commandLine.appendSwitch("ozone-platform", "wayland");
+app.commandLine.appendSwitch("touch-events", "enabled");
+app.commandLine.appendSwitch("enable-wayland-ime"); // zwp_text_input_v3
+
+// ✅ Removed UseOzonePlatform (redundant) and VirtualKeyboard (ChromeOS-only)
+app.commandLine.appendSwitch(
+	"enable-features",
+	"TouchpadOverscrollHistoryNavigation",
+);
+
+// GPU perf flags (unchanged)
+app.commandLine.appendSwitch("enable-accelerated-video-decode");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch(
+	"enable-features",
+	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
+);
+app.commandLine.appendSwitch("enable-blink-features", "PointerEvent");
+
+const REDIRECT_URI = "myapp://callback";
+let mainWindow: BrowserWindow | null = null;
+let wvkbdProc: ChildProcess | null = null;
+
+// ── Spawn wvkbd hidden on startup ─────────────────────────────────────────────
+function spawnKeyboard() {
+	try {
+		wvkbdProc = spawn("wvkbd-mobintl", ["--hidden", "-L", "280"], {
+			env: { ...process.env },
+			stdio: "ignore",
+			detached: false,
+		});
+		wvkbdProc.on("error", (e) =>
+			console.warn("wvkbd not available:", e.message),
+		);
+	} catch (e) {
+		console.warn("Could not spawn wvkbd:", e);
+	}
 }
 
-const REDIRECT_URI = "myapp://callback"; // still used as the sentinel URL to intercept
-
-let mainWindow: BrowserWindow | null = null;
+// ── IPC: show / hide keyboard ─────────────────────────────────────────────────
+ipcMain.on("keyboard-show", () => wvkbdProc?.kill("SIGUSR2"));
+ipcMain.on("keyboard-hide", () => wvkbdProc?.kill("SIGUSR1"));
 
 const createWindow = (): void => {
 	const { height } = screen.getPrimaryDisplay().workAreaSize;
-	const zoomFactor = height >= 1920 ? 1.5 : 1.0;
 
 	mainWindow = new BrowserWindow({
 		height: 1920,
@@ -57,13 +98,8 @@ const createWindow = (): void => {
 	loadURL();
 };
 
-// ── IPC: open Spotify auth in a controlled child BrowserWindow ────────────────
-// This avoids shell.openExternal + custom protocol issues on Linux/Wayland.
-// The child window handles Facebook/Google sub-logins naturally, and we
-// intercept the myapp://callback redirect before it hits the OS.
+// ── Spotify auth window (unchanged) ──────────────────────────────────────────
 ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {
-	// Use a dedicated partition so this window gets its own session,
-	// completely separate from the main window's CSP overrides
 	const authWindow = new BrowserWindow({
 		width: 500,
 		height: 750,
@@ -71,14 +107,11 @@ ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {
 		webPreferences: {
 			nodeIntegration: false,
 			contextIsolation: true,
-			partition: "persist:spotify-auth", // ← isolated session, no CSP override
+			partition: "persist:spotify-auth",
 		},
 	});
 
 	authWindow.setMenuBarVisibility(false);
-
-	// Ensure Facebook/Google sub-logins render correctly by setting
-	// a standard Chrome user agent — Electron's UA can cause fallback layouts
 	authWindow.webContents.setUserAgent(
 		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
 			"AppleWebKit/537.36 (KHTML, like Gecko) " +
@@ -86,15 +119,12 @@ ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {
 	);
 
 	authWindow.loadURL(authUrl);
-
-	authWindow.webContents.on("will-navigate", (_e, url) => {
-		handleAuthRedirect(url, authWindow);
-	});
-
-	authWindow.webContents.on("will-redirect", (_e, url) => {
-		handleAuthRedirect(url, authWindow);
-	});
-
+	authWindow.webContents.on("will-navigate", (_e, url) =>
+		handleAuthRedirect(url, authWindow),
+	);
+	authWindow.webContents.on("will-redirect", (_e, url) =>
+		handleAuthRedirect(url, authWindow),
+	);
 	authWindow.on("closed", () => {
 		mainWindow?.webContents.send("spotify-auth-callback", {
 			code: null,
@@ -105,16 +135,14 @@ ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {
 
 function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 	if (!url.startsWith("myapp://callback")) return;
-
-	// Prevent the window from actually trying to load the custom URI
 	authWindow.webContents.stop();
 	authWindow.close();
-
 	try {
 		const parsed = new URL(url);
-		const code = parsed.searchParams.get("code");
-		const error = parsed.searchParams.get("error");
-		mainWindow?.webContents.send("spotify-auth-callback", { code, error });
+		mainWindow?.webContents.send("spotify-auth-callback", {
+			code: parsed.searchParams.get("code"),
+			error: parsed.searchParams.get("error"),
+		});
 	} catch (e) {
 		console.error("Failed to parse Spotify callback URL:", e);
 		mainWindow?.webContents.send("spotify-auth-callback", {
@@ -124,21 +152,13 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 	}
 }
 
-app.commandLine.appendSwitch("enable-accelerated-video-decode");
-app.commandLine.appendSwitch("enable-gpu-rasterization");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
-app.commandLine.appendSwitch("disable-renderer-backgrounding");
-app.commandLine.appendSwitch("disable-background-timer-throttling");
-app.commandLine.appendSwitch("ozone-platform", "wayland");
-app.commandLine.appendSwitch("touch-events", "enabled");
-app.commandLine.appendSwitch(
-	"enable-features",
-	"UseOzonePlatform,VirtualKeyboard",
-);
-app.commandLine.appendSwitch("enable-wayland-ime");
-
 app.on("ready", () => {
+	spawnKeyboard();
 	createWindow();
+});
+
+app.on("before-quit", () => {
+	wvkbdProc?.kill();
 });
 
 app.on("window-all-closed", () => {

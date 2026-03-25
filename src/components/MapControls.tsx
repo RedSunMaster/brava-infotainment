@@ -94,7 +94,7 @@ export default function MapControls({
 		Math.random().toString(36).slice(2) + Date.now().toString(36),
 	);
 	const { mode, toggleMode } = useThemeMode();
-
+	const ipc = () => (window as any).require?.("electron")?.ipcRenderer ?? null;
 	useEffect(() => {
 		if (!query.trim()) {
 			setResults([]);
@@ -167,11 +167,12 @@ export default function MapControls({
 					value={query}
 					onChange={(e) => setQuery(e.target.value)}
 					inputProps={{ inputMode: "search" }}
-					onTouchStart={(e) =>
+					onTouchStart={(e) => {
 						(
 							e.currentTarget.querySelector("input") as HTMLInputElement
-						)?.focus()
-					}
+						)?.focus();
+						ipc()?.send("keyboard-show");
+					}}
 					startAdornment={
 						<SearchRounded
 							sx={{
