@@ -58,8 +58,8 @@ const createWindow = (): void => {
 	const { height } = screen.getPrimaryDisplay().workAreaSize;
 
 	mainWindow = new BrowserWindow({
-		height: 1920,
-		width: 1080,
+		frame: false,
+		resizable: false,
 		webPreferences: {
 			zoomFactor: 2,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -67,6 +67,8 @@ const createWindow = (): void => {
 			contextIsolation: false,
 		},
 	});
+
+	mainWindow.maximize();
 
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
