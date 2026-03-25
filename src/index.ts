@@ -12,16 +12,11 @@ app.commandLine.appendSwitch("ozone-platform", "wayland");
 app.commandLine.appendSwitch("touch-events", "enabled");
 app.commandLine.appendSwitch("enable-wayland-ime");
 app.commandLine.appendSwitch("disable-vulkan");
-app.commandLine.appendSwitch("use-gl", "egl"); // force EGL instead of Vulkan
-
-// ✅ Only ONE enable-features call — combine everything here
 app.commandLine.appendSwitch(
 	"enable-features",
 	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
 );
 app.commandLine.appendSwitch("enable-blink-features", "PointerEvent");
-
-// GPU perf flags
 app.commandLine.appendSwitch("enable-accelerated-video-decode");
 app.commandLine.appendSwitch("enable-gpu-rasterization");
 app.commandLine.appendSwitch("ignore-gpu-blocklist");
