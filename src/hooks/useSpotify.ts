@@ -106,6 +106,8 @@ export interface UseSpotifyReturn {
 	search: (query: string) => Promise<void>; // ← new
 	playTrack: (uri: string) => Promise<void>; // ← new
 	playContext: (contextUri: string, offsetTrackUri?: string) => Promise<void>; // ← new
+	volume: number; // ← new
+	setVolume: (pct: number) => Promise<void>; // ← new
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -122,6 +124,8 @@ export function useSpotify(): UseSpotifyReturn {
 	const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
 	const [searchResults, setSearchResults] = useState<SpotifyQueueItem[]>([]);
 	const [isLibraryLoading, setIsLibraryLoading] = useState(false);
+	const [volume, setVolumeState] = useState(50);
+	const volumeSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// ── Shared token exchange (used by both Electron IPC and web fallback) ───
 	const exchangeCode = useCallback((code: string, verifier: string) => {
@@ -324,6 +328,9 @@ export function useSpotify(): UseSpotifyReturn {
 			shuffle: data.shuffle_state,
 			repeat: data.repeat_state as SpotifyTrack["repeat"],
 		});
+		if (!volumeSettleRef.current) {
+			setVolumeState(data.device?.volume_percent ?? 50);
+		}
 	}, [spotifyFetch]);
 
 	useEffect(() => {
@@ -377,6 +384,19 @@ export function useSpotify(): UseSpotifyReturn {
 		setTrack((t) => t && { ...t, repeat: next });
 	}, [spotifyFetch, track?.repeat]);
 
+	const setVolume = useCallback(
+		async (pct: number) => {
+			setVolumeState(pct);
+			// Block fetchPlayback from overwriting this for 2s
+			if (volumeSettleRef.current) clearTimeout(volumeSettleRef.current);
+			volumeSettleRef.current = setTimeout(() => {
+				volumeSettleRef.current = null;
+			}, 2000);
+			await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
+		},
+		[spotifyFetch],
+	);
+
 	const playTrack = useCallback(
 		async (uri: string) => {
 			await spotifyFetch("/me/player/play", "PUT", { uris: [uri] });
@@ -415,6 +435,8 @@ export function useSpotify(): UseSpotifyReturn {
 		search,
 		playTrack,
 		playContext,
+		volume,
+		setVolume,
 	};
 }
 // ─── Electron IPC helper ──────────────────────────────────────────────────────

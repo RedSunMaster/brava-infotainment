@@ -17,8 +17,8 @@ const createWindow = (): void => {
 	const zoomFactor = height >= 1920 ? 1.5 : 1.0;
 
 	mainWindow = new BrowserWindow({
-		height: 1280,
-		width: 720,
+		height: 1920,
+		width: 1080,
 		webPreferences: {
 			zoomFactor: 1,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,

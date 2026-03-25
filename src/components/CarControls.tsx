@@ -4,13 +4,12 @@ import {
 	CarCrashRounded,
 	FlashlightOnRounded,
 	MusicNoteRounded,
-	NearMeRounded,
 	ThermostatRounded,
+	VolumeUpRounded,
 } from "@mui/icons-material";
-import { AppBar, Box, Popover, Slider, Typography } from "@mui/material";
+import { Box, Popover, Slider, Typography } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
 
-import CarFanOutInIcon from "../../public/icons/carFanOutIn.svg";
 import FanOffIcon from "../../public/icons/fanOff.svg";
 import FanOnIcon from "../../public/icons/fanOn.svg";
 import FanFocusIcon from "../../public/icons/fanFocus.svg";
@@ -84,56 +83,54 @@ const TempSliderPopup = ({
 	onClose,
 	value,
 	onChange,
-}: TempSliderPopupProps) => {
-	return (
-		<SliderPopup anchorEl={anchorEl} onClose={onClose}>
-			<Box
+}: TempSliderPopupProps) => (
+	<SliderPopup anchorEl={anchorEl} onClose={onClose}>
+		<Box
+			sx={{
+				display: "flex",
+				flexDirection: "column",
+				alignItems: "center",
+				gap: 1.5,
+				width: "100%",
+			}}
+		>
+			<Typography
 				sx={{
-					display: "flex",
-					flexDirection: "column",
-					alignItems: "center",
-					gap: 1.5,
-					width: "100%",
+					color: "rgba(255,255,255,0.5)",
+					fontSize: 10,
+					letterSpacing: 2,
 				}}
 			>
-				<Typography
-					sx={{
-						color: "rgba(255,255,255,0.5)",
-						fontSize: 10,
-						letterSpacing: 2,
-					}}
-				>
-					TEMP
-				</Typography>
-				<Slider
-					orientation="vertical"
-					value={value}
-					onChange={(_, v) => onChange(v as number)}
-					min={0}
-					max={10}
-					step={1}
-					marks
-					sx={{
-						height: 240,
-						width: 36, // ✅ add this to both sliders
-						"& .MuiSlider-rail": {
-							background:
-								"linear-gradient(to top, #3b82f6 0%, #ffffff 50%, #ef4444 100%)",
-							opacity: 1,
-						},
-						"& .MuiSlider-track": { display: "none" },
-						"& .MuiSlider-thumb": {
-							backgroundColor: "white",
-							border: "3px solid rgba(255,255,255,0.6)",
-						},
-						"& .MuiSlider-mark": { backgroundColor: "rgba(0,0,0,0.3)" },
-						"& .MuiSlider-markActive": { backgroundColor: "rgba(0,0,0,0.3)" },
-					}}
-				/>
-			</Box>
-		</SliderPopup>
-	);
-};
+				TEMP
+			</Typography>
+			<Slider
+				orientation="vertical"
+				value={value}
+				onChange={(_, v) => onChange(v as number)}
+				min={0}
+				max={10}
+				step={1}
+				marks
+				sx={{
+					height: 240,
+					width: 36,
+					"& .MuiSlider-rail": {
+						background:
+							"linear-gradient(to top, #3b82f6 0%, #ffffff 50%, #ef4444 100%)",
+						opacity: 1,
+					},
+					"& .MuiSlider-track": { display: "none" },
+					"& .MuiSlider-thumb": {
+						backgroundColor: "white",
+						border: "3px solid rgba(255,255,255,0.6)",
+					},
+					"& .MuiSlider-mark": { backgroundColor: "rgba(0,0,0,0.3)" },
+					"& .MuiSlider-markActive": { backgroundColor: "rgba(0,0,0,0.3)" },
+				}}
+			/>
+		</Box>
+	</SliderPopup>
+);
 
 // ─── Fan Slider Popup ─────────────────────────────────────────────────────────
 
@@ -161,25 +158,24 @@ const FanSliderPopup = ({
 			}}
 		>
 			<Typography
-				sx={{ color: "rgba(255,255,255,0.5)", fontSize: 10, letterSpacing: 2 }}
+				sx={{
+					color: "rgba(255,255,255,0.5)",
+					fontSize: 10,
+					letterSpacing: 2,
+				}}
 			>
 				FAN
 			</Typography>
-			<Box
-				sx={{ color: "white", display: "flex", alignItems: "center", gap: 0.5 }}
+			<Typography
+				sx={{
+					color: "white",
+					fontSize: 28,
+					fontWeight: 700,
+					lineHeight: 1,
+				}}
 			>
-				<Typography
-					sx={{
-						color: "white",
-						fontSize: 28,
-						fontWeight: 700,
-						lineHeight: 1,
-						minWidth: 0,
-					}}
-				>
-					{value}
-				</Typography>
-			</Box>
+				{value}
+			</Typography>
 			<Slider
 				orientation="vertical"
 				value={value}
@@ -190,7 +186,7 @@ const FanSliderPopup = ({
 				marks
 				sx={{
 					height: 240,
-					width: 36, // ✅ add this to both sliders
+					width: 36,
 					color: "white",
 					"& .MuiSlider-rail": { backgroundColor: "rgba(255,255,255,0.2)" },
 					"& .MuiSlider-track": { backgroundColor: "white" },
@@ -201,6 +197,93 @@ const FanSliderPopup = ({
 					},
 				}}
 			/>
+		</Box>
+	</SliderPopup>
+);
+
+// ─── Volume Slider Popup ──────────────────────────────────────────────────────
+
+interface VolumeSliderPopupProps {
+	anchorEl: HTMLElement | null;
+	onClose: () => void;
+	value: number;
+	onChange: (v: number) => void;
+	onChangeCommitted: (v: number) => void; // ← new
+	disabled: boolean;
+}
+
+const VolumeSliderPopup = ({
+	anchorEl,
+	onClose,
+	value,
+	onChange,
+	onChangeCommitted, // ← new
+	disabled,
+}: VolumeSliderPopupProps) => (
+	<SliderPopup anchorEl={anchorEl} onClose={onClose}>
+		<Box
+			sx={{
+				display: "flex",
+				flexDirection: "column",
+				alignItems: "center",
+				gap: 1.5,
+				width: "100%",
+			}}
+		>
+			<Typography
+				sx={{
+					color: "rgba(255,255,255,0.5)",
+					fontSize: 10,
+					letterSpacing: 2,
+				}}
+			>
+				VOL
+			</Typography>
+			<Typography
+				sx={{
+					color: "white",
+					fontSize: 28,
+					fontWeight: 700,
+					lineHeight: 1,
+				}}
+			>
+				{value}
+			</Typography>
+			<Slider
+				orientation="vertical"
+				value={value}
+				onChange={(_, v) => onChange(v as number)}
+				onChangeCommitted={(_, v) => onChangeCommitted(v as number)}
+				min={0}
+				max={100}
+				step={5}
+				marks
+				disabled={disabled}
+				sx={{
+					height: 240,
+					width: 36,
+					color: "#1DB954",
+					"& .MuiSlider-rail": { backgroundColor: "rgba(255,255,255,0.2)" },
+					"& .MuiSlider-track": { backgroundColor: "#1DB954" },
+					"& .MuiSlider-thumb": { backgroundColor: "white" },
+					"& .MuiSlider-mark": { backgroundColor: "rgba(255,255,255,0.3)" },
+					"& .MuiSlider-markActive": {
+						backgroundColor: "rgba(29,185,84,0.5)",
+					},
+					"&.Mui-disabled": { color: "rgba(255,255,255,0.2)" },
+				}}
+			/>
+			{disabled && (
+				<Typography
+					sx={{
+						color: "rgba(255,255,255,0.3)",
+						fontSize: 9,
+						textAlign: "center",
+					}}
+				>
+					Connect Spotify
+				</Typography>
+			)}
 		</Box>
 	</SliderPopup>
 );
@@ -250,11 +333,6 @@ const MultiAppPopup = ({
 			icon: <FanFocusIcon style={{ ...svgIconStyle, width: 40, height: 40 }} />,
 			label: "Air Dir.",
 			onPress: onAirDir,
-		},
-		{
-			icon: <AcUnitRounded sx={{ fontSize: 40 }} />,
-			label: "A/C",
-			onPress: onAC,
 		},
 	];
 
@@ -306,10 +384,11 @@ const MultiAppPopup = ({
 const CarControls = () => {
 	const hazardRef = useRef<HTMLDivElement>(null);
 	const spotify = useSpotify();
+	const [localVolume, setLocalVolume] = useState(50);
 
 	// Popup state — only one open at a time
 	const [activePopup, setActivePopup] = useState<
-		"spotify" | "multiApp" | "temp" | "fan" | null
+		"spotify" | "multiApp" | "temp" | "fan" | "volume" | null
 	>(null);
 	const close = () => setActivePopup(null);
 
@@ -346,37 +425,108 @@ const CarControls = () => {
 	const [fanSpeed, setFanSpeed] = useState(3);
 
 	// Handlers
-	const handleMusic = () => console.log("music pressed");
 	const handleRearHeat = () => console.log("rear heat toggled");
 	const handleFogLeft = () => console.log("fog left toggled");
 	const handleFogRight = () => console.log("fog right toggled");
 	const handleAirDir = () => console.log("air direction pressed");
-	const handleAC = () => console.log("A/C toggled");
-
-	const anchorEl = activePopup ? hazardRef.current : null;
 
 	return (
 		<Box
 			sx={{
 				display: "flex",
-				flexDirection: "row",
-				justifyContent: "space-evenly",
 				alignItems: "center",
 				width: "100%",
 				height: "100%",
 			}}
 		>
-			{/* Music */}
-			<Box sx={iconBtnStyle} onClick={() => setActivePopup("spotify")}>
-				<MusicNoteRounded sx={{ fontSize: 48 }} />
+			{/* ── Left group ───────────────────────────────────────────────────── */}
+			<Box
+				sx={{
+					display: "flex",
+					flex: 1,
+					justifyContent: "space-evenly",
+					alignItems: "center",
+				}}
+			>
+				{/* Volume */}
+				<Box
+					sx={{
+						...iconBtnStyle,
+						color: spotify.isConnected ? "white" : "rgba(255,255,255,0.35)",
+					}}
+					onClick={() => {
+						setLocalVolume(spotify.volume); // snapshot current volume on open
+						setActivePopup("volume");
+					}}
+				>
+					<VolumeUpRounded sx={{ fontSize: 48 }} />
+				</Box>
+
+				{/* Music */}
+				<Box sx={iconBtnStyle} onClick={() => setActivePopup("spotify")}>
+					<MusicNoteRounded sx={{ fontSize: 48 }} />
+				</Box>
+
+				{/* Multi-App */}
+				<Box sx={iconBtnStyle} onClick={() => setActivePopup("multiApp")}>
+					<AppsRounded sx={{ fontSize: 48 }} />
+				</Box>
 			</Box>
 
-			{/* Multi-App */}
-			<Box sx={iconBtnStyle} onClick={() => setActivePopup("multiApp")}>
-				<AppsRounded sx={{ fontSize: 48 }} />
+			{/* ── Centre: Hazard (always mathematically centred) ───────────────── */}
+			<Box
+				ref={hazardRef}
+				sx={{
+					...iconBtnStyle,
+					flexShrink: 0,
+					color: hazardOn
+						? hazardFlash
+							? "#ff3333"
+							: "rgba(255,255,255,0.15)"
+						: "white",
+					transition: hazardOn ? "color 0.1s ease" : "color 0.15s ease",
+				}}
+				onClick={handleHazard}
+			>
+				<CarCrashRounded sx={{ fontSize: 72 }} />
 			</Box>
 
-			{/* Popups — all anchored above the centre hazard button */}
+			{/* ── Right group ──────────────────────────────────────────────────── */}
+			<Box
+				sx={{
+					display: "flex",
+					flex: 1,
+					justifyContent: "space-evenly",
+					alignItems: "center",
+				}}
+			>
+				{/* Temp */}
+				<Box sx={iconBtnStyle} onClick={() => setActivePopup("temp")}>
+					<ThermostatRounded sx={{ fontSize: 48 }} />
+				</Box>
+
+				{/* Fan */}
+				<Box
+					sx={{ ...iconBtnStyle, color: "white" }}
+					onClick={() => setActivePopup("fan")}
+				>
+					{fanSpeed === 0 ? (
+						<FanOffIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
+					) : (
+						<FanOnIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
+					)}
+				</Box>
+			</Box>
+
+			{/* ── All popups — anchored to hazard button ────────────────────────── */}
+			<VolumeSliderPopup
+				anchorEl={activePopup === "volume" ? hazardRef.current : null}
+				onClose={close}
+				value={localVolume}
+				onChange={setLocalVolume} // ← instant local update
+				onChangeCommitted={spotify.setVolume} // ← API call on release only
+				disabled={!spotify.isConnected}
+			/>
 			<MultiAppPopup
 				anchorEl={activePopup === "multiApp" ? hazardRef.current : null}
 				onClose={close}
@@ -384,7 +534,7 @@ const CarControls = () => {
 				onFogLeft={handleFogLeft}
 				onFogRight={handleFogRight}
 				onAirDir={handleAirDir}
-				onAC={handleAC}
+				onAC={() => console.log("A/C toggled")}
 			/>
 			<TempSliderPopup
 				anchorEl={activePopup === "temp" ? hazardRef.current : null}
@@ -403,39 +553,6 @@ const CarControls = () => {
 				onClose={close}
 				spotify={spotify}
 			/>
-			{/* Hazard — centre anchor + flash animation */}
-			<Box
-				ref={hazardRef}
-				sx={{
-					...iconBtnStyle,
-					color: hazardOn
-						? hazardFlash
-							? "#ff3333"
-							: "rgba(255,255,255,0.15)"
-						: "white",
-					transition: hazardOn ? "color 0.1s ease" : "color 0.15s ease",
-				}}
-				onClick={handleHazard}
-			>
-				<CarCrashRounded sx={{ fontSize: 72 }} />
-			</Box>
-
-			{/* Aircon — opens temp slider */}
-			<Box sx={iconBtnStyle} onClick={() => setActivePopup("temp")}>
-				<ThermostatRounded sx={{ fontSize: 48 }} />
-			</Box>
-
-			{/* Fan — shows FanOff when speed is 0, opens fan slider */}
-			<Box
-				sx={{ ...iconBtnStyle, color: "white" }}
-				onClick={() => setActivePopup("fan")}
-			>
-				{fanSpeed === 0 ? (
-					<FanOffIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
-				) : (
-					<FanOnIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
-				)}
-			</Box>
 		</Box>
 	);
 };
