@@ -7,8 +7,8 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 if (require("electron-squirrel-startup")) app.quit();
 
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
+// ── Wayland + Touch flags ─────────────────────────────────────────────────────
 app.commandLine.appendSwitch("ozone-platform", "wayland");
-app.commandLine.appendSwitch("use-angle", "opengles");
 app.commandLine.appendSwitch("touch-events", "enabled");
 app.commandLine.appendSwitch("enable-wayland-ime");
 app.commandLine.appendSwitch(
