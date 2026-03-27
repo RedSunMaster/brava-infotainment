@@ -10,11 +10,10 @@ export function useGps(
 	onUpdateRef.current = onUpdate;
 
 	useEffect(() => {
-		const es = new EventSource("/api/gps");
+		// nodeIntegration: true — require works directly
+		const { ipcRenderer } = window.require("electron");
 
-		es.onmessage = (e) => {
-			const data = JSON.parse(e.data);
-
+		const handler = (_event: any, data: any) => {
 			if (data.error || data.mode === undefined) {
 				setStatus("disconnected");
 				return;
@@ -23,14 +22,13 @@ export function useGps(
 				setStatus("no-fix");
 				return;
 			}
-
 			setStatus("fix");
-			const pos: [number, number] = [data.lon, data.lat]; // Mapbox is [lng, lat]
+			const pos: [number, number] = [data.lon, data.lat];
 			onUpdateRef.current(pos, data.track ?? 0, data.speed ?? 0);
 		};
 
-		es.onerror = () => setStatus("disconnected");
-		return () => es.close();
+		ipcRenderer.on("gps-update", handler);
+		return () => ipcRenderer.removeListener("gps-update", handler);
 	}, []);
 
 	return { status };

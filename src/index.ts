@@ -1,6 +1,5 @@
-import { app, BrowserWindow, ipcMain, session } from "electron";
-import { screen } from "electron";
-import { spawn, ChildProcess } from "child_process";
+import { app, BrowserWindow, ipcMain, session, screen } from "electron";
+import { createConnection } from "net";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -26,6 +25,48 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
 
+// ── GPS ───────────────────────────────────────────────────────────────────────
+function startGps(win: BrowserWindow) {
+	const client = createConnection({ port: 2947, host: "localhost" });
+	let buffer = "";
+
+	client.on("data", (chunk) => {
+		buffer += chunk.toString();
+		const lines = buffer.split("\n");
+		buffer = lines.pop() ?? "";
+
+		for (const line of lines) {
+			if (!line.trim()) continue;
+			try {
+				const msg = JSON.parse(line);
+				if (msg.class === "VERSION") {
+					client.write('?WATCH={"enable":true,"json":true}\n');
+					continue;
+				}
+				if (msg.class === "TPV") {
+					win.webContents.send("gps-update", {
+						lat: msg.lat ?? null,
+						lon: msg.lon ?? null,
+						speed: msg.speed ?? 0,
+						track: msg.track ?? null,
+						mode: msg.mode ?? 0,
+					});
+				}
+			} catch {
+				// Do Nothing
+			}
+		}
+	});
+
+	client.on("error", () => {
+		win.webContents.send("gps-update", { error: true });
+		setTimeout(() => startGps(win), 5000); // retry on disconnect
+	});
+
+	app.on("before-quit", () => client.destroy());
+}
+
+// ── Main window ───────────────────────────────────────────────────────────────
 const createWindow = (): void => {
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 
@@ -46,6 +87,7 @@ const createWindow = (): void => {
 	});
 
 	mainWindow.show();
+
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
 			responseHeaders: {
@@ -74,9 +116,14 @@ const createWindow = (): void => {
 	};
 
 	loadURL();
+
+	// Start GPS after renderer is ready
+	mainWindow.webContents.once("did-finish-load", () => {
+		startGps(mainWindow!);
+	});
 };
 
-// ── Spotify auth window (unchanged) ──────────────────────────────────────────
+// ── Spotify auth ──────────────────────────────────────────────────────────────
 ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {
 	const authWindow = new BrowserWindow({
 		width: 500,
@@ -130,6 +177,7 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 	}
 }
 
+// ── App lifecycle ─────────────────────────────────────────────────────────────
 app.on("ready", () => {
 	createWindow();
 });
