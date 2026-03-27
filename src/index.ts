@@ -79,7 +79,7 @@ const createWindow = (): void => {
 		resizable: true,
 		show: false,
 		webPreferences: {
-			zoomFactor: 2,
+			zoomFactor: 1,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
 			nodeIntegration: true,
 			contextIsolation: false,

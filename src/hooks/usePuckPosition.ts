@@ -79,7 +79,9 @@ export function usePositionPuck(
 			id: "puck-matrix-capture",
 			type: "custom",
 			renderingMode: "3d",
-			onAdd() {},
+			onAdd() {
+				// No Care
+			},
 
 			render(_gl, matrix) {
 				if (!camera || !scene || !renderer) return;
