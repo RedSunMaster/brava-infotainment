@@ -19,7 +19,6 @@ export function usePositionPuck(
 		const mapCanvas = map.getCanvas();
 		const container = mapCanvas.parentElement!;
 
-		// Separate canvas overlaid on top of the map
 		const overlayCanvas = document.createElement("canvas");
 		overlayCanvas.style.cssText = `
       position: absolute;
@@ -32,7 +31,6 @@ export function usePositionPuck(
 		overlayCanvas.height = mapCanvas.height;
 		container.appendChild(overlayCanvas);
 
-		// Three.js on the overlay canvas — NOT sharing Mapbox's GL context
 		const camera = new THREE.Camera();
 		const scene = new THREE.Scene();
 		const renderer = new THREE.WebGLRenderer({
@@ -43,7 +41,6 @@ export function usePositionPuck(
 		renderer.setClearColor(0x000000, 0);
 		renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
-		// Pulse ring — MeshBasicMaterial so it works without lighting
 		const ringGeo = new THREE.RingGeometry(1.2, 1.8, 48);
 		const pulseMat = new THREE.MeshBasicMaterial({
 			color: 0x3b82f6,
@@ -55,7 +52,6 @@ export function usePositionPuck(
 		pulseRing.rotation.x = -Math.PI / 2;
 		scene.add(pulseRing);
 
-		// ✅ Load texture first, then load model inside onload — no race condition
 		const texture = new THREE.Texture();
 		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.flipY = false;
@@ -65,8 +61,6 @@ export function usePositionPuck(
 			texture.image = img;
 			texture.needsUpdate = true;
 
-			// ✅ MeshBasicMaterial — unlit, texture-only, works correctly
-			// with a base THREE.Camera that has no matrixWorldInverse
 			new GLTFLoader().load(spaceShuttle, (gltf) => {
 				gltf.scene.traverse((child) => {
 					if ((child as THREE.Mesh).isMesh) {
@@ -81,14 +75,11 @@ export function usePositionPuck(
 		};
 		img.src = textureUrl;
 
-		// Dummy custom layer — only purpose is to receive the correct projection matrix
 		const dummyLayer: mapboxgl.CustomLayerInterface = {
 			id: "puck-matrix-capture",
 			type: "custom",
 			renderingMode: "3d",
-			onAdd() {
-				/* matrix capture only */
-			},
+			onAdd() {},
 
 			render(_gl, matrix) {
 				if (!camera || !scene || !renderer) return;
@@ -139,7 +130,7 @@ export function usePositionPuck(
 
 				camera.projectionMatrix = m.multiply(l);
 				renderer.render(scene, camera);
-				map.triggerRepaint();
+				// ✅ No triggerRepaint() here — breaks the infinite loop
 			},
 		};
 
@@ -148,7 +139,11 @@ export function usePositionPuck(
 		};
 		map.isStyleLoaded() ? addLayer() : map.once("styledata", addLayer);
 
-		// Keep overlay canvas in sync with map canvas size
+		// ✅ Controlled pulse animation — 20fps, not unlimited
+		const pulseInterval = setInterval(() => {
+			map.triggerRepaint();
+		}, 50);
+
 		const onResize = () => {
 			overlayCanvas.width = mapCanvas.width;
 			overlayCanvas.height = mapCanvas.height;
@@ -157,6 +152,7 @@ export function usePositionPuck(
 		map.on("resize", onResize);
 
 		return () => {
+			clearInterval(pulseInterval);
 			map.off("resize", onResize);
 			if (map.getLayer("puck-matrix-capture"))
 				map.removeLayer("puck-matrix-capture");
@@ -168,6 +164,7 @@ export function usePositionPuck(
 	function updatePuck(pos: [number, number], bearing: number) {
 		posRef.current = pos;
 		bearingRef.current = bearing;
+		mapRef.current?.triggerRepaint(); // ✅ On-demand only, not in render loop
 	}
 
 	return { updatePuck };
