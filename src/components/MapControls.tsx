@@ -256,7 +256,14 @@ export default function MapControls({
 			</Box>
 
 			{/* Icon buttons */}
-			<Box sx={{ display: "flex", gap: 1 }}>
+			<Box
+				sx={{
+					display: "flex",
+					flexWrap: "wrap",
+					gap: 1,
+					justifyContent: "flex-end",
+				}}
+			>
 				{isNavActive && (
 					<Tooltip title="Route overview" placement="bottom">
 						<span>

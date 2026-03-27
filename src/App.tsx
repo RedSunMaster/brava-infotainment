@@ -1,10 +1,4 @@
-import React, {
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useMapbox } from "./hooks/useMapbox";
 import { useRoute } from "./hooks/useRoute";
 import { useNavigation } from "./hooks/useNavigation";
@@ -25,6 +19,8 @@ import ConfirmNavDialog from "./components/ConfirmNavDialog";
 import { usePositionPuck } from "./hooks/usePuckPosition";
 import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
+import { useGps } from "./hooks/useGps";
+import ClockWeatherChip from "./components/ClockWeatherChip";
 
 export default function App() {
 	const theme = useTheme();
@@ -40,6 +36,7 @@ export default function App() {
 		duration: string;
 		distance: string;
 	} | null>(null);
+
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
 		useRoute(mapRef);
@@ -55,6 +52,7 @@ export default function App() {
 	} = useCameraMode(mapRef);
 	const { updatePuck } = usePositionPuck(mapRef, mapLoaded, DEV_ORIGIN);
 	const { period } = useMapStyle(mapRef, mapLoaded);
+
 	const trackedPositionUpdate = useCallback(
 		async (
 			pos: [number, number],
@@ -76,6 +74,21 @@ export default function App() {
 		[updatePuck, trimRoute, onPositionUpdate],
 	);
 
+	const { status: gpsStatus } = useGps(
+		useCallback(
+			(pos, bearing, speed) => {
+				updatePuck(pos, bearing);
+				lastPosRef.current = pos;
+				lastBearingRef.current = bearing;
+
+				if (navActive) {
+					trackedPositionUpdate(pos, bearing, speed, provider, followPosition);
+				}
+			},
+			[navActive, updatePuck, trackedPositionUpdate, provider, followPosition],
+		),
+	);
+
 	const { startSimulation, stopSimulation } = useSimulation(
 		coordsRef,
 		simIndexRef,
@@ -88,7 +101,7 @@ export default function App() {
 		setProvider((p) => (p === "mapbox" ? "valhalla" : "mapbox"));
 	}
 
-	// Current map bearing for compass needle rotation
+	// Map bearing for compass needle
 	const [mapBearing, setMapBearing] = useState(0);
 	useEffect(() => {
 		const map = mapRef.current;
@@ -97,7 +110,7 @@ export default function App() {
 		let rafId: number;
 		const onMove = () => {
 			cancelAnimationFrame(rafId);
-			rafId = requestAnimationFrame(() => setMapBearing(map.getBearing())); // ✅ max once per frame
+			rafId = requestAnimationFrame(() => setMapBearing(map.getBearing()));
 		};
 
 		map.on("move", onMove);
@@ -105,7 +118,7 @@ export default function App() {
 			map.off("move", onMove);
 			cancelAnimationFrame(rafId);
 		};
-	}, [mapLoaded]); // ✅ fix dep — mapRef.current is mutable, shouldn't be a dep
+	}, [mapLoaded]);
 
 	async function handleSearchSelect(
 		coords: [number, number],
@@ -148,7 +161,9 @@ export default function App() {
 		setPendingDest(null);
 		setNavActive(true);
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
-		startSimulation(provider);
+		if (gpsStatus !== "fix") {
+			startSimulation(provider);
+		}
 	}
 
 	function handleCancelSearch() {
@@ -168,12 +183,11 @@ export default function App() {
 			duration: 600,
 		});
 	}
-	// Add end navigation handler inside App()
+
 	function handleEndNavigation() {
 		stopSimulation();
 		resetNavigation();
 		setNavActive(false);
-		// Clear route line from map
 		const map = mapRef.current;
 		if (map?.getSource("route")) {
 			map.removeLayer("route");
@@ -190,7 +204,7 @@ export default function App() {
 		if (map?.getSource("route-bg")) map.removeSource("route-bg");
 	}
 
-	// Add this effect — runs once when map is ready
+	// Snap to road on first load
 	useEffect(() => {
 		if (!mapLoaded) return;
 
@@ -198,8 +212,6 @@ export default function App() {
 			const snapped = await snapToRoad([DEV_ORIGIN, DEV_ORIGIN], provider);
 			lastPosRef.current = snapped;
 			updatePuck(snapped, 0);
-
-			// Fly camera to snapped position
 			mapRef.current?.easeTo({
 				center: snapped,
 				zoom: ZOOM_LEVEL,
@@ -211,6 +223,7 @@ export default function App() {
 
 		snapInitialPosition();
 	}, [mapLoaded]);
+
 	return (
 		<Box
 			sx={{
@@ -222,6 +235,7 @@ export default function App() {
 				position: "fixed",
 				top: 0,
 				left: 0,
+				padding: "10px",
 			}}
 		>
 			<Box sx={{ flex: 1, minHeight: 0, position: "relative" }}>
@@ -231,12 +245,12 @@ export default function App() {
 					sx={{
 						position: "absolute",
 						inset: 0,
-						borderRadius: "0 0 20px 20px",
+						borderRadius: "10px",
 						overflow: "hidden",
 					}}
 				/>
 
-				{/* Top bar — full width, split 50/50 */}
+				{/* Top bar — left/spacer/right */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -249,18 +263,29 @@ export default function App() {
 						alignItems: "flex-start",
 					}}
 				>
-					{/* Left 50% — Navigation card */}
-					<Box sx={{ flex: 1, minWidth: 0, zIndex: 1400 }}>
+					{/* Left — Navigation card */}
+					<Box
+						sx={{
+							flex: 1,
+							minWidth: 0,
+							maxWidth: "calc(50% - 80px)",
+							zIndex: 1400,
+						}}
+					>
 						{navActive && (
 							<NavigationCard maneuvers={maneuvers} currentStep={currentStep} />
 						)}
 					</Box>
 
-					{/* Right 50% — Map controls */}
+					{/* Center spacer — reserves room for the clock chip */}
+					<Box sx={{ flexShrink: 0, width: 160 }} />
+
+					{/* Right — Map controls */}
 					<Box
 						sx={{
 							flex: 1,
 							minWidth: 0,
+							maxWidth: "calc(50% - 80px)",
 							display: "flex",
 							justifyContent: "flex-end",
 						}}
@@ -287,6 +312,24 @@ export default function App() {
 					</Box>
 				</Box>
 
+				{/* Top center — Clock, Weather & GPS indicator */}
+				<Box
+					sx={{
+						position: "absolute",
+						top: 16,
+						left: "50%",
+						transform: "translateX(-50%)",
+						zIndex: 1500,
+						pointerEvents: "none",
+					}}
+				>
+					<ClockWeatherChip
+						position={lastPosRef.current}
+						gpsStatus={gpsStatus}
+					/>
+				</Box>
+
+				{/* Confirm nav dialog */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -296,7 +339,6 @@ export default function App() {
 						zIndex: 20,
 					}}
 				>
-					{/* Confirm nav dialog — shown after search select, before nav starts */}
 					{pendingDest && (
 						<ConfirmNavDialog
 							placeName={pendingDest.placeName}
@@ -307,6 +349,7 @@ export default function App() {
 						/>
 					)}
 				</Box>
+
 				{/* Trip Info */}
 				{navActive && (
 					<Box
