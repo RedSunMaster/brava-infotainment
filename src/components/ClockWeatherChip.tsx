@@ -123,7 +123,8 @@ export default function ClockWeatherChip({ position, gpsStatus }: Props) {
 						{wmoIcon(weather.code)}
 					</Box>
 					<Typography sx={{ fontSize: 13, fontWeight: 600 }}>
-						{weather.temp}°C
+						{weather.temp}
+						{"\u00B0"}C
 					</Typography>
 					<Typography
 						sx={{ fontSize: 11, color: theme.palette.text.secondary }}
