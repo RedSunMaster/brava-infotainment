@@ -7,10 +7,11 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 if (require("electron-squirrel-startup")) app.quit();
 
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
+app.commandLine.appendSwitch("disable-vulkan");
+app.commandLine.appendSwitch("use-gl", "egl");
 app.commandLine.appendSwitch("ozone-platform", "wayland");
 app.commandLine.appendSwitch("touch-events", "enabled");
 app.commandLine.appendSwitch("enable-wayland-ime");
-app.commandLine.appendSwitch("disable-vulkan");
 app.commandLine.appendSwitch(
 	"enable-features",
 	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
@@ -53,14 +54,14 @@ function startGps(win: BrowserWindow) {
 					});
 				}
 			} catch {
-				// Do Nothing
+				// Do nothing
 			}
 		}
 	});
 
 	client.on("error", () => {
 		win.webContents.send("gps-update", { error: true });
-		setTimeout(() => startGps(win), 5000); // retry on disconnect
+		setTimeout(() => startGps(win), 5000);
 	});
 
 	app.on("before-quit", () => client.destroy());
@@ -117,7 +118,6 @@ const createWindow = (): void => {
 
 	loadURL();
 
-	// Start GPS after renderer is ready
 	mainWindow.webContents.once("did-finish-load", () => {
 		startGps(mainWindow!);
 	});
