@@ -8,8 +8,8 @@ if (require("electron-squirrel-startup")) app.quit();
 
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
 app.commandLine.appendSwitch("disable-vulkan");
-app.commandLine.appendSwitch("use-gl", "egl");
 app.commandLine.appendSwitch("ozone-platform", "wayland");
+app.commandLine.appendSwitch("use-angle", "opengles"); // ← replaces use-gl
 app.commandLine.appendSwitch("touch-events", "enabled");
 app.commandLine.appendSwitch("enable-wayland-ime");
 app.commandLine.appendSwitch(
