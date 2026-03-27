@@ -18,7 +18,7 @@ function getDevOverride(): TimeOfDay | null {
 export function useMapStyle(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	mapLoaded: boolean,
-	lowPerf: boolean,
+	lowPerf = false,
 ) {
 	const devOverride = getDevOverride();
 	const [period, setPeriod] = useState<TimeOfDay>(

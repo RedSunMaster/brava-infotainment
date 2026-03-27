@@ -8,7 +8,7 @@ export function usePositionPuck(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	mapLoaded: boolean,
 	initialPos: [number, number],
-	lowPerf: boolean,
+	lowPerf = false,
 ) {
 	const posRef = useRef<[number, number]>(initialPos);
 	const bearingRef = useRef<number>(0);
