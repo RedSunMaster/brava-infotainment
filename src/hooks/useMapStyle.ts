@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import mapboxgl from "mapbox-gl";
 import {
 	getTimeOfDay,
 	getStyleForPeriod,
@@ -16,10 +15,10 @@ function getDevOverride(): TimeOfDay | null {
 		? (param as TimeOfDay)
 		: null;
 }
-
 export function useMapStyle(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	mapLoaded: boolean,
+	lowPerf: boolean,
 ) {
 	const devOverride = getDevOverride();
 	const [period, setPeriod] = useState<TimeOfDay>(
@@ -29,12 +28,10 @@ export function useMapStyle(
 
 	useEffect(() => {
 		if (devOverride) return;
-
 		intervalRef.current = setInterval(() => {
 			const next = getTimeOfDay();
 			setPeriod((prev) => (prev !== next ? next : prev));
 		}, 60_000);
-
 		return () => {
 			if (intervalRef.current) clearInterval(intervalRef.current);
 		};
@@ -44,6 +41,45 @@ export function useMapStyle(
 		if (!mapLoaded || !mapRef.current) return;
 		mapRef.current.setStyle(getStyleForPeriod(period));
 	}, [period, mapLoaded]);
+
+	// Toggle heavy layers based on perf mode
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+
+		const visibility = lowPerf ? "none" : "visible";
+
+		// Wait for style to be ready before touching layers
+		const apply = () => {
+			const layers = [
+				"building-extrusion",
+				"3d-buildings",
+				"bridge-rail",
+				"tunnel-rail",
+			];
+			for (const id of layers) {
+				try {
+					if (map.getLayer(id))
+						map.setLayoutProperty(id, "visibility", visibility);
+				} catch {
+					// Nothign
+				}
+			}
+
+			// Disable fog/atmosphere in low perf
+			try {
+				if (lowPerf) {
+					map.setFog({});
+				} else {
+					map.setFog({ color: "white", "horizon-blend": 0.05 });
+				}
+			} catch {
+				// Nothign
+			}
+		};
+
+		map.isStyleLoaded() ? apply() : map.once("styledata", apply);
+	}, [lowPerf, mapLoaded]);
 
 	return { period };
 }

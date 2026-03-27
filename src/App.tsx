@@ -36,6 +36,7 @@ export default function App() {
 		duration: string;
 		distance: string;
 	} | null>(null);
+	const [lowPerf, setLowPerf] = useState(false);
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
@@ -50,8 +51,13 @@ export default function App() {
 		resumeFollowing,
 		toggleOrientation,
 	} = useCameraMode(mapRef);
-	const { updatePuck } = usePositionPuck(mapRef, mapLoaded, DEV_ORIGIN);
-	const { period } = useMapStyle(mapRef, mapLoaded);
+	const { updatePuck } = usePositionPuck(
+		mapRef,
+		mapLoaded,
+		DEV_ORIGIN,
+		lowPerf,
+	);
+	const { period } = useMapStyle(mapRef, mapLoaded, lowPerf);
 
 	const trackedPositionUpdate = useCallback(
 		async (
@@ -308,6 +314,8 @@ export default function App() {
 							isNavActive={navActive}
 							provider={provider}
 							onToggleProvider={handleToggleProvider}
+							lowPerf={lowPerf}
+							onTogglePerfMode={() => setLowPerf((p) => !p)}
 						/>
 					</Box>
 				</Box>
