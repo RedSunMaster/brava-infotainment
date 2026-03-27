@@ -25,27 +25,6 @@ app.commandLine.appendSwitch("disable-background-timer-throttling");
 
 const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
-let wvkbdProc: ChildProcess | null = null;
-
-// ── Spawn wvkbd hidden on startup ─────────────────────────────────────────────
-function spawnKeyboard() {
-	try {
-		wvkbdProc = spawn("wvkbd-mobintl", ["--hidden", "-L", "280"], {
-			env: { ...process.env },
-			stdio: "ignore",
-			detached: false,
-		});
-		wvkbdProc.on("error", (e) =>
-			console.warn("wvkbd not available:", e.message),
-		);
-	} catch (e) {
-		console.warn("Could not spawn wvkbd:", e);
-	}
-}
-
-// ── IPC: show / hide keyboard ─────────────────────────────────────────────────
-ipcMain.on("keyboard-show", () => wvkbdProc?.kill("SIGUSR2"));
-ipcMain.on("keyboard-hide", () => wvkbdProc?.kill("SIGUSR1"));
 
 const createWindow = (): void => {
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -152,12 +131,7 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 }
 
 app.on("ready", () => {
-	spawnKeyboard();
 	createWindow();
-});
-
-app.on("before-quit", () => {
-	wvkbdProc?.kill();
 });
 
 app.on("window-all-closed", () => {

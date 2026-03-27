@@ -171,7 +171,6 @@ export default function MapControls({
 						(
 							e.currentTarget.querySelector("input") as HTMLInputElement
 						)?.focus();
-						ipc()?.send("keyboard-show");
 					}}
 					startAdornment={
 						<SearchRounded
