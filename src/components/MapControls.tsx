@@ -1,17 +1,21 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
 	Box,
+	Divider,
 	IconButton,
 	InputBase,
+	Popover,
 	Tooltip,
 	List,
 	ListItemButton,
 	ListItemText,
 	CircularProgress,
+	Typography,
 } from "@mui/material";
 import { alpha, useTheme, type Theme } from "@mui/material/styles";
 import type { CameraMode, Orientation, RoutingProvider } from "../constants";
 import {
+	CloseRounded,
 	DarkModeRounded,
 	ExploreOffRounded,
 	ExploreRounded,
@@ -19,6 +23,7 @@ import {
 	MyLocationRounded,
 	RouteRounded,
 	SearchRounded,
+	SettingsRounded,
 } from "@mui/icons-material";
 import { useThemeMode } from "../ThemeContext";
 
@@ -46,7 +51,6 @@ interface Props {
 	onToggleProvider: () => void;
 }
 
-// Accepts theme so it can reference palette tokens
 function iconBtnStyle(active: boolean, theme: Theme) {
 	return {
 		width: 44,
@@ -88,13 +92,30 @@ export default function MapControls({
 	const [results, setResults] = useState<Suggestion[]>([]);
 	const [loading, setLoading] = useState(false);
 	const [dropdownOpen, setDropdownOpen] = useState(false);
+	const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(
+		null,
+	);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const sessionTokenRef = useRef<string>(
 		Math.random().toString(36).slice(2) + Date.now().toString(36),
 	);
 	const { mode, toggleMode } = useThemeMode();
-	const ipc = () => (window as any).require?.("electron")?.ipcRenderer ?? null;
+
+	const settingsOpen = Boolean(settingsAnchor);
+
+	function handleExitApp() {
+		const ipcRenderer = (window as any).require?.("electron")?.ipcRenderer;
+		if (ipcRenderer) {
+			ipcRenderer.send("app-quit");
+		} else if (document.exitFullscreen) {
+			document.exitFullscreen();
+		} else if ((document as any).webkitExitFullscreen) {
+			(document as any).webkitExitFullscreen();
+		}
+		window.close();
+	}
+
 	useEffect(() => {
 		if (!query.trim()) {
 			setResults([]);
@@ -310,95 +331,180 @@ export default function MapControls({
 					</IconButton>
 				</Tooltip>
 
-				{/* Online/Offline toggle */}
-				<Tooltip
-					title={
-						provider === "mapbox"
-							? "Switch to offline (Valhalla)"
-							: "Switch to online (Mapbox)"
-					}
-					placement="bottom"
+				<Tooltip title="Settings" placement="bottom">
+					<IconButton
+						onClick={(e) => setSettingsAnchor(e.currentTarget)}
+						sx={iconBtnStyle(settingsOpen, theme)}
+					>
+						<SettingsRounded fontSize="small" />
+					</IconButton>
+				</Tooltip>
+
+				{/* Settings Popover */}
+				<Popover
+					open={settingsOpen}
+					anchorEl={settingsAnchor}
+					onClose={() => setSettingsAnchor(null)}
+					anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+					transformOrigin={{ vertical: "top", horizontal: "right" }}
+					slotProps={{
+						paper: {
+							sx: {
+								mt: 0.75,
+								minWidth: 220,
+								background: alpha(theme.palette.background.default, 0.95),
+								backdropFilter: "blur(14px)",
+								border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+								borderRadius: "12px",
+								boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+								overflow: "hidden",
+							},
+						},
+					}}
 				>
+					{/* Theme toggle row */}
 					<Box
-						onClick={onToggleProvider}
+						onClick={() => {
+							toggleMode();
+							setSettingsAnchor(null);
+						}}
 						sx={{
 							display: "flex",
 							alignItems: "center",
-							gap: 0.75,
-							height: 44,
-							px: 1.5,
-							background: alpha(theme.palette.background.default, 0.85),
-							backdropFilter: "blur(10px)",
-							border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
-							borderRadius: "10px",
+							justifyContent: "space-between",
+							px: 2,
+							py: 1.5,
 							cursor: "pointer",
-							userSelect: "none",
-							boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
 							"&:hover": {
-								background: alpha(theme.palette.background.paper, 0.9),
+								background: alpha(theme.palette.text.primary, 0.06),
 							},
 						}}
 					>
-						<Box
-							sx={{
-								fontSize: 11,
-								fontWeight: 700,
-								color:
-									provider === "mapbox"
-										? theme.palette.primary.main
-										: theme.palette.text.secondary,
-								letterSpacing: "0.04em",
-							}}
+						<Typography
+							sx={{ fontSize: 13, color: theme.palette.text.primary }}
 						>
-							{provider === "mapbox" ? "ONLINE" : "OFFLINE"}
-						</Box>
+							{mode === "dark" ? "Light mode" : "Dark mode"}
+						</Typography>
+						{mode === "dark" ? (
+							<LightModeRounded
+								fontSize="small"
+								sx={{ color: theme.palette.text.secondary }}
+							/>
+						) : (
+							<DarkModeRounded
+								fontSize="small"
+								sx={{ color: theme.palette.text.secondary }}
+							/>
+						)}
+					</Box>
 
-						{/* Track */}
-						<Box
-							sx={{
-								position: "relative",
-								width: 32,
-								height: 18,
-								borderRadius: "9px",
-								background:
-									provider === "mapbox"
-										? theme.palette.primary.main
-										: theme.palette.action.disabled,
-								transition: "background 0.25s ease",
-								flexShrink: 0,
-							}}
+					<Divider
+						sx={{ borderColor: alpha(theme.palette.text.primary, 0.08) }}
+					/>
+
+					{/* Online / Offline toggle row */}
+					<Box
+						onClick={() => {
+							onToggleProvider();
+						}}
+						sx={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "space-between",
+							px: 2,
+							py: 1.5,
+							cursor: "pointer",
+							"&:hover": {
+								background: alpha(theme.palette.text.primary, 0.06),
+							},
+						}}
+					>
+						<Typography
+							sx={{ fontSize: 13, color: theme.palette.text.primary }}
 						>
-							{/* Thumb */}
+							Routing
+						</Typography>
+
+						{/* Toggle pill */}
+						<Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+							<Typography
+								sx={{
+									fontSize: 11,
+									fontWeight: 700,
+									letterSpacing: "0.04em",
+									color:
+										provider === "mapbox"
+											? theme.palette.primary.main
+											: theme.palette.text.secondary,
+								}}
+							>
+								{provider === "mapbox" ? "ONLINE" : "OFFLINE"}
+							</Typography>
 							<Box
 								sx={{
-									position: "absolute",
-									top: 2,
-									left: provider === "mapbox" ? 16 : 2,
-									width: 14,
-									height: 14,
-									borderRadius: "50%",
-									background: theme.palette.common.white,
-									transition: "left 0.25s ease",
-									boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+									position: "relative",
+									width: 32,
+									height: 18,
+									borderRadius: "9px",
+									background:
+										provider === "mapbox"
+											? theme.palette.primary.main
+											: theme.palette.action.disabled,
+									transition: "background 0.25s ease",
+									flexShrink: 0,
 								}}
-							/>
+							>
+								<Box
+									sx={{
+										position: "absolute",
+										top: 2,
+										left: provider === "mapbox" ? 16 : 2,
+										width: 14,
+										height: 14,
+										borderRadius: "50%",
+										background: theme.palette.common.white,
+										transition: "left 0.25s ease",
+										boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+									}}
+								/>
+							</Box>
 						</Box>
 					</Box>
-				</Tooltip>
-				<Tooltip
-					title={
-						mode === "dark" ? "Switch to light mode" : "Switch to dark mode"
-					}
-					placement="bottom"
-				>
-					<IconButton onClick={toggleMode} sx={iconBtnStyle(false, theme)}>
-						{mode === "dark" ? (
-							<LightModeRounded fontSize="small" />
-						) : (
-							<DarkModeRounded fontSize="small" />
-						)}
-					</IconButton>
-				</Tooltip>
+
+					<Divider
+						sx={{ borderColor: alpha(theme.palette.text.primary, 0.08) }}
+					/>
+
+					{/* Exit row */}
+					<Box
+						onClick={handleExitApp}
+						sx={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "space-between",
+							px: 2,
+							py: 1.5,
+							cursor: "pointer",
+							"&:hover": {
+								background: alpha(theme.palette.error.main, 0.12),
+							},
+						}}
+					>
+						<Typography
+							sx={{
+								fontSize: 13,
+								color: theme.palette.error.main,
+								fontWeight: 600,
+							}}
+						>
+							Exit app
+						</Typography>
+						<CloseRounded
+							fontSize="small"
+							sx={{ color: theme.palette.error.main }}
+						/>
+					</Box>
+				</Popover>
 			</Box>
 		</Box>
 	);
