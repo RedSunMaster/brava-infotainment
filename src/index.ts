@@ -76,6 +76,7 @@ const createWindow = (): void => {
 		x: 0,
 		y: 0,
 		frame: true,
+		fullscreen: true,
 		resizable: true,
 		show: false,
 		webPreferences: {
