@@ -19,7 +19,6 @@ import {
 	MyLocationRounded,
 	RouteRounded,
 	SearchRounded,
-	SpeedRounded,
 } from "@mui/icons-material";
 import { useThemeMode } from "../ThemeContext";
 
@@ -45,8 +44,6 @@ interface Props {
 	onLocate: () => void;
 	provider: RoutingProvider;
 	onToggleProvider: () => void;
-	lowPerf: boolean;
-	onTogglePerfMode: () => void;
 }
 
 // Accepts theme so it can reference palette tokens
@@ -85,8 +82,6 @@ export default function MapControls({
 	onLocate,
 	provider,
 	onToggleProvider,
-	lowPerf,
-	onTogglePerfMode,
 }: Props) {
 	const theme = useTheme();
 	const [query, setQuery] = useState("");
@@ -402,20 +397,6 @@ export default function MapControls({
 						) : (
 							<DarkModeRounded fontSize="small" />
 						)}
-					</IconButton>
-				</Tooltip>
-				<Tooltip
-					title={lowPerf ? "Performance mode on" : "Performance mode off"}
-					placement="bottom"
-				>
-					<IconButton
-						onClick={onTogglePerfMode}
-						sx={{
-							...iconBtnStyle(lowPerf, theme),
-							...(lowPerf && { borderColor: theme.palette.warning.main }),
-						}}
-					>
-						<SpeedRounded fontSize="small" />
 					</IconButton>
 				</Tooltip>
 			</Box>
