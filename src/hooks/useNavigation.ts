@@ -95,18 +95,17 @@ export function useNavigation(
 		forwardBearing: number,
 		speedMs: number,
 		provider: RoutingProvider,
-		followPosition: FollowFn,
 	) {
+		// ✅ Stamp time before the async gap — reflects actual GPS interval
+		const now = Date.now();
+		const elapsed = now - lastUpdateTime.current;
+		lastUpdateTime.current = now;
+
 		gpsTrail.current.push(smoothPosition(rawPos));
 		if (gpsTrail.current.length > 8) gpsTrail.current.shift();
 
 		const snapped = await snapToRoad(gpsTrail.current, provider);
 		const bearing = speedMs > 2 ? forwardBearing : mapRef.current!.getBearing();
-		const now = Date.now();
-		const elapsed = now - lastUpdateTime.current;
-		lastUpdateTime.current = now;
-
-		followPosition(snapped, bearing, elapsed);
 
 		const coords = coordsRef.current;
 		if (coords.length === 0) return;

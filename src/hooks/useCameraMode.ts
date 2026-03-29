@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
-import { ZOOM_LEVEL, type CameraMode, type Orientation } from "../constants";
+import { type CameraMode, type Orientation } from "../constants";
+
 export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const [cameraMode, setCameraMode] = useState<CameraMode>("following");
 	const [orientation, setOrientation] = useState<Orientation>("heading");
@@ -17,7 +18,6 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		if (!map) return;
 		const canvas = map.getCanvas();
 
-		// ── Single finger drag → overview mode ──
 		const onDrag = () => setMode("overview");
 		const onWheel = () => setMode("overview");
 		map.on("dragstart", onDrag);
@@ -27,22 +27,6 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 			canvas.removeEventListener("wheel", onWheel);
 		};
 	}, [mapRef.current]);
-
-	// useCameraMode.ts — revert to original signature
-	function followPosition(
-		pos: [number, number],
-		bearing: number,
-		elapsed: number,
-	) {
-		if (followingRef.current !== "following") return;
-		mapRef.current!.easeTo({
-			center: pos,
-			bearing: orientationRef.current === "heading" ? bearing : 0,
-			pitch: orientationRef.current === "heading" ? 45 : 0,
-			zoom: ZOOM_LEVEL,
-			duration: Math.min(elapsed, 1000),
-		});
-	}
 
 	function showOverview(coords: [number, number][]) {
 		if (!mapRef.current || coords.length === 0) return;
@@ -60,42 +44,40 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		});
 	}
 
-	function resumeFollowing(pos: [number, number], bearing: number) {
+	// Just re-enable following — the render loop's jumpTo takes over next frame.
+	function resumeFollowing() {
 		setMode("following");
-		const isNorth = orientationRef.current === "north"; // ✅ respect current mode
-		mapRef.current!.easeTo({
-			center: pos,
-			bearing: isNorth ? 0 : bearing,
-			pitch: isNorth ? 0 : 45,
-			zoom: ZOOM_LEVEL,
-			duration: 600,
-		});
 	}
 
 	function toggleOrientation(currentBearing: number) {
 		const mapBearing = mapRef.current?.getBearing() ?? 0;
 		const isNorth = orientationRef.current === "north";
 
+		// If already north-locked but map has drifted, snap north first
 		if (isNorth && Math.abs(mapBearing) > 1) {
 			mapRef.current!.easeTo({ bearing: 0, pitch: 0, duration: 500 });
 			return;
 		}
 
-		// Otherwise toggle normally
 		const next: Orientation = isNorth ? "heading" : "north";
 		orientationRef.current = next;
 		setOrientation(next);
-		mapRef.current!.easeTo({
-			bearing: next === "north" ? 0 : currentBearing,
-			pitch: next === "north" ? 0 : 45,
-			duration: 500,
-		});
+
+		// In overview, animate manually. In following, render loop applies it next frame.
+		if (followingRef.current !== "following") {
+			mapRef.current!.easeTo({
+				bearing: next === "north" ? 0 : currentBearing,
+				pitch: next === "north" ? 0 : 45,
+				duration: 500,
+			});
+		}
 	}
 
 	return {
 		cameraMode,
 		orientation,
-		followPosition,
+		followingRef, // consumed by usePositionPuck render loop
+		orientationRef, // consumed by usePositionPuck render loop
 		showOverview,
 		resumeFollowing,
 		toggleOrientation,

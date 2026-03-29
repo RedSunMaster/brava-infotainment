@@ -4,6 +4,21 @@ import { getRoute, NormalizedManeuver } from "../lib/routing";
 import type { RoutingProvider } from "../constants";
 import { alpha, useTheme } from "@mui/material";
 
+function haversineMeters(
+	[lon1, lat1]: [number, number],
+	[lon2, lat2]: [number, number],
+): number {
+	const R = 6_371_000;
+	const dLat = ((lat2 - lat1) * Math.PI) / 180;
+	const dLon = ((lon2 - lon1) * Math.PI) / 180;
+	const a =
+		Math.sin(dLat / 2) ** 2 +
+		Math.cos((lat1 * Math.PI) / 180) *
+			Math.cos((lat2 * Math.PI) / 180) *
+			Math.sin(dLon / 2) ** 2;
+	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const coordsRef = useRef<[number, number][]>([]);
 	const maneuversRef = useRef<NormalizedManeuver[]>([]);
@@ -26,7 +41,6 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		const map = mapRef.current!;
 		const geojson = toFeature(decoded);
 
-		// Background (faded) route — full path, never trimmed
 		if (!map.getSource("route-bg")) {
 			map.addSource("route-bg", { type: "geojson", data: geojson });
 			map.addLayer({
@@ -41,11 +55,9 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				},
 			});
 		} else {
-			// Reroute — update existing source in place
 			(map.getSource("route-bg") as mapboxgl.GeoJSONSource).setData(geojson);
 		}
 
-		// Foreground (remaining) route — trimmed each position tick
 		if (!map.getSource("route")) {
 			map.addSource("route", {
 				type: "geojson",
@@ -65,11 +77,11 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				},
 			});
 		} else {
-			// Reroute — update existing source in place
 			(map.getSource("route") as mapboxgl.GeoJSONSource).setData(geojson);
 		}
 	}
 
+	// Legacy: trim by vertex index — kept for any callers that still use it
 	function trimRoute(fromIndex: number) {
 		const map = mapRef.current;
 		if (!map?.getSource("route")) return;
@@ -79,7 +91,51 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		);
 	}
 
-	return { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute };
+	// ── Continuous trim by exact distance along route ─────────────────────────
+	// Called every rAF frame from usePositionPuck — keeps the route line
+	// perfectly in sync with the puck's interpolated position.
+	function trimRouteByDistance(distanceM: number) {
+		const map = mapRef.current;
+		if (!map?.getSource("route")) return;
+
+		const coords = coordsRef.current;
+		if (coords.length < 2) return;
+
+		let remaining = Math.max(0, distanceM);
+
+		for (let i = 0; i < coords.length - 1; i++) {
+			const segLen = haversineMeters(coords[i], coords[i + 1]);
+
+			if (remaining <= segLen) {
+				// Interpolate a fractional start point on this segment
+				const t = segLen > 0 ? remaining / segLen : 0;
+				const fracStart: [number, number] = [
+					coords[i][0] + (coords[i + 1][0] - coords[i][0]) * t,
+					coords[i][1] + (coords[i + 1][1] - coords[i][1]) * t,
+				];
+				// Build the remaining line: fractional point + all subsequent vertices
+				const trimmed: [number, number][] = [fracStart, ...coords.slice(i + 1)];
+				(map.getSource("route") as mapboxgl.GeoJSONSource).setData(
+					toFeature(trimmed),
+				);
+				return;
+			}
+
+			remaining -= segLen;
+		}
+
+		// Past end of route — empty line
+		(map.getSource("route") as mapboxgl.GeoJSONSource).setData(toFeature([]));
+	}
+
+	return {
+		coordsRef,
+		maneuversRef,
+		maneuvers,
+		fetchRoute,
+		trimRoute,
+		trimRouteByDistance,
+	};
 }
 
 function toFeature(coords: [number, number][]): GeoJSON.Feature {

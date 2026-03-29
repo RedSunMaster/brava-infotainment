@@ -52,7 +52,6 @@ export default function App() {
 	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
 	const [navActive, setNavActive] = useState(false);
 	const [isRerouting, setIsRerouting] = useState(false);
-	const [isFollowingGps, setIsFollowingGps] = useState(false);
 	const [pendingDest, setPendingDest] = useState<{
 		coords: [number, number];
 		placeName: string;
@@ -61,17 +60,48 @@ export default function App() {
 	} | null>(null);
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
-	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
-		useRoute(mapRef);
+	const {
+		coordsRef,
+		maneuversRef,
+		maneuvers,
+		fetchRoute,
+		trimRoute,
+		trimRouteByDistance,
+	} = useRoute(mapRef);
 
-	// ── Reroute handler ──────────────────────────────────────────────────────
+	// ── Camera ───────────────────────────────────────────────────────────────
+	const {
+		cameraMode,
+		orientation,
+		followingRef,
+		orientationRef,
+		showOverview,
+		resumeFollowing,
+		toggleOrientation,
+	} = useCameraMode(mapRef);
+
+	// ── Puck — render loop drives both model and camera ──────────────────────
+	const { updatePuck, resetCursor } = usePositionPuck(
+		mapRef,
+		mapLoaded,
+		DEV_ORIGIN,
+		coordsRef,
+		followingRef,
+		orientationRef,
+		trimRouteByDistance,
+	);
+
+	const { period } = useMapStyle(mapRef, mapLoaded);
+
+	// ── Reroute ──────────────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
 		setIsRerouting(true);
 		try {
 			await fetchRoute(lastPosRef.current, navDestRef.current, provider);
-			rerouteResetRef.current?.();
-			resumeFollowingRef.current?.();
+			simIndexRef.current = 0;
+			resetNavigation();
+			resumeFollowing();
 		} finally {
 			setIsRerouting(false);
 		}
@@ -93,108 +123,59 @@ export default function App() {
 		handleOffRoute,
 	);
 
-	const {
-		cameraMode,
-		orientation,
-		followPosition,
-		showOverview,
-		resumeFollowing,
-		toggleOrientation,
-	} = useCameraMode(mapRef);
-
-	const { updatePuck } = usePositionPuck(mapRef, mapLoaded, DEV_ORIGIN);
-	const { period } = useMapStyle(mapRef, mapLoaded);
-
-	const rerouteResetRef = useRef<(() => void) | null>(null);
-	rerouteResetRef.current = () => {
-		simIndexRef.current = 0;
-		resetNavigation();
-	};
-	const resumeFollowingRef = useRef<(() => void) | null>(null);
-	resumeFollowingRef.current = () =>
-		resumeFollowing(lastPosRef.current, lastBearingRef.current);
-
-	// Disable GPS follow when the user manually drags the map
-	useEffect(() => {
-		const map = mapRef.current;
-		if (!map || !mapLoaded) return;
-		const onDragStart = (e: any) => {
-			if (e.originalEvent) setIsFollowingGps(false);
-		};
-		map.on("dragstart", onDragStart);
-		return () => {
-			map.off("dragstart", onDragStart);
-		};
-	}, [mapLoaded]);
-
+	// ── Position update — no followPos param anymore ─────────────────────────
 	const trackedPositionUpdate = useCallback(
 		async (
 			pos: [number, number],
 			bearing: number,
 			speed: number,
 			prov: RoutingProvider,
-			followPos: (
-				pos: [number, number],
-				bearing: number,
-				elapsed: number,
-			) => void,
 		) => {
 			lastPosRef.current = pos;
 			lastBearingRef.current = bearing;
-			updatePuck(pos, bearing, speed); // ← speed passed through
-			await onPositionUpdate(pos, bearing, speed, prov, followPos);
+			updatePuck(pos, bearing, speed);
+			await onPositionUpdate(pos, bearing, speed, prov);
 		},
 		[updatePuck, onPositionUpdate],
 	);
 
+	// ── GPS ──────────────────────────────────────────────────────────────────
 	const { status: gpsStatus } = useGps(
 		useCallback(
 			(pos: [number, number], bearing: number, speed: number) => {
 				lastPosRef.current = pos;
 				lastBearingRef.current = bearing;
 
-				if (navActive) {
-					// Synchronous route trim on every tick
+				// Always update the puck — render loop decides whether camera follows.
+				updatePuck(pos, bearing, speed);
+
+				if (navActive && !isRerouting) {
 					if (coordsRef.current.length > 0) {
 						const idx = closestRouteIndex(pos, coordsRef.current);
 						simIndexRef.current = idx;
 						trimRoute(idx);
 					}
-					if (!isRerouting) {
-						trackedPositionUpdate(
-							pos,
-							bearing,
-							speed,
-							provider,
-							followPosition,
-						);
-					}
-				} else if (isFollowingGps) {
-					// Free-follow: camera tracks GPS without active navigation
-					updatePuck(pos, bearing, speed); // ← speed passed through
-					followPosition(pos, bearing, 0);
+					trackedPositionUpdate(pos, bearing, speed, provider);
 				}
 			},
 			[
 				navActive,
-				isFollowingGps,
 				isRerouting,
 				updatePuck,
 				trackedPositionUpdate,
 				provider,
-				followPosition,
 				trimRoute,
 			],
 		),
 	);
 
+	// ── Simulation — followPosition no longer passed ─────────────────────────
+	// Note: remove the followPosition param from useSimulation's implementation
 	const { startSimulation, stopSimulation } = useSimulation(
 		coordsRef,
 		simIndexRef,
 		trackedPositionUpdate,
-		trimRoute,
 		setInstruction,
-		followPosition,
 	);
 
 	async function handleToggleProvider() {
@@ -253,8 +234,7 @@ export default function App() {
 		navDestRef.current = pendingDest.coords;
 		setPendingDest(null);
 		setNavActive(true);
-		setIsFollowingGps(false);
-		resumeFollowing(lastPosRef.current, lastBearingRef.current);
+		resumeFollowing();
 		if (gpsStatus !== "fix") {
 			startSimulation(provider);
 		}
@@ -264,6 +244,7 @@ export default function App() {
 		setPendingDest(null);
 		stopSimulation();
 		resetNavigation();
+		resetCursor();
 		navDestRef.current = null;
 		const map = mapRef.current;
 		if (map?.getLayer("route")) map.removeLayer("route");
@@ -282,6 +263,7 @@ export default function App() {
 	const handleEndNavigation = useCallback(() => {
 		stopSimulation();
 		resetNavigation();
+		resetCursor();
 		setNavActive(false);
 		setIsRerouting(false);
 		navDestRef.current = null;
@@ -299,9 +281,8 @@ export default function App() {
 			bearing: 0,
 			duration: 800,
 		});
-	}, [mapRef, resetNavigation, stopSimulation]);
+	}, [mapRef, resetNavigation, resetCursor, stopSimulation]);
 
-	// Auto-end navigation when arriving at the final step
 	useEffect(() => {
 		if (navActive && maneuvers.length > 0 && currentStep >= maneuvers.length) {
 			handleEndNavigation();
@@ -309,8 +290,7 @@ export default function App() {
 	}, [currentStep, maneuvers.length, navActive, handleEndNavigation]);
 
 	function handleLocate() {
-		setIsFollowingGps(true);
-		resumeFollowing(lastPosRef.current, lastBearingRef.current);
+		resumeFollowing(); // re-enables following; render loop takes over next frame
 	}
 
 	useEffect(() => {
@@ -318,7 +298,7 @@ export default function App() {
 		async function snapInitialPosition() {
 			const snapped = await snapToRoad([DEV_ORIGIN, DEV_ORIGIN], provider);
 			lastPosRef.current = snapped;
-			updatePuck(snapped, 0, 0); // ← speed 0 for initial snap
+			updatePuck(snapped, 0, 0);
 			mapRef.current?.easeTo({
 				center: snapped,
 				zoom: ZOOM_LEVEL,
@@ -345,7 +325,6 @@ export default function App() {
 			}}
 		>
 			<Box sx={{ flex: 1, minHeight: 0, position: "relative" }}>
-				{/* Map canvas */}
 				<Box
 					ref={mapContainer}
 					sx={{
@@ -368,17 +347,13 @@ export default function App() {
 					}}
 				>
 					{navActive ? (
-						// ── NAV ACTIVE: clock left │ [nav card + controls] right ──────────
 						<Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
-							{/* LEFT: Clock & Weather — fixed width, won't grow */}
 							<Box sx={{ pointerEvents: "auto", flexShrink: 0 }}>
 								<ClockWeatherChip
 									position={lastPosRef.current}
 									gpsStatus={gpsStatus}
 								/>
 							</Box>
-
-							{/* RIGHT column: nav card on top, map controls below */}
 							<Box
 								sx={{
 									flex: 1,
@@ -395,7 +370,6 @@ export default function App() {
 									distanceToNextM={distanceToNextM}
 									timeToNextS={timeToNextS}
 								/>
-
 								{isRerouting && (
 									<Chip
 										icon={
@@ -410,7 +384,7 @@ export default function App() {
 												}}
 											/>
 										}
-										label="Rerouting\u2026"
+										label="Rerouting…"
 										size="small"
 										sx={{
 											alignSelf: "flex-start",
@@ -424,8 +398,6 @@ export default function App() {
 										}}
 									/>
 								)}
-
-								{/* Map controls sit flush under the nav card, right-aligned */}
 								<Box sx={{ display: "flex", justifyContent: "flex-end" }}>
 									<MapControls
 										cameraMode={cameraMode}
@@ -448,9 +420,6 @@ export default function App() {
 							</Box>
 						</Box>
 					) : (
-						// ── NON-NAV: clock centred │ map controls right ──────────────────
-						// CSS Grid 1fr/auto/1fr keeps the clock perfectly centred regardless
-						// of how wide the controls column grows or shrinks.
 						<Box
 							sx={{
 								display: "grid",
@@ -459,18 +428,13 @@ export default function App() {
 								gap: 2,
 							}}
 						>
-							{/* Left cell — empty spacer */}
 							<Box />
-
-							{/* Centre cell — clock & weather */}
 							<Box sx={{ pointerEvents: "auto" }}>
 								<ClockWeatherChip
 									position={lastPosRef.current}
 									gpsStatus={gpsStatus}
 								/>
 							</Box>
-
-							{/* Right cell — map controls, right-aligned within the cell */}
 							<Box
 								sx={{
 									pointerEvents: "auto",
@@ -500,7 +464,6 @@ export default function App() {
 					)}
 				</Box>
 
-				{/* Confirm nav dialog */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -521,7 +484,6 @@ export default function App() {
 					)}
 				</Box>
 
-				{/* Trip info */}
 				{navActive && (
 					<Box sx={{ position: "absolute", bottom: 16, right: 16, zIndex: 10 }}>
 						<TripInfoCard
@@ -533,7 +495,6 @@ export default function App() {
 				)}
 			</Box>
 
-			{/* Bottom bar */}
 			<Box sx={{ height: "100px", flexShrink: 0, background: "black" }}>
 				<CarControls />
 			</Box>
