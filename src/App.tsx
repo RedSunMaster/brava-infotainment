@@ -49,7 +49,7 @@ export default function App() {
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
 	const lastBearingRef = useRef<number>(0);
 	const navDestRef = useRef<[number, number] | null>(null);
-	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
+	const [provider, setProvider] = useState<RoutingProvider>("valhalla");
 	const [navActive, setNavActive] = useState(false);
 	const [isRerouting, setIsRerouting] = useState(false);
 	const [isFollowingGps, setIsFollowingGps] = useState(false);
@@ -64,7 +64,6 @@ export default function App() {
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
 		useRoute(mapRef);
 
-	// ── Reroute handler ──────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
 		setIsRerouting(true);
@@ -112,8 +111,6 @@ export default function App() {
 	resumeFollowingRef.current = () =>
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 
-	// Disable GPS follow when the user manually drags the map.
-	// originalEvent is only present on user-initiated interactions.
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded) return;
@@ -154,7 +151,6 @@ export default function App() {
 				lastBearingRef.current = bearing;
 
 				if (navActive) {
-					// ── Active navigation path ──────────────────────────────────────
 					if (coordsRef.current.length > 0) {
 						const idx = closestRouteIndex(pos, coordsRef.current);
 						simIndexRef.current = idx;
@@ -170,7 +166,6 @@ export default function App() {
 						);
 					}
 				} else if (isFollowingGps) {
-					// ── Free-follow: no navigation, just keep camera on GPS ─────────
 					followPosition(pos, bearing, 0);
 				}
 			},
@@ -252,7 +247,7 @@ export default function App() {
 		navDestRef.current = pendingDest.coords;
 		setPendingDest(null);
 		setNavActive(true);
-		setIsFollowingGps(false); // nav has its own follow logic
+		setIsFollowingGps(false);
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 		if (gpsStatus !== "fix") {
 			startSimulation(provider);
@@ -301,7 +296,6 @@ export default function App() {
 	}
 
 	function handleLocate() {
-		// Enable continuous GPS follow and immediately snap the camera.
 		setIsFollowingGps(true);
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 	}
@@ -348,102 +342,72 @@ export default function App() {
 					}}
 				/>
 
-				{/* Top bar */}
+				{/* === RESPONSIVE OVERLAY LAYOUT === */}
+
+				{/* 1. Navigation Card Zone (Top Left) */}
 				<Box
 					sx={{
 						position: "absolute",
 						top: 16,
 						left: 16,
-						right: 16,
-						zIndex: 10,
+						// Full width on small portrait screens; fixed readable width on larger screens
+						width: { xs: "calc(100% - 32px)", md: 400 },
+						zIndex: 1500,
 						display: "flex",
-						gap: 2,
-						alignItems: "flex-start",
+						flexDirection: "column",
+						gap: 1,
+						pointerEvents: "none", // Let clicks through blank space
+						"& > *": { pointerEvents: "auto" }, // Re-enable for the actual card
 					}}
 				>
-					<Box
-						sx={{
-							flex: 1,
-							minWidth: 0,
-							maxWidth: "calc(50% - 80px)",
-							zIndex: 1400,
-							display: "flex",
-							flexDirection: "column",
-							gap: 1,
-						}}
-					>
-						{navActive && (
-							<NavigationCard maneuvers={maneuvers} currentStep={currentStep} />
-						)}
-						{isRerouting && (
-							<Chip
-								icon={
-									<SyncRoundedIcon
-										sx={{
-											fontSize: 16,
-											animation: "spin 1s linear infinite",
-											"@keyframes spin": {
-												from: { transform: "rotate(0deg)" },
-												to: { transform: "rotate(360deg)" },
-											},
-										}}
-									/>
-								}
-								label="Rerouting…"
-								size="small"
-								sx={{
-									alignSelf: "flex-start",
-									background: alpha(theme.palette.background.default, 0.9),
-									backdropFilter: "blur(10px)",
-									border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
-									color: theme.palette.warning.main,
-									fontWeight: 600,
-									fontSize: 12,
-									boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-								}}
-							/>
-						)}
-					</Box>
-
-					<Box sx={{ flexShrink: 0, width: 160 }} />
-
-					<Box
-						sx={{
-							flex: 1,
-							minWidth: 0,
-							maxWidth: "calc(50% - 80px)",
-							display: "flex",
-							justifyContent: "flex-end",
-						}}
-					>
-						<MapControls
-							cameraMode={cameraMode}
-							orientation={orientation}
-							hasRoute={maneuvers.length > 0}
-							currentBearing={mapBearing}
-							currentPosition={lastPosRef.current}
-							mapboxToken={process.env.MAPBOX_TOKEN}
-							onOverview={() => showOverview(coordsRef.current)}
-							onToggleOrientation={() =>
-								toggleOrientation(lastBearingRef.current)
+					{navActive && (
+						<NavigationCard maneuvers={maneuvers} currentStep={currentStep} />
+					)}
+					{isRerouting && (
+						<Chip
+							icon={
+								<SyncRoundedIcon
+									sx={{
+										fontSize: 16,
+										animation: "spin 1s linear infinite",
+										"@keyframes spin": {
+											from: { transform: "rotate(0deg)" },
+											to: { transform: "rotate(360deg)" },
+										},
+									}}
+								/>
 							}
-							onSearchSelect={handleSearchSelect}
-							onLocate={handleLocate}
-							isNavActive={navActive}
-							provider={provider}
-							onToggleProvider={handleToggleProvider}
+							label="Rerouting…"
+							size="small"
+							sx={{
+								alignSelf: "flex-start",
+								background: alpha(theme.palette.background.default, 0.9),
+								backdropFilter: "blur(10px)",
+								border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
+								color: theme.palette.warning.main,
+								fontWeight: 600,
+								fontSize: 12,
+								boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+							}}
 						/>
-					</Box>
+					)}
 				</Box>
 
+				{/* 2. Clock & Weather Zone (Top Center) */}
 				<Box
 					sx={{
 						position: "absolute",
-						top: 16,
-						left: "50%",
-						transform: "translateX(-50%)",
-						zIndex: 1500,
+						// If nav active on a narrow screen, smoothly slide down
+						top: { xs: navActive ? 130 : 16, md: 16 },
+						// If pushed down, slide it to the left edge to free up right-side controls
+						left: { xs: navActive ? 16 : "50%", md: "50%" },
+						transform: {
+							xs: navActive ? "none" : "translateX(-50%)",
+							md: "translateX(-50%)",
+						},
+						zIndex: 1300,
 						pointerEvents: "none",
+						transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
 					}}
 				>
 					<ClockWeatherChip
@@ -451,6 +415,40 @@ export default function App() {
 						gpsStatus={gpsStatus}
 					/>
 				</Box>
+
+				{/* 3. Map Controls Zone (Top Right) */}
+				<Box
+					sx={{
+						position: "absolute",
+						// Slide down out of the way of the Navigation Card on narrow screens
+						top: { xs: navActive ? 130 : 16, md: 16 },
+						right: 16,
+						zIndex: 1400,
+						display: "flex",
+						justifyContent: "flex-end",
+						transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+					}}
+				>
+					<MapControls
+						cameraMode={cameraMode}
+						orientation={orientation}
+						hasRoute={maneuvers.length > 0}
+						currentBearing={mapBearing}
+						currentPosition={lastPosRef.current}
+						mapboxToken={process.env.MAPBOX_TOKEN}
+						onOverview={() => showOverview(coordsRef.current)}
+						onToggleOrientation={() =>
+							toggleOrientation(lastBearingRef.current)
+						}
+						onSearchSelect={handleSearchSelect}
+						onLocate={handleLocate}
+						isNavActive={navActive}
+						provider={provider}
+						onToggleProvider={handleToggleProvider}
+					/>
+				</Box>
+
+				{/* === BOTTOM OVERLAYS === */}
 
 				<Box
 					sx={{
