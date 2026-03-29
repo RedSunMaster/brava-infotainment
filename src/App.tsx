@@ -64,6 +64,7 @@ export default function App() {
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
 		useRoute(mapRef);
 
+	// ── Reroute handler ──────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
 		setIsRerouting(true);
@@ -111,6 +112,7 @@ export default function App() {
 	resumeFollowingRef.current = () =>
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 
+	// Disable GPS follow when the user manually drags the map.
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded) return;
@@ -342,113 +344,118 @@ export default function App() {
 					}}
 				/>
 
-				{/* === RESPONSIVE OVERLAY LAYOUT === */}
-
-				{/* 1. Navigation Card Zone (Top Left) */}
+				{/* Top HUD layer */}
 				<Box
 					sx={{
 						position: "absolute",
 						top: 16,
 						left: 16,
-						// Full width on small portrait screens; fixed readable width on larger screens
-						width: { xs: "calc(100% - 32px)", md: 400 },
-						zIndex: 1500,
-						display: "flex",
-						flexDirection: "column",
-						gap: 1,
-						pointerEvents: "none", // Let clicks through blank space
-						"& > *": { pointerEvents: "auto" }, // Re-enable for the actual card
-					}}
-				>
-					{navActive && (
-						<NavigationCard maneuvers={maneuvers} currentStep={currentStep} />
-					)}
-					{isRerouting && (
-						<Chip
-							icon={
-								<SyncRoundedIcon
-									sx={{
-										fontSize: 16,
-										animation: "spin 1s linear infinite",
-										"@keyframes spin": {
-											from: { transform: "rotate(0deg)" },
-											to: { transform: "rotate(360deg)" },
-										},
-									}}
-								/>
-							}
-							label="Rerouting…"
-							size="small"
-							sx={{
-								alignSelf: "flex-start",
-								background: alpha(theme.palette.background.default, 0.9),
-								backdropFilter: "blur(10px)",
-								border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
-								color: theme.palette.warning.main,
-								fontWeight: 600,
-								fontSize: 12,
-								boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-							}}
-						/>
-					)}
-				</Box>
-
-				{/* 2. Clock & Weather Zone (Top Center) */}
-				<Box
-					sx={{
-						position: "absolute",
-						// If nav active on a narrow screen, smoothly slide down
-						top: { xs: navActive ? 130 : 16, md: 16 },
-						// If pushed down, slide it to the left edge to free up right-side controls
-						left: { xs: navActive ? 16 : "50%", md: "50%" },
-						transform: {
-							xs: navActive ? "none" : "translateX(-50%)",
-							md: "translateX(-50%)",
-						},
-						zIndex: 1300,
-						pointerEvents: "none",
-						transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
-					}}
-				>
-					<ClockWeatherChip
-						position={lastPosRef.current}
-						gpsStatus={gpsStatus}
-					/>
-				</Box>
-
-				{/* 3. Map Controls Zone (Top Right) */}
-				<Box
-					sx={{
-						position: "absolute",
-						// Slide down out of the way of the Navigation Card on narrow screens
-						top: { xs: navActive ? 130 : 16, md: 16 },
 						right: 16,
-						zIndex: 1400,
+						zIndex: 10,
+						pointerEvents: "none", // Let clicks pass through empty space
 						display: "flex",
-						justifyContent: "flex-end",
-						transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+						justifyContent: "space-between",
+						alignItems: "flex-start",
+						gap: 2,
 					}}
 				>
-					<MapControls
-						cameraMode={cameraMode}
-						orientation={orientation}
-						hasRoute={maneuvers.length > 0}
-						currentBearing={mapBearing}
-						currentPosition={lastPosRef.current}
-						mapboxToken={process.env.MAPBOX_TOKEN}
-						onOverview={() => showOverview(coordsRef.current)}
-						onToggleOrientation={() =>
-							toggleOrientation(lastBearingRef.current)
-						}
-						onSearchSelect={handleSearchSelect}
-						onLocate={handleLocate}
-						isNavActive={navActive}
-						provider={provider}
-						onToggleProvider={handleToggleProvider}
-					/>
-				</Box>
+					{/* LEFT: Navigation Card OR spacer if inactive */}
+					<Box
+						sx={{
+							flex: navActive ? "0 1 calc(50% - 80px)" : "0 0 0%",
+							pointerEvents: "auto",
+							display: "flex",
+							flexDirection: "column",
+							gap: 1,
+							transition: "flex 0.3s ease",
+						}}
+					>
+						{navActive && (
+							<>
+								<NavigationCard
+									maneuvers={maneuvers}
+									currentStep={currentStep}
+								/>
+								{isRerouting && (
+									<Chip
+										icon={
+											<SyncRoundedIcon
+												sx={{
+													fontSize: 16,
+													animation: "spin 1s linear infinite",
+													"@keyframes spin": {
+														from: { transform: "rotate(0deg)" },
+														to: { transform: "rotate(360deg)" },
+													},
+												}}
+											/>
+										}
+										label="Rerouting…"
+										size="small"
+										sx={{
+											alignSelf: "flex-start",
+											background: alpha(theme.palette.background.default, 0.9),
+											backdropFilter: "blur(10px)",
+											border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
+											color: theme.palette.warning.main,
+											fontWeight: 600,
+											fontSize: 12,
+											boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+										}}
+									/>
+								)}
+							</>
+						)}
+					</Box>
 
-				{/* === BOTTOM OVERLAYS === */}
+					{/* CENTRE: Clock & Weather */}
+					<Box
+						sx={{
+							flex: "0 0 auto",
+							display: "flex",
+							justifyContent: "center",
+							// When nav is inactive, push the clock slightly left to stay balanced
+							// against the wider search bar on the right.
+							transform: navActive ? "none" : "translateX(-10%)",
+							transition: "transform 0.3s ease",
+						}}
+					>
+						<ClockWeatherChip
+							position={lastPosRef.current}
+							gpsStatus={gpsStatus}
+						/>
+					</Box>
+
+					{/* RIGHT: Map Controls (Search) */}
+					<Box
+						sx={{
+							// Take up less space when nav is active, more space when inactive
+							flex: navActive ? "0 1 calc(50% - 80px)" : "0 1 400px",
+							pointerEvents: "auto",
+							display: "flex",
+							justifyContent: "flex-end",
+							transition: "flex 0.3s ease",
+						}}
+					>
+						<MapControls
+							cameraMode={cameraMode}
+							orientation={orientation}
+							hasRoute={maneuvers.length > 0}
+							currentBearing={mapBearing}
+							currentPosition={lastPosRef.current}
+							mapboxToken={process.env.MAPBOX_TOKEN}
+							onOverview={() => showOverview(coordsRef.current)}
+							onToggleOrientation={() =>
+								toggleOrientation(lastBearingRef.current)
+							}
+							onSearchSelect={handleSearchSelect}
+							onLocate={handleLocate}
+							isNavActive={navActive}
+							provider={provider}
+							onToggleProvider={handleToggleProvider}
+						/>
+					</Box>
+				</Box>
 
 				<Box
 					sx={{
