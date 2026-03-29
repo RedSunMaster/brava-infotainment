@@ -49,7 +49,7 @@ export default function App() {
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
 	const lastBearingRef = useRef<number>(0);
 	const navDestRef = useRef<[number, number] | null>(null);
-	const [provider, setProvider] = useState<RoutingProvider>("valhalla");
+	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
 	const [navActive, setNavActive] = useState(false);
 	const [isRerouting, setIsRerouting] = useState(false);
 	const [isFollowingGps, setIsFollowingGps] = useState(false);
@@ -64,7 +64,6 @@ export default function App() {
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
 		useRoute(mapRef);
 
-	// ── Reroute handler ──────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
 		setIsRerouting(true);
@@ -112,7 +111,6 @@ export default function App() {
 	resumeFollowingRef.current = () =>
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 
-	// Disable GPS follow when the user manually drags the map.
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded) return;
@@ -275,7 +273,8 @@ export default function App() {
 		});
 	}
 
-	function handleEndNavigation() {
+	// Wrapped in useCallback so it can be used in the auto-end effect safely
+	const handleEndNavigation = useCallback(() => {
 		stopSimulation();
 		resetNavigation();
 		setNavActive(false);
@@ -295,7 +294,16 @@ export default function App() {
 			bearing: 0,
 			duration: 800,
 		});
-	}
+	}, [mapRef, resetNavigation, stopSimulation]);
+
+	// Auto-end navigation when the final "Arrived!" step is reached
+	useEffect(() => {
+		if (navActive && maneuvers.length > 0) {
+			if (currentStep >= maneuvers.length) {
+				handleEndNavigation();
+			}
+		}
+	}, [currentStep, maneuvers.length, navActive, handleEndNavigation]);
 
 	function handleLocate() {
 		setIsFollowingGps(true);
@@ -352,7 +360,7 @@ export default function App() {
 						left: 16,
 						right: 16,
 						zIndex: 10,
-						pointerEvents: "none", // Let clicks pass through empty space
+						pointerEvents: "none",
 						display: "flex",
 						justifyContent: "space-between",
 						alignItems: "flex-start",
@@ -414,8 +422,6 @@ export default function App() {
 							flex: "0 0 auto",
 							display: "flex",
 							justifyContent: "center",
-							// When nav is inactive, push the clock slightly left to stay balanced
-							// against the wider search bar on the right.
 							transform: navActive ? "none" : "translateX(-10%)",
 							transition: "transform 0.3s ease",
 						}}
@@ -429,8 +435,8 @@ export default function App() {
 					{/* RIGHT: Map Controls (Search) */}
 					<Box
 						sx={{
-							// Take up less space when nav is active, more space when inactive
-							flex: navActive ? "0 1 calc(50% - 80px)" : "0 1 400px",
+							// When active, let it compress to an icon button; otherwise expand up to 400px
+							flex: navActive ? "0 1 auto" : "0 1 400px",
 							pointerEvents: "auto",
 							display: "flex",
 							justifyContent: "flex-end",

@@ -95,6 +95,9 @@ export default function MapControls({
 	const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(
 		null,
 	);
+	// Controls whether the search is a full bar or just an icon when nav is active
+	const [searchExpanded, setSearchExpanded] = useState(false);
+
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const sessionTokenRef = useRef<string>(
@@ -103,6 +106,13 @@ export default function MapControls({
 	const { mode, toggleMode } = useThemeMode();
 
 	const settingsOpen = Boolean(settingsAnchor);
+
+	// If navigation ends, ensure the search bar goes back to full width automatically
+	useEffect(() => {
+		if (!isNavActive) {
+			setSearchExpanded(false);
+		}
+	}, [isNavActive]);
 
 	function handleExitApp() {
 		const ipcRenderer = (window as any).require?.("electron")?.ipcRenderer;
@@ -143,16 +153,25 @@ export default function MapControls({
 
 	useEffect(() => {
 		function handleClickOutside(e: MouseEvent) {
-			if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node))
+			if (
+				wrapperRef.current &&
+				!wrapperRef.current.contains(e.target as Node)
+			) {
 				setDropdownOpen(false);
+				// If they click away and the query is empty while navigating, shrink it back
+				if (isNavActive && query === "") {
+					setSearchExpanded(false);
+				}
+			}
 		}
 		document.addEventListener("mousedown", handleClickOutside);
 		return () => document.removeEventListener("mousedown", handleClickOutside);
-	}, []);
+	}, [isNavActive, query]);
 
 	async function handleSelect(suggestion: Suggestion) {
 		setDropdownOpen(false);
 		setQuery("");
+		setSearchExpanded(false); // Close it up after selection
 		setLoading(true);
 		try {
 			const url =
@@ -170,6 +189,8 @@ export default function MapControls({
 		}
 	}
 
+	const showFullSearch = !isNavActive || searchExpanded;
+
 	return (
 		<Box
 			ref={wrapperRef}
@@ -181,100 +202,117 @@ export default function MapControls({
 				width: "100%",
 			}}
 		>
-			{/* Search bar */}
-			<Box sx={{ position: "relative", width: "100%" }}>
-				<InputBase
-					placeholder="Search places..."
-					value={query}
-					onChange={(e) => setQuery(e.target.value)}
-					inputProps={{ inputMode: "search" }}
-					onTouchStart={(e) => {
-						(
-							e.currentTarget.querySelector("input") as HTMLInputElement
-						)?.focus();
-					}}
-					startAdornment={
-						<SearchRounded
-							sx={{
-								color: theme.palette.text.secondary,
-								fontSize: 18,
-								mr: 1,
-								flexShrink: 0,
-							}}
-						/>
-					}
-					endAdornment={
-						loading && (
-							<CircularProgress
-								size={14}
-								sx={{ color: theme.palette.text.secondary, mr: 1 }}
-							/>
-						)
-					}
-					sx={{
-						width: "100%",
-						background: alpha(theme.palette.background.default, 0.85),
-						backdropFilter: "blur(10px)",
-						border: `1px solid ${alpha(theme.palette.text.primary, 0.1)}`,
-						borderRadius: "10px",
-						px: 1.5,
-						py: 0.75,
-						color: "text.primary",
-						boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
-						fontSize: 14,
-						"& input::placeholder": { color: theme.palette.text.secondary },
-					}}
-				/>
-
-				{dropdownOpen && results.length > 0 && (
-					<List
-						sx={{
-							position: "absolute",
-							top: "calc(100% + 6px)",
-							right: 0,
-							width: "100%",
-							background: alpha(theme.palette.background.default, 0.95),
-							backdropFilter: "blur(14px)",
-							border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
-							borderRadius: "10px",
-							boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-							py: 0.5,
-							zIndex: 30,
-							maxHeight: 280,
-							overflowY: "auto",
+			{/* Search Input OR Search Button */}
+			{showFullSearch ? (
+				<Box sx={{ position: "relative", width: "100%" }}>
+					<InputBase
+						autoFocus={searchExpanded}
+						placeholder="Search places..."
+						value={query}
+						onChange={(e) => setQuery(e.target.value)}
+						inputProps={{ inputMode: "search" }}
+						onTouchStart={(e) => {
+							(
+								e.currentTarget.querySelector("input") as HTMLInputElement
+							)?.focus();
 						}}
-					>
-						{results.map((s) => (
-							<ListItemButton
-								key={s.mapbox_id}
-								onClick={() => handleSelect(s)}
+						startAdornment={
+							<SearchRounded
 								sx={{
-									borderRadius: "6px",
-									mx: 0.5,
-									"&:hover": {
-										background: alpha(theme.palette.primary.main, 0.15),
-									},
+									color: theme.palette.text.secondary,
+									fontSize: 18,
+									mr: 1,
+									flexShrink: 0,
 								}}
-							>
-								<ListItemText
-									primary={s.name}
-									secondary={s.place_formatted}
-									primaryTypographyProps={{
-										sx: {
-											color: theme.palette.text.primary,
-											fontSize: 13,
-											fontWeight: 600,
+							/>
+						}
+						endAdornment={
+							loading && (
+								<CircularProgress
+									size={14}
+									sx={{ color: theme.palette.text.secondary, mr: 1 }}
+								/>
+							)
+						}
+						sx={{
+							width: "100%",
+							background: alpha(theme.palette.background.default, 0.85),
+							backdropFilter: "blur(10px)",
+							border: `1px solid ${alpha(theme.palette.text.primary, 0.1)}`,
+							borderRadius: "10px",
+							px: 1.5,
+							py: 0.75,
+							color: "text.primary",
+							boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+							fontSize: 14,
+							"& input::placeholder": { color: theme.palette.text.secondary },
+						}}
+					/>
+
+					{dropdownOpen && results.length > 0 && (
+						<List
+							sx={{
+								position: "absolute",
+								top: "calc(100% + 6px)",
+								right: 0,
+								width: "100%",
+								background: alpha(theme.palette.background.default, 0.95),
+								backdropFilter: "blur(14px)",
+								border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+								borderRadius: "10px",
+								boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+								py: 0.5,
+								zIndex: 30,
+								maxHeight: 280,
+								overflowY: "auto",
+							}}
+						>
+							{results.map((s) => (
+								<ListItemButton
+									key={s.mapbox_id}
+									onClick={() => handleSelect(s)}
+									sx={{
+										borderRadius: "6px",
+										mx: 0.5,
+										"&:hover": {
+											background: alpha(theme.palette.primary.main, 0.15),
 										},
 									}}
-									secondaryTypographyProps={{
-										sx: { color: "text.secondary", fontSize: 11 },
-									}}
-								/>
-							</ListItemButton>
-						))}
-					</List>
-				)}
-			</Box>
+								>
+									<ListItemText
+										primary={s.name}
+										secondary={s.place_formatted}
+										primaryTypographyProps={{
+											sx: {
+												color: theme.palette.text.primary,
+												fontSize: 13,
+												fontWeight: 600,
+											},
+										}}
+										secondaryTypographyProps={{
+											sx: { color: "text.secondary", fontSize: 11 },
+										}}
+									/>
+								</ListItemButton>
+							))}
+						</List>
+					)}
+				</Box>
+			) : (
+				// Collapsed search button for when nav is active
+				<Box
+					sx={{ width: "100%", display: "flex", justifyContent: "flex-end" }}
+				>
+					<Tooltip title="Search" placement="bottom">
+						<IconButton
+							onClick={() => setSearchExpanded(true)}
+							sx={iconBtnStyle(false, theme)}
+						>
+							<SearchRounded fontSize="small" />
+						</IconButton>
+					</Tooltip>
+				</Box>
+			)}
 
 			{/* Icon buttons */}
 			<Box
