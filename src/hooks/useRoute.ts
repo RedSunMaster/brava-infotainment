@@ -4,63 +4,29 @@ import { getRoute, NormalizedManeuver } from "../lib/routing";
 import type { RoutingProvider } from "../constants";
 import { alpha, useTheme } from "@mui/material";
 
-function calcDistanceProgress(
-	coords: [number, number][],
-	fromIndex: number,
-): number {
-	if (coords.length < 2) return 0;
-
-	// ✅ Haversine accumulator
-	let total = 0;
-	let covered = 0;
-
-	for (let i = 1; i < coords.length; i++) {
-		const d = haversineMeters(coords[i - 1], coords[i]);
-		if (i <= fromIndex) covered += d;
-		total += d;
-	}
-
-	return total === 0 ? 0 : covered / total;
-}
-
-function haversineMeters(
-	[lon1, lat1]: [number, number],
-	[lon2, lat2]: [number, number],
-): number {
-	const R = 6_371_000;
-	const φ1 = (lat1 * Math.PI) / 180;
-	const φ2 = (lat2 * Math.PI) / 180;
-	const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-	const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-	const a =
-		Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const coordsRef = useRef<[number, number][]>([]);
 	const maneuversRef = useRef<NormalizedManeuver[]>([]);
 	const [maneuvers, setManeuvers] = useState<NormalizedManeuver[]>([]);
 	const theme = useTheme();
+
 	async function fetchRoute(
 		origin: [number, number],
 		dest: [number, number],
 		provider: RoutingProvider,
 	) {
 		const result = await getRoute(origin, dest, provider);
-
 		coordsRef.current = result.coords;
 		maneuversRef.current = result.maneuvers;
 		setManeuvers(result.maneuvers);
 		drawRoute(result.coords);
 	}
 
-	// drawRoute — add two layers
 	function drawRoute(decoded: [number, number][]) {
 		const map = mapRef.current!;
 		const geojson = toFeature(decoded);
 
-		// Static background route — never updated
+		// Background (faded) route — full path, never trimmed
 		if (!map.getSource("route-bg")) {
 			map.addSource("route-bg", { type: "geojson", data: geojson });
 			map.addLayer({
@@ -74,9 +40,12 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 					"line-width": 5,
 				},
 			});
+		} else {
+			// Reroute — update existing source in place
+			(map.getSource("route-bg") as mapboxgl.GeoJSONSource).setData(geojson);
 		}
 
-		// Dynamic remaining route — small GeoJSON, updated each tick
+		// Foreground (remaining) route — trimmed each position tick
 		if (!map.getSource("route")) {
 			map.addSource("route", {
 				type: "geojson",
@@ -95,14 +64,15 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 					"line-emissive-strength": 1,
 				},
 			});
+		} else {
+			// Reroute — update existing source in place
+			(map.getSource("route") as mapboxgl.GeoJSONSource).setData(geojson);
 		}
 	}
 
-	// trimRoute — update only the remaining coords, not paint properties
 	function trimRoute(fromIndex: number) {
 		const map = mapRef.current;
 		if (!map?.getSource("route")) return;
-
 		const remaining = coordsRef.current.slice(fromIndex);
 		(map.getSource("route") as mapboxgl.GeoJSONSource).setData(
 			toFeature(remaining),
@@ -111,6 +81,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 
 	return { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute };
 }
+
 function toFeature(coords: [number, number][]): GeoJSON.Feature {
 	return {
 		type: "Feature",

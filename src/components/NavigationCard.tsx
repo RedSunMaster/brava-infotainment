@@ -12,8 +12,8 @@ interface Props {
 export default function NavigationCard({ maneuvers, currentStep }: Props) {
 	const [expanded, setExpanded] = useState(false);
 	const theme = useTheme();
-	const current = maneuvers[currentStep];
-	const upcoming = maneuvers.slice(currentStep + 1, currentStep + 3);
+	const current = maneuvers[currentStep + 1];
+	const upcoming = maneuvers.slice(currentStep + 2, currentStep + 4);
 	if (!current) return null;
 	const CurrentIcon = getManeuverIcon(current);
 
@@ -25,24 +25,24 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 			{/* Current step */}
 			<Box
 				sx={(theme) => ({
-					background: alpha(theme.palette.background.default, 0.85),
+					background: alpha(theme.palette.background.default, 0.92),
 					backdropFilter: "blur(10px)",
 					borderRadius: expanded ? "12px 12px 0 0" : "12px",
-					padding: "16px 20px",
+					padding: "12px 14px",
 					display: "flex",
 					alignItems: "center",
-					gap: 2,
+					gap: 1.5,
 					boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
 					border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
 					transition: "border-radius 0.2s",
 				})}
 			>
-				{/* Direction icon */}
+				{/* Direction icon — reduced from 56×56 / fontSize 36 */}
 				<Box
 					sx={(theme) => ({
-						width: 56,
-						height: 56,
-						borderRadius: "12px",
+						width: 44,
+						height: 44,
+						borderRadius: "10px",
 						background: theme.palette.primary.main,
 						display: "flex",
 						alignItems: "center",
@@ -51,27 +51,33 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 						boxShadow: `0 2px 8px ${alpha(theme.palette.primary.main, 0.5)}`,
 					})}
 				>
-					<CurrentIcon sx={{ fontSize: 36, color: "common.white" }} />
+					<CurrentIcon sx={{ fontSize: 26, color: "common.white" }} />
 				</Box>
 
 				<Box sx={{ flex: 1, minWidth: 0 }}>
+					{/* Allow wrapping so long street names are never hidden */}
 					<Typography
 						sx={{
 							color: theme.palette.text.primary,
-							fontSize: 16,
-							fontWeight: 600,
-							lineHeight: 1.3,
-							overflow: "hidden",
-							textOverflow: "ellipsis",
-							whiteSpace: "nowrap",
+							fontSize: 15,
+							fontWeight: 700,
+							lineHeight: 1.25,
+							wordBreak: "break-word",
+							whiteSpace: "normal",
 						}}
 					>
 						{current.instruction}
 					</Typography>
 					<Typography
-						sx={{ color: theme.palette.text.secondary, fontSize: 13, mt: 0.3 }}
+						sx={{
+							color: theme.palette.text.secondary,
+							fontSize: 13,
+							fontWeight: 500,
+							mt: 0.4,
+						}}
 					>
-						{current.length?.toFixed(2)} km{" \u00B7 "}
+						{current.length?.toFixed(2)} km
+						{" \u00B7 "}
 						{Math.round((current.time ?? 0) / 60)} min
 					</Typography>
 				</Box>
@@ -80,10 +86,10 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 				<Box
 					sx={{
 						color: theme.palette.text.secondary,
-						fontSize: 20,
 						transition: "transform 0.2s",
 						transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
 						flexShrink: 0,
+						display: "flex",
 					}}
 				>
 					<ExpandMoreRounded />
@@ -94,7 +100,7 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 			<Collapse in={expanded}>
 				<Box
 					sx={(theme) => ({
-						background: alpha(theme.palette.background.default, 0.85),
+						background: alpha(theme.palette.background.default, 0.92),
 						backdropFilter: "blur(10px)",
 						borderRadius: "0 0 12px 12px",
 						border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
@@ -122,7 +128,7 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 									display: "flex",
 									alignItems: "center",
 									gap: 1.5,
-									padding: "10px 16px",
+									padding: "10px 14px",
 									borderTop:
 										i > 0
 											? `1px solid ${alpha(theme.palette.text.primary, 0.05)}`
@@ -131,8 +137,8 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 							>
 								<Box
 									sx={(theme) => ({
-										width: 32,
-										height: 32,
+										width: 30,
+										height: 30,
 										borderRadius: "8px",
 										background: alpha(theme.palette.primary.main, 0.2),
 										border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
@@ -142,13 +148,14 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 										flexShrink: 0,
 									})}
 								>
-									<StepIcon sx={{ fontSize: 20, color: "common.white" }} />
+									<StepIcon sx={{ fontSize: 18, color: "common.white" }} />
 								</Box>
 								<Box sx={{ flex: 1, minWidth: 0 }}>
 									<Typography
 										sx={(theme) => ({
 											color: theme.palette.text.primary,
 											fontSize: 13,
+											fontWeight: 500,
 											overflow: "hidden",
 											textOverflow: "ellipsis",
 											whiteSpace: "nowrap",
@@ -156,7 +163,9 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 									>
 										{m.instruction}
 									</Typography>
-									<Typography sx={{ color: "text.secondary", fontSize: 11 }}>
+									<Typography
+										sx={{ color: "text.secondary", fontSize: 11, mt: 0.25 }}
+									>
 										{m.length?.toFixed(2)} km
 									</Typography>
 								</Box>

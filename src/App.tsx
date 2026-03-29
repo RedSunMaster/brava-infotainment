@@ -13,7 +13,8 @@ import {
 	MAPBOX_TOKEN,
 	ZOOM_LEVEL,
 } from "./constants";
-import { Box, useTheme } from "@mui/material";
+import { Box, Chip, useTheme } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
 import { usePositionPuck } from "./hooks/usePuckPosition";
@@ -21,6 +22,25 @@ import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
 import { useGps } from "./hooks/useGps";
 import ClockWeatherChip from "./components/ClockWeatherChip";
+import SyncRoundedIcon from "@mui/icons-material/SyncRounded";
+
+function closestRouteIndex(
+	pos: [number, number],
+	coords: [number, number][],
+): number {
+	let best = 0;
+	let bestDist = Infinity;
+	for (let i = 0; i < coords.length; i++) {
+		const dx = pos[0] - coords[i][0];
+		const dy = pos[1] - coords[i][1];
+		const d = dx * dx + dy * dy;
+		if (d < bestDist) {
+			bestDist = d;
+			best = i;
+		}
+	}
+	return best;
+}
 
 export default function App() {
 	const theme = useTheme();
@@ -28,8 +48,11 @@ export default function App() {
 	const simIndexRef = useRef(0);
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
 	const lastBearingRef = useRef<number>(0);
-	const [provider, setProvider] = useState<RoutingProvider>("valhalla");
+	const navDestRef = useRef<[number, number] | null>(null);
+	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
 	const [navActive, setNavActive] = useState(false);
+	const [isRerouting, setIsRerouting] = useState(false);
+	const [isFollowingGps, setIsFollowingGps] = useState(false);
 	const [pendingDest, setPendingDest] = useState<{
 		coords: [number, number];
 		placeName: string;
@@ -40,8 +63,34 @@ export default function App() {
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
 		useRoute(mapRef);
-	const { currentStep, setInstruction, onPositionUpdate, resetNavigation } =
-		useNavigation(mapRef, maneuversRef, simIndexRef);
+
+	// ── Reroute handler ──────────────────────────────────────────────────────
+	const handleOffRoute = useCallback(async () => {
+		if (!navDestRef.current || isRerouting) return;
+		setIsRerouting(true);
+		try {
+			await fetchRoute(lastPosRef.current, navDestRef.current, provider);
+			rerouteResetRef.current?.();
+			resumeFollowingRef.current?.();
+		} finally {
+			setIsRerouting(false);
+		}
+	}, [fetchRoute, isRerouting, provider]);
+
+	const {
+		currentStep,
+		instruction,
+		setInstruction,
+		onPositionUpdate,
+		resetNavigation,
+	} = useNavigation(
+		mapRef,
+		maneuversRef,
+		coordsRef,
+		simIndexRef,
+		handleOffRoute,
+	);
+
 	const {
 		cameraMode,
 		orientation,
@@ -50,8 +99,32 @@ export default function App() {
 		resumeFollowing,
 		toggleOrientation,
 	} = useCameraMode(mapRef);
+
 	const { updatePuck } = usePositionPuck(mapRef, mapLoaded, DEV_ORIGIN);
 	const { period } = useMapStyle(mapRef, mapLoaded);
+
+	const rerouteResetRef = useRef<(() => void) | null>(null);
+	rerouteResetRef.current = () => {
+		simIndexRef.current = 0;
+		resetNavigation();
+	};
+	const resumeFollowingRef = useRef<(() => void) | null>(null);
+	resumeFollowingRef.current = () =>
+		resumeFollowing(lastPosRef.current, lastBearingRef.current);
+
+	// Disable GPS follow when the user manually drags the map.
+	// originalEvent is only present on user-initiated interactions.
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+		const onDragStart = (e: any) => {
+			if (e.originalEvent) setIsFollowingGps(false);
+		};
+		map.on("dragstart", onDragStart);
+		return () => {
+			map.off("dragstart", onDragStart);
+		};
+	}, [mapLoaded]);
 
 	const trackedPositionUpdate = useCallback(
 		async (
@@ -68,24 +141,49 @@ export default function App() {
 			lastPosRef.current = pos;
 			lastBearingRef.current = bearing;
 			updatePuck(pos, bearing);
-			trimRoute(simIndexRef.current);
 			await onPositionUpdate(pos, bearing, speed, prov, followPos);
 		},
-		[updatePuck, trimRoute, onPositionUpdate],
+		[updatePuck, onPositionUpdate],
 	);
 
 	const { status: gpsStatus } = useGps(
 		useCallback(
-			(pos, bearing, speed) => {
+			(pos: [number, number], bearing: number, speed: number) => {
 				updatePuck(pos, bearing);
 				lastPosRef.current = pos;
 				lastBearingRef.current = bearing;
 
 				if (navActive) {
-					trackedPositionUpdate(pos, bearing, speed, provider, followPosition);
+					// ── Active navigation path ──────────────────────────────────────
+					if (coordsRef.current.length > 0) {
+						const idx = closestRouteIndex(pos, coordsRef.current);
+						simIndexRef.current = idx;
+						trimRoute(idx);
+					}
+					if (!isRerouting) {
+						trackedPositionUpdate(
+							pos,
+							bearing,
+							speed,
+							provider,
+							followPosition,
+						);
+					}
+				} else if (isFollowingGps) {
+					// ── Free-follow: no navigation, just keep camera on GPS ─────────
+					followPosition(pos, bearing, 0);
 				}
 			},
-			[navActive, updatePuck, trackedPositionUpdate, provider, followPosition],
+			[
+				navActive,
+				isFollowingGps,
+				isRerouting,
+				updatePuck,
+				trackedPositionUpdate,
+				provider,
+				followPosition,
+				trimRoute,
+			],
 		),
 	);
 
@@ -93,6 +191,7 @@ export default function App() {
 		coordsRef,
 		simIndexRef,
 		trackedPositionUpdate,
+		trimRoute,
 		setInstruction,
 		followPosition,
 	);
@@ -101,18 +200,15 @@ export default function App() {
 		setProvider((p) => (p === "mapbox" ? "valhalla" : "mapbox"));
 	}
 
-	// Map bearing for compass needle
 	const [mapBearing, setMapBearing] = useState(0);
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map) return;
-
 		let rafId: number;
 		const onMove = () => {
 			cancelAnimationFrame(rafId);
 			rafId = requestAnimationFrame(() => setMapBearing(map.getBearing()));
 		};
-
 		map.on("move", onMove);
 		return () => {
 			map.off("move", onMove);
@@ -126,14 +222,10 @@ export default function App() {
 	) {
 		resetNavigation();
 		simIndexRef.current = 0;
-
 		await fetchRoute(lastPosRef.current, coords, provider);
-
 		const fetchedManeuvers = maneuversRef.current;
 		if (!fetchedManeuvers.length) return;
-
 		showOverview(coordsRef.current);
-
 		const totalSecs = fetchedManeuvers.reduce(
 			(a, m: any) => a + (m.time ?? 0),
 			0,
@@ -144,7 +236,6 @@ export default function App() {
 		);
 		const hrs = Math.floor(totalSecs / 3600);
 		const mins = Math.round((totalSecs % 3600) / 60);
-
 		setPendingDest({
 			coords,
 			placeName,
@@ -158,8 +249,10 @@ export default function App() {
 
 	function handleConfirmNav() {
 		if (!pendingDest) return;
+		navDestRef.current = pendingDest.coords;
 		setPendingDest(null);
 		setNavActive(true);
+		setIsFollowingGps(false); // nav has its own follow logic
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 		if (gpsStatus !== "fix") {
 			startSimulation(provider);
@@ -170,6 +263,7 @@ export default function App() {
 		setPendingDest(null);
 		stopSimulation();
 		resetNavigation();
+		navDestRef.current = null;
 		const map = mapRef.current;
 		if (map?.getLayer("route")) map.removeLayer("route");
 		if (map?.getSource("route")) map.removeSource("route");
@@ -188,11 +282,15 @@ export default function App() {
 		stopSimulation();
 		resetNavigation();
 		setNavActive(false);
+		setIsRerouting(false);
+		navDestRef.current = null;
 		const map = mapRef.current;
 		if (map?.getSource("route")) {
 			map.removeLayer("route");
 			map.removeSource("route");
 		}
+		if (map?.getLayer("route-bg")) map.removeLayer("route-bg");
+		if (map?.getSource("route-bg")) map.removeSource("route-bg");
 		map?.easeTo({
 			center: lastPosRef.current,
 			zoom: ZOOM_LEVEL,
@@ -200,14 +298,16 @@ export default function App() {
 			bearing: 0,
 			duration: 800,
 		});
-		if (map?.getLayer("route-bg")) map.removeLayer("route-bg");
-		if (map?.getSource("route-bg")) map.removeSource("route-bg");
 	}
 
-	// Snap to road on first load
+	function handleLocate() {
+		// Enable continuous GPS follow and immediately snap the camera.
+		setIsFollowingGps(true);
+		resumeFollowing(lastPosRef.current, lastBearingRef.current);
+	}
+
 	useEffect(() => {
 		if (!mapLoaded) return;
-
 		async function snapInitialPosition() {
 			const snapped = await snapToRoad([DEV_ORIGIN, DEV_ORIGIN], provider);
 			lastPosRef.current = snapped;
@@ -220,7 +320,6 @@ export default function App() {
 				duration: 800,
 			});
 		}
-
 		snapInitialPosition();
 	}, [mapLoaded]);
 
@@ -239,7 +338,6 @@ export default function App() {
 			}}
 		>
 			<Box sx={{ flex: 1, minHeight: 0, position: "relative" }}>
-				{/* Map */}
 				<Box
 					ref={mapContainer}
 					sx={{
@@ -250,7 +348,7 @@ export default function App() {
 					}}
 				/>
 
-				{/* Top bar — left/spacer/right */}
+				{/* Top bar */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -263,24 +361,52 @@ export default function App() {
 						alignItems: "flex-start",
 					}}
 				>
-					{/* Left — Navigation card */}
 					<Box
 						sx={{
 							flex: 1,
 							minWidth: 0,
 							maxWidth: "calc(50% - 80px)",
 							zIndex: 1400,
+							display: "flex",
+							flexDirection: "column",
+							gap: 1,
 						}}
 					>
 						{navActive && (
 							<NavigationCard maneuvers={maneuvers} currentStep={currentStep} />
 						)}
+						{isRerouting && (
+							<Chip
+								icon={
+									<SyncRoundedIcon
+										sx={{
+											fontSize: 16,
+											animation: "spin 1s linear infinite",
+											"@keyframes spin": {
+												from: { transform: "rotate(0deg)" },
+												to: { transform: "rotate(360deg)" },
+											},
+										}}
+									/>
+								}
+								label="Rerouting…"
+								size="small"
+								sx={{
+									alignSelf: "flex-start",
+									background: alpha(theme.palette.background.default, 0.9),
+									backdropFilter: "blur(10px)",
+									border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
+									color: theme.palette.warning.main,
+									fontWeight: 600,
+									fontSize: 12,
+									boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+								}}
+							/>
+						)}
 					</Box>
 
-					{/* Center spacer — reserves room for the clock chip */}
 					<Box sx={{ flexShrink: 0, width: 160 }} />
 
-					{/* Right — Map controls */}
 					<Box
 						sx={{
 							flex: 1,
@@ -302,9 +428,7 @@ export default function App() {
 								toggleOrientation(lastBearingRef.current)
 							}
 							onSearchSelect={handleSearchSelect}
-							onLocate={() =>
-								resumeFollowing(lastPosRef.current, lastBearingRef.current)
-							}
+							onLocate={handleLocate}
 							isNavActive={navActive}
 							provider={provider}
 							onToggleProvider={handleToggleProvider}
@@ -312,7 +436,6 @@ export default function App() {
 					</Box>
 				</Box>
 
-				{/* Top center — Clock, Weather & GPS indicator */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -329,7 +452,6 @@ export default function App() {
 					/>
 				</Box>
 
-				{/* Confirm nav dialog */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -350,16 +472,8 @@ export default function App() {
 					)}
 				</Box>
 
-				{/* Trip Info */}
 				{navActive && (
-					<Box
-						sx={{
-							position: "absolute",
-							bottom: 16,
-							right: 16,
-							zIndex: 10,
-						}}
-					>
+					<Box sx={{ position: "absolute", bottom: 16, right: 16, zIndex: 10 }}>
 						<TripInfoCard
 							maneuvers={maneuvers}
 							currentStep={currentStep}
@@ -369,7 +483,6 @@ export default function App() {
 				)}
 			</Box>
 
-			{/* Bottom bar */}
 			<Box sx={{ height: "100px", flexShrink: 0, background: "black" }}>
 				<CarControls />
 			</Box>

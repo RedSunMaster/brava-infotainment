@@ -19,6 +19,7 @@ export function useSimulation(
 	coordsRef: React.RefObject<[number, number][]>,
 	simIndexRef: React.RefObject<number>,
 	onPositionUpdate: UpdateFn,
+	trimRoute: (fromIndex: number) => void,
 	setInstruction: (s: string) => void,
 	followPosition: FollowFn,
 ) {
@@ -47,6 +48,9 @@ export function useSimulation(
 
 			await onPositionUpdate(pos, bearing, 14, provider, followPosition);
 			simIndexRef.current++;
+			// Trim synchronously after advancing the index so the remaining-route
+			// line stays in lock-step with the simulated position.
+			trimRoute(simIndexRef.current);
 		}, 250);
 	}
 
