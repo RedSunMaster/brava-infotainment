@@ -7,9 +7,16 @@ import { ExpandMoreRounded } from "@mui/icons-material";
 interface Props {
 	maneuvers: any[];
 	currentStep: number;
+	distanceToNextM?: number | null; // ← new
+	timeToNextS?: number | null; // ← new
 }
 
-export default function NavigationCard({ maneuvers, currentStep }: Props) {
+export default function NavigationCard({
+	maneuvers,
+	currentStep,
+	distanceToNextM,
+	timeToNextS,
+}: Props) {
 	const [expanded, setExpanded] = useState(false);
 	const theme = useTheme();
 	const current = maneuvers[currentStep + 1];
@@ -76,9 +83,17 @@ export default function NavigationCard({ maneuvers, currentStep }: Props) {
 							mt: 0.4,
 						}}
 					>
-						{current.length?.toFixed(2)} km
+						{distanceToNextM != null
+							? distanceToNextM >= 1000
+								? `${(distanceToNextM / 1000).toFixed(1)} km`
+								: `${Math.round(distanceToNextM)} m`
+							: `${current.length?.toFixed(2)} km`}
 						{" \u00B7 "}
-						{Math.round((current.time ?? 0) / 60)} min
+						{timeToNextS != null
+							? timeToNextS >= 3600
+								? `${Math.floor(timeToNextS / 3600)}h ${Math.round((timeToNextS % 3600) / 60)}m`
+								: `${Math.ceil(timeToNextS / 60)} min`
+							: `${Math.round((current.time ?? 0) / 60)} min`}
 					</Typography>
 				</Box>
 

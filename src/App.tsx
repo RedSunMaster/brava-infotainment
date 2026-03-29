@@ -64,6 +64,7 @@ export default function App() {
 	const { coordsRef, maneuversRef, maneuvers, fetchRoute, trimRoute } =
 		useRoute(mapRef);
 
+	// ── Reroute handler ──────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
 		setIsRerouting(true);
@@ -82,6 +83,8 @@ export default function App() {
 		setInstruction,
 		onPositionUpdate,
 		resetNavigation,
+		distanceToNextM,
+		timeToNextS,
 	} = useNavigation(
 		mapRef,
 		maneuversRef,
@@ -111,6 +114,7 @@ export default function App() {
 	resumeFollowingRef.current = () =>
 		resumeFollowing(lastPosRef.current, lastBearingRef.current);
 
+	// Disable GPS follow when the user manually drags the map
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded) return;
@@ -137,7 +141,7 @@ export default function App() {
 		) => {
 			lastPosRef.current = pos;
 			lastBearingRef.current = bearing;
-			updatePuck(pos, bearing);
+			updatePuck(pos, bearing, speed); // ← speed passed through
 			await onPositionUpdate(pos, bearing, speed, prov, followPos);
 		},
 		[updatePuck, onPositionUpdate],
@@ -146,11 +150,11 @@ export default function App() {
 	const { status: gpsStatus } = useGps(
 		useCallback(
 			(pos: [number, number], bearing: number, speed: number) => {
-				updatePuck(pos, bearing);
 				lastPosRef.current = pos;
 				lastBearingRef.current = bearing;
 
 				if (navActive) {
+					// Synchronous route trim on every tick
 					if (coordsRef.current.length > 0) {
 						const idx = closestRouteIndex(pos, coordsRef.current);
 						simIndexRef.current = idx;
@@ -166,6 +170,8 @@ export default function App() {
 						);
 					}
 				} else if (isFollowingGps) {
+					// Free-follow: camera tracks GPS without active navigation
+					updatePuck(pos, bearing, speed); // ← speed passed through
 					followPosition(pos, bearing, 0);
 				}
 			},
@@ -273,7 +279,6 @@ export default function App() {
 		});
 	}
 
-	// Wrapped in useCallback so it can be used in the auto-end effect safely
 	const handleEndNavigation = useCallback(() => {
 		stopSimulation();
 		resetNavigation();
@@ -296,12 +301,10 @@ export default function App() {
 		});
 	}, [mapRef, resetNavigation, stopSimulation]);
 
-	// Auto-end navigation when the final "Arrived!" step is reached
+	// Auto-end navigation when arriving at the final step
 	useEffect(() => {
-		if (navActive && maneuvers.length > 0) {
-			if (currentStep >= maneuvers.length) {
-				handleEndNavigation();
-			}
+		if (navActive && maneuvers.length > 0 && currentStep >= maneuvers.length) {
+			handleEndNavigation();
 		}
 	}, [currentStep, maneuvers.length, navActive, handleEndNavigation]);
 
@@ -315,7 +318,7 @@ export default function App() {
 		async function snapInitialPosition() {
 			const snapped = await snapToRoad([DEV_ORIGIN, DEV_ORIGIN], provider);
 			lastPosRef.current = snapped;
-			updatePuck(snapped, 0);
+			updatePuck(snapped, 0, 0); // ← speed 0 for initial snap
 			mapRef.current?.easeTo({
 				center: snapped,
 				zoom: ZOOM_LEVEL,
@@ -342,6 +345,7 @@ export default function App() {
 			}}
 		>
 			<Box sx={{ flex: 1, minHeight: 0, position: "relative" }}>
+				{/* Map canvas */}
 				<Box
 					ref={mapContainer}
 					sx={{
@@ -352,7 +356,7 @@ export default function App() {
 					}}
 				/>
 
-				{/* Top HUD layer */}
+				{/* Top HUD */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -367,7 +371,7 @@ export default function App() {
 						gap: 2,
 					}}
 				>
-					{/* LEFT: Navigation Card OR spacer if inactive */}
+					{/* LEFT: Navigation Card */}
 					<Box
 						sx={{
 							flex: navActive ? "0 1 calc(50% - 80px)" : "0 0 0%",
@@ -375,6 +379,7 @@ export default function App() {
 							display: "flex",
 							flexDirection: "column",
 							gap: 1,
+							overflow: "hidden",
 							transition: "flex 0.3s ease",
 						}}
 					>
@@ -383,6 +388,8 @@ export default function App() {
 								<NavigationCard
 									maneuvers={maneuvers}
 									currentStep={currentStep}
+									distanceToNextM={distanceToNextM} // ← new
+									timeToNextS={timeToNextS} // ← new
 								/>
 								{isRerouting && (
 									<Chip
@@ -398,7 +405,7 @@ export default function App() {
 												}}
 											/>
 										}
-										label="Rerouting…"
+										label="Rerouting\u2026"
 										size="small"
 										sx={{
 											alignSelf: "flex-start",
@@ -432,10 +439,9 @@ export default function App() {
 						/>
 					</Box>
 
-					{/* RIGHT: Map Controls (Search) */}
+					{/* RIGHT: Map Controls */}
 					<Box
 						sx={{
-							// When active, let it compress to an icon button; otherwise expand up to 400px
 							flex: navActive ? "0 1 auto" : "0 1 400px",
 							pointerEvents: "auto",
 							display: "flex",
@@ -463,6 +469,7 @@ export default function App() {
 					</Box>
 				</Box>
 
+				{/* Confirm nav dialog */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -483,6 +490,7 @@ export default function App() {
 					)}
 				</Box>
 
+				{/* Trip info */}
 				{navActive && (
 					<Box sx={{ position: "absolute", bottom: 16, right: 16, zIndex: 10 }}>
 						<TripInfoCard
@@ -494,6 +502,7 @@ export default function App() {
 				)}
 			</Box>
 
+			{/* Bottom bar */}
 			<Box sx={{ height: "100px", flexShrink: 0, background: "black" }}>
 				<CarControls />
 			</Box>

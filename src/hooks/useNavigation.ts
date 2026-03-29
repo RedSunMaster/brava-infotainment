@@ -42,6 +42,19 @@ type FollowFn = (
 	elapsed: number,
 ) => void;
 
+function calcRemainingToStep(
+	fromIndex: number,
+	toIndex: number,
+	coords: [number, number][],
+): number {
+	let dist = 0;
+	const end = Math.min(toIndex, coords.length - 1);
+	for (let i = fromIndex; i < end; i++) {
+		dist += haversineMeters(coords[i], coords[i + 1]);
+	}
+	return dist;
+}
+
 export function useNavigation(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	maneuversRef: React.RefObject<NormalizedManeuver[]>,
@@ -61,6 +74,8 @@ export function useNavigation(
 
 	const [currentStep, setCurrentStep] = useState(0);
 	const [instruction, setInstruction] = useState("Set a destination to begin");
+	const [distanceToNextM, setDistanceToNextM] = useState<number | null>(null); // ← new
+	const [timeToNextS, setTimeToNextS] = useState<number | null>(null); // ← new
 
 	function smoothPosition(pos: [number, number]): [number, number] {
 		posHistory.current.push(pos);
@@ -105,6 +120,24 @@ export function useNavigation(
 			coords,
 		);
 
+		// ── Remaining distance + time to next maneuver ────────────────────────────
+		const currentManeuver = maneuversRef.current[currentStepRef.current];
+		const nextManeuver = maneuversRef.current[currentStepRef.current + 1];
+		const endIndex = nextManeuver?.begin_shape_index ?? coords.length - 1;
+
+		const remainingM = calcRemainingToStep(closestIndex, endIndex, coords);
+		setDistanceToNextM(remainingM);
+
+		// Time estimate: use live speed when moving, fall back to step's avg pace
+		if (speedMs > 0.5) {
+			setTimeToNextS(remainingM / speedMs);
+		} else if (currentManeuver?.length && currentManeuver?.time) {
+			const avgSpeedMs = (currentManeuver.length * 1000) / currentManeuver.time;
+			setTimeToNextS(remainingM / Math.max(avgSpeedMs, 1));
+		} else {
+			setTimeToNextS(null);
+		}
+
 		// Keep simIndexRef in sync so trimRoute always trims the right segment.
 		simIndexRef.current = closestIndex;
 
@@ -137,6 +170,8 @@ export function useNavigation(
 		gpsTrail.current = [];
 		lastOffRouteTime.current = 0;
 		setCurrentStep(0);
+		setDistanceToNextM(null); // ← reset
+		setTimeToNextS(null); // ← reset
 		setInstruction("Set a destination to begin");
 	}
 
@@ -146,5 +181,7 @@ export function useNavigation(
 		setInstruction,
 		onPositionUpdate,
 		resetNavigation,
+		distanceToNextM, // ← new
+		timeToNextS, // ← new
 	};
 }

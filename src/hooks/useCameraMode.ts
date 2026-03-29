@@ -28,6 +28,7 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		};
 	}, [mapRef.current]);
 
+	// useCameraMode.ts — revert to original signature
 	function followPosition(
 		pos: [number, number],
 		bearing: number,

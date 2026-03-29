@@ -95,7 +95,7 @@ export default function MapControls({
 	const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(
 		null,
 	);
-	// Controls whether the search is a full bar or just an icon when nav is active
+	// When navigating, search collapses to an icon button until tapped
 	const [searchExpanded, setSearchExpanded] = useState(false);
 
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,7 +107,7 @@ export default function MapControls({
 
 	const settingsOpen = Boolean(settingsAnchor);
 
-	// If navigation ends, ensure the search bar goes back to full width automatically
+	// When navigation ends, reset search to full-bar state automatically
 	useEffect(() => {
 		if (!isNavActive) {
 			setSearchExpanded(false);
@@ -158,7 +158,7 @@ export default function MapControls({
 				!wrapperRef.current.contains(e.target as Node)
 			) {
 				setDropdownOpen(false);
-				// If they click away and the query is empty while navigating, shrink it back
+				// Collapse back to icon if navigating and nothing was typed
 				if (isNavActive && query === "") {
 					setSearchExpanded(false);
 				}
@@ -171,7 +171,7 @@ export default function MapControls({
 	async function handleSelect(suggestion: Suggestion) {
 		setDropdownOpen(false);
 		setQuery("");
-		setSearchExpanded(false); // Close it up after selection
+		setSearchExpanded(false);
 		setLoading(true);
 		try {
 			const url =
@@ -189,6 +189,7 @@ export default function MapControls({
 		}
 	}
 
+	// Show full search bar when not navigating, or when the user taps the icon
 	const showFullSearch = !isNavActive || searchExpanded;
 
 	return (
@@ -202,7 +203,7 @@ export default function MapControls({
 				width: "100%",
 			}}
 		>
-			{/* Search Input OR Search Button */}
+			{/* Search: full bar or collapsed icon button */}
 			{showFullSearch ? (
 				<Box sx={{ position: "relative", width: "100%" }}>
 					<InputBase
@@ -299,22 +300,19 @@ export default function MapControls({
 					)}
 				</Box>
 			) : (
-				// Collapsed search button for when nav is active
-				<Box
-					sx={{ width: "100%", display: "flex", justifyContent: "flex-end" }}
-				>
-					<Tooltip title="Search" placement="bottom">
-						<IconButton
-							onClick={() => setSearchExpanded(true)}
-							sx={iconBtnStyle(false, theme)}
-						>
-							<SearchRounded fontSize="small" />
-						</IconButton>
-					</Tooltip>
-				</Box>
+				// Compact search icon shown when navigating and bar is collapsed
+				<Tooltip title="Search" placement="bottom">
+					<IconButton
+						onClick={() => setSearchExpanded(true)}
+						sx={iconBtnStyle(false, theme)}
+						aria-label="Open search"
+					>
+						<SearchRounded fontSize="small" />
+					</IconButton>
+				</Tooltip>
 			)}
 
-			{/* Icon buttons */}
+			{/* Icon button row */}
 			<Box
 				sx={{
 					display: "flex",
@@ -339,7 +337,11 @@ export default function MapControls({
 
 				{cameraMode !== "following" && (
 					<Tooltip title="Centre on location" placement="bottom">
-						<IconButton onClick={onLocate} sx={iconBtnStyle(false, theme)}>
+						<IconButton
+							onClick={onLocate}
+							sx={iconBtnStyle(false, theme)}
+							aria-label="Centre on location"
+						>
 							<MyLocationRounded fontSize="small" />
 						</IconButton>
 					</Tooltip>
@@ -355,6 +357,7 @@ export default function MapControls({
 				>
 					<IconButton
 						onClick={onToggleOrientation}
+						aria-label="Toggle map orientation"
 						sx={{
 							...iconBtnStyle(false, theme),
 							transform: `rotate(${-currentBearing}deg)`,
@@ -373,6 +376,7 @@ export default function MapControls({
 					<IconButton
 						onClick={(e) => setSettingsAnchor(e.currentTarget)}
 						sx={iconBtnStyle(settingsOpen, theme)}
+						aria-label="Settings"
 					>
 						<SettingsRounded fontSize="small" />
 					</IconButton>
@@ -400,7 +404,7 @@ export default function MapControls({
 						},
 					}}
 				>
-					{/* Theme toggle row */}
+					{/* Theme toggle */}
 					<Box
 						onClick={() => {
 							toggleMode();
@@ -440,11 +444,9 @@ export default function MapControls({
 						sx={{ borderColor: alpha(theme.palette.text.primary, 0.08) }}
 					/>
 
-					{/* Online / Offline toggle row */}
+					{/* Online / Offline routing toggle */}
 					<Box
-						onClick={() => {
-							onToggleProvider();
-						}}
+						onClick={onToggleProvider}
 						sx={{
 							display: "flex",
 							alignItems: "center",
@@ -462,8 +464,6 @@ export default function MapControls({
 						>
 							Routing
 						</Typography>
-
-						{/* Toggle pill */}
 						<Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
 							<Typography
 								sx={{
@@ -513,7 +513,7 @@ export default function MapControls({
 						sx={{ borderColor: alpha(theme.palette.text.primary, 0.08) }}
 					/>
 
-					{/* Exit row */}
+					{/* Exit */}
 					<Box
 						onClick={handleExitApp}
 						sx={{
