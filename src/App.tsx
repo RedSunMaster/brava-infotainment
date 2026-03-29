@@ -374,7 +374,7 @@ export default function App() {
 					{/* LEFT: Navigation Card */}
 					<Box
 						sx={{
-							flex: navActive ? "0 1 calc(50% - 80px)" : "0 0 0%",
+							flex: navActive ? "1 1 0" : "0 0 0%",
 							pointerEvents: "auto",
 							display: "flex",
 							flexDirection: "column",
@@ -442,7 +442,7 @@ export default function App() {
 					{/* RIGHT: Map Controls */}
 					<Box
 						sx={{
-							flex: navActive ? "0 1 auto" : "0 1 400px",
+							flex: navActive ? "0 0 auto" : "0 1 400px",
 							pointerEvents: "auto",
 							display: "flex",
 							justifyContent: "flex-end",
