@@ -365,32 +365,37 @@ export default function App() {
 						right: 16,
 						zIndex: 10,
 						pointerEvents: "none",
-						display: "flex",
-						justifyContent: "space-between",
-						alignItems: "flex-start",
-						gap: 2,
 					}}
 				>
-					{/* LEFT: Navigation Card */}
-					<Box
-						sx={{
-							flex: navActive ? "1 1 0" : "0 0 0%",
-							pointerEvents: "auto",
-							display: "flex",
-							flexDirection: "column",
-							gap: 1,
-							overflow: "hidden",
-							transition: "flex 0.3s ease",
-						}}
-					>
-						{navActive && (
-							<>
+					{navActive ? (
+						// ── NAV ACTIVE: clock left │ [nav card + controls] right ──────────
+						<Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
+							{/* LEFT: Clock & Weather — fixed width, won't grow */}
+							<Box sx={{ pointerEvents: "auto", flexShrink: 0 }}>
+								<ClockWeatherChip
+									position={lastPosRef.current}
+									gpsStatus={gpsStatus}
+								/>
+							</Box>
+
+							{/* RIGHT column: nav card on top, map controls below */}
+							<Box
+								sx={{
+									flex: 1,
+									minWidth: 0,
+									display: "flex",
+									flexDirection: "column",
+									gap: 1,
+									pointerEvents: "auto",
+								}}
+							>
 								<NavigationCard
 									maneuvers={maneuvers}
 									currentStep={currentStep}
-									distanceToNextM={distanceToNextM} // ← new
-									timeToNextS={timeToNextS} // ← new
+									distanceToNextM={distanceToNextM}
+									timeToNextS={timeToNextS}
 								/>
+
 								{isRerouting && (
 									<Chip
 										icon={
@@ -419,54 +424,80 @@ export default function App() {
 										}}
 									/>
 								)}
-							</>
-						)}
-					</Box>
 
-					{/* CENTRE: Clock & Weather */}
-					<Box
-						sx={{
-							flex: "0 0 auto",
-							display: "flex",
-							justifyContent: "center",
-							transform: navActive ? "none" : "translateX(-10%)",
-							transition: "transform 0.3s ease",
-						}}
-					>
-						<ClockWeatherChip
-							position={lastPosRef.current}
-							gpsStatus={gpsStatus}
-						/>
-					</Box>
+								{/* Map controls sit flush under the nav card, right-aligned */}
+								<Box sx={{ display: "flex", justifyContent: "flex-end" }}>
+									<MapControls
+										cameraMode={cameraMode}
+										orientation={orientation}
+										hasRoute={maneuvers.length > 0}
+										currentBearing={mapBearing}
+										currentPosition={lastPosRef.current}
+										mapboxToken={process.env.MAPBOX_TOKEN}
+										onOverview={() => showOverview(coordsRef.current)}
+										onToggleOrientation={() =>
+											toggleOrientation(lastBearingRef.current)
+										}
+										onSearchSelect={handleSearchSelect}
+										onLocate={handleLocate}
+										isNavActive={navActive}
+										provider={provider}
+										onToggleProvider={handleToggleProvider}
+									/>
+								</Box>
+							</Box>
+						</Box>
+					) : (
+						// ── NON-NAV: clock centred │ map controls right ──────────────────
+						// CSS Grid 1fr/auto/1fr keeps the clock perfectly centred regardless
+						// of how wide the controls column grows or shrinks.
+						<Box
+							sx={{
+								display: "grid",
+								gridTemplateColumns: "1fr auto 1fr",
+								alignItems: "flex-start",
+								gap: 2,
+							}}
+						>
+							{/* Left cell — empty spacer */}
+							<Box />
 
-					{/* RIGHT: Map Controls */}
-					<Box
-						sx={{
-							flex: navActive ? "0 0 auto" : "0 1 400px",
-							pointerEvents: "auto",
-							display: "flex",
-							justifyContent: "flex-end",
-							transition: "flex 0.3s ease",
-						}}
-					>
-						<MapControls
-							cameraMode={cameraMode}
-							orientation={orientation}
-							hasRoute={maneuvers.length > 0}
-							currentBearing={mapBearing}
-							currentPosition={lastPosRef.current}
-							mapboxToken={process.env.MAPBOX_TOKEN}
-							onOverview={() => showOverview(coordsRef.current)}
-							onToggleOrientation={() =>
-								toggleOrientation(lastBearingRef.current)
-							}
-							onSearchSelect={handleSearchSelect}
-							onLocate={handleLocate}
-							isNavActive={navActive}
-							provider={provider}
-							onToggleProvider={handleToggleProvider}
-						/>
-					</Box>
+							{/* Centre cell — clock & weather */}
+							<Box sx={{ pointerEvents: "auto" }}>
+								<ClockWeatherChip
+									position={lastPosRef.current}
+									gpsStatus={gpsStatus}
+								/>
+							</Box>
+
+							{/* Right cell — map controls, right-aligned within the cell */}
+							<Box
+								sx={{
+									pointerEvents: "auto",
+									display: "flex",
+									justifyContent: "flex-end",
+								}}
+							>
+								<MapControls
+									cameraMode={cameraMode}
+									orientation={orientation}
+									hasRoute={maneuvers.length > 0}
+									currentBearing={mapBearing}
+									currentPosition={lastPosRef.current}
+									mapboxToken={process.env.MAPBOX_TOKEN}
+									onOverview={() => showOverview(coordsRef.current)}
+									onToggleOrientation={() =>
+										toggleOrientation(lastBearingRef.current)
+									}
+									onSearchSelect={handleSearchSelect}
+									onLocate={handleLocate}
+									isNavActive={navActive}
+									provider={provider}
+									onToggleProvider={handleToggleProvider}
+								/>
+							</Box>
+						</Box>
+					)}
 				</Box>
 
 				{/* Confirm nav dialog */}

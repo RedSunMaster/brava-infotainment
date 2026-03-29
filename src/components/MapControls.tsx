@@ -200,7 +200,7 @@ export default function MapControls({
 				flexDirection: "column",
 				alignItems: "flex-end",
 				gap: 1,
-				width: "100%",
+				width: showFullSearch ? "100%" : "auto",
 			}}
 		>
 			{/* Search: full bar or collapsed icon button */}
