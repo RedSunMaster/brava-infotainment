@@ -69,7 +69,7 @@ export default function App() {
 		trimRouteByDistance,
 	} = useRoute(mapRef);
 
-	// ── Camera ───────────────────────────────────────────────────────────────
+	// ── Camera ─────────────────────────────────────────────────────────────────
 	const {
 		cameraMode,
 		orientation,
@@ -80,8 +80,9 @@ export default function App() {
 		toggleOrientation,
 	} = useCameraMode(mapRef);
 
-	// ── Puck — render loop drives both model and camera ──────────────────────
-	const { updatePuck, resetCursor } = usePositionPuck(
+	// ── Puck — render loop drives both model and camera ────────────────────────
+	// smoothLocate is destructured here alongside updatePuck and resetCursor.
+	const { updatePuck, resetCursor, smoothLocate } = usePositionPuck(
 		mapRef,
 		mapLoaded,
 		DEV_ORIGIN,
@@ -93,7 +94,7 @@ export default function App() {
 
 	const { period } = useMapStyle(mapRef, mapLoaded);
 
-	// ── Reroute ──────────────────────────────────────────────────────────────
+	// ── Reroute ────────────────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
 		setIsRerouting(true);
@@ -123,7 +124,7 @@ export default function App() {
 		handleOffRoute,
 	);
 
-	// ── Position update — no followPos param anymore ─────────────────────────
+	// ── Position update ────────────────────────────────────────────────────────
 	const trackedPositionUpdate = useCallback(
 		async (
 			pos: [number, number],
@@ -139,14 +140,13 @@ export default function App() {
 		[updatePuck, onPositionUpdate],
 	);
 
-	// ── GPS ──────────────────────────────────────────────────────────────────
+	// ── GPS ────────────────────────────────────────────────────────────────────
 	const { status: gpsStatus } = useGps(
 		useCallback(
 			(pos: [number, number], bearing: number, speed: number) => {
 				lastPosRef.current = pos;
 				lastBearingRef.current = bearing;
 
-				// Always update the puck — render loop decides whether camera follows.
 				updatePuck(pos, bearing, speed);
 
 				if (navActive && !isRerouting) {
@@ -169,8 +169,7 @@ export default function App() {
 		),
 	);
 
-	// ── Simulation — followPosition no longer passed ─────────────────────────
-	// Note: remove the followPosition param from useSimulation's implementation
+	// ── Simulation ─────────────────────────────────────────────────────────────
 	const { startSimulation, stopSimulation } = useSimulation(
 		coordsRef,
 		simIndexRef,
@@ -289,8 +288,13 @@ export default function App() {
 		}
 	}, [currentStep, maneuvers.length, navActive, handleEndNavigation]);
 
+	// ── Locate button ───────────────────────────────────────────────────────────
+	// resumeFollowing() updates React cameraMode state + followingRef immediately.
+	// smoothLocate() then animates back with easeTo and holds the jumpTo lock for
+	// 900ms so the animation isn't interrupted and the map stays interactive.
 	function handleLocate() {
-		resumeFollowing(); // re-enables following; render loop takes over next frame
+		resumeFollowing();
+		smoothLocate(lastPosRef.current, lastBearingRef.current);
 	}
 
 	useEffect(() => {

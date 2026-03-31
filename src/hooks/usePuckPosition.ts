@@ -8,8 +8,13 @@ import type { CameraMode, Orientation } from "../constants";
 import { ZOOM_LEVEL } from "../constants";
 
 // How quickly the rendered bearing chases the target bearing.
-// 2.5 = smooth natural turns. Increase for snappier response.
 const BEARING_LERP_SPEED = 2.5;
+
+// ── Camera follow thresholds ──────────────────────────────────────────────────
+// jumpTo is skipped when the camera hasn't meaningfully changed.
+// This prevents 60fps jumpTo calls from fighting Wayland's gesture recogniser.
+const CAMERA_POS_THRESHOLD_M = 0.5; // skip if puck moved < 0.5 m
+const CAMERA_BEARING_THRESHOLD_DEG = 0.3; // skip if bearing changed < 0.3°
 
 function haversineMeters(
 	[lon1, lat1]: [number, number],
@@ -76,7 +81,6 @@ function bearingAlongRoute(
 	return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
-// Project a point onto a line segment, returns t ∈ [0, 1]
 function projectOntoSegment(
 	pos: [number, number],
 	a: [number, number],
@@ -96,34 +100,26 @@ function distanceAlongRouteToPoint(
 	pos: [number, number],
 ): number {
 	if (coords.length < 2) return 0;
-
 	let bestOffRoute = Infinity;
 	let bestRouteDistance = 0;
 	let cumulative = 0;
-
 	for (let i = 0; i < coords.length - 1; i++) {
 		const segLen = haversineMeters(coords[i], coords[i + 1]);
-
-		// Find the closest point ON this segment (not just the vertex)
 		const t = projectOntoSegment(pos, coords[i], coords[i + 1]);
 		const projected: [number, number] = [
 			coords[i][0] + (coords[i + 1][0] - coords[i][0]) * t,
 			coords[i][1] + (coords[i + 1][1] - coords[i][1]) * t,
 		];
-
 		const offRoute = haversineMeters(pos, projected);
 		if (offRoute < bestOffRoute) {
 			bestOffRoute = offRoute;
 			bestRouteDistance = cumulative + t * segLen;
 		}
-
 		cumulative += segLen;
 	}
-
 	return bestRouteDistance;
 }
 
-// Lerp toward target angle via the shortest path, returns new current angle.
 function lerpBearing(current: number, target: number, alpha: number): number {
 	let delta = target - current;
 	if (delta > 180) delta -= 360;
@@ -146,13 +142,20 @@ export function usePositionPuck(
 	const gpsPosRef = useRef<[number, number]>(initialPos);
 	const gpsBearingRef = useRef<number>(0);
 
-	// Target: raw value from route geometry or GPS
-	// Render: smoothly lerped toward target each frame
 	const targetBearingRef = useRef<number>(0);
 	const renderPosRef = useRef<[number, number]>(initialPos);
 	const renderBearingRef = useRef<number>(0);
 
 	const lastFrameTimeRef = useRef<number>(performance.now());
+
+	// ── Camera follow: track last committed camera position/bearing ───────────
+	// jumpTo is only called when the puck has moved enough to justify it.
+	// This stops the 60fps jumpTo spam that fights Wayland gesture recognition.
+	const lastCameraPosRef = useRef<[number, number]>(initialPos);
+	const lastCameraBearingRef = useRef<number>(0);
+
+	// ── Easing lock: suppresses jumpTo while smoothLocate's easeTo is running ─
+	const isEasingRef = useRef<boolean>(false);
 
 	useEffect(() => {
 		if (!mapLoaded || !mapRef.current) return;
@@ -248,7 +251,9 @@ export function usePositionPuck(
 			id: "puck-layer",
 			type: "custom",
 			renderingMode: "3d",
-			onAdd() {},
+			onAdd() {
+				//Nothing
+			},
 
 			render(_gl, matrix) {
 				const now = performance.now();
@@ -265,12 +270,7 @@ export function usePositionPuck(
 						coords,
 						distanceCursorRef.current,
 					);
-
 					trimRouteByDistance(distanceCursorRef.current);
-
-					// Update the TARGET bearing from geometry — never render this directly.
-					// The geometry bearing jumps discretely at each segment boundary;
-					// renderBearingRef lerps toward it smoothly below.
 					if (speedMsRef.current > 0.5) {
 						targetBearingRef.current = bearingAlongRoute(
 							coords,
@@ -278,7 +278,6 @@ export function usePositionPuck(
 						);
 					}
 				} else {
-					// No route — lerp position toward raw GPS
 					const posAlpha = 1 - Math.exp(-5 * dt);
 					renderPosRef.current = [
 						renderPosRef.current[0] +
@@ -286,14 +285,11 @@ export function usePositionPuck(
 						renderPosRef.current[1] +
 							(gpsPosRef.current[1] - renderPosRef.current[1]) * posAlpha,
 					];
-
 					if (speedMsRef.current > 0.5) {
 						targetBearingRef.current = gpsBearingRef.current;
 					}
 				}
 
-				// ── Smooth bearing lerp (both route and no-route paths) ───────────────
-				// Always takes the shortest angular path (handles 350° → 10° correctly).
 				if (speedMsRef.current > 0.5) {
 					renderBearingRef.current = lerpBearing(
 						renderBearingRef.current,
@@ -310,16 +306,36 @@ export function usePositionPuck(
 				renderModel(matrix);
 
 				// ── Camera follow ─────────────────────────────────────────────────────
-				if (followingRef.current === "following") {
-					map.jumpTo({
-						center: renderPosRef.current,
-						bearing:
-							orientationRef.current === "heading"
-								? renderBearingRef.current
-								: 0,
-						pitch: orientationRef.current === "heading" ? 45 : 0,
-						zoom: ZOOM_LEVEL,
-					});
+				// Guard 1: skip entirely while smoothLocate's easeTo is animating.
+				// Guard 2: skip if position/bearing haven't meaningfully changed —
+				//          prevents 60fps jumpTo calls blocking Wayland gestures.
+				if (followingRef.current === "following" && !isEasingRef.current) {
+					const targetCenter = renderPosRef.current;
+					const targetBearing =
+						orientationRef.current === "heading" ? renderBearingRef.current : 0;
+					const targetPitch = orientationRef.current === "heading" ? 45 : 0;
+
+					const posDelta = haversineMeters(
+						lastCameraPosRef.current,
+						targetCenter,
+					);
+					const bearingDelta = Math.abs(
+						((targetBearing - lastCameraBearingRef.current + 540) % 360) - 180,
+					);
+
+					if (
+						posDelta > CAMERA_POS_THRESHOLD_M ||
+						bearingDelta > CAMERA_BEARING_THRESHOLD_DEG
+					) {
+						map.jumpTo({
+							center: targetCenter,
+							bearing: targetBearing,
+							pitch: targetPitch,
+							zoom: ZOOM_LEVEL,
+						});
+						lastCameraPosRef.current = [...targetCenter] as [number, number];
+						lastCameraBearingRef.current = targetBearing;
+					}
 				}
 
 				map.triggerRepaint();
@@ -369,14 +385,11 @@ export function usePositionPuck(
 		const error = actualDist - distanceCursorRef.current;
 
 		if (Math.abs(error) > 300) {
-			// Large jump: reroute or cold-start — snap cursor and position instantly
 			distanceCursorRef.current = actualDist;
 			renderPosRef.current = [...pos] as [number, number];
 		} else if (Math.abs(error) > 10) {
-			// Small drift: 15% correction per GPS tick (~7 ticks to converge)
 			distanceCursorRef.current += error * 0.15;
 		}
-		// < 10m: GPS noise, ignore
 	}
 
 	function resetCursor() {
@@ -384,5 +397,33 @@ export function usePositionPuck(
 		speedMsRef.current = 0;
 	}
 
-	return { updatePuck, resetCursor };
+	// ── smoothLocate ────────────────────────────────────────────────────────────
+	// Called by handleLocate in App.tsx instead of a bare resumeFollowing().
+	// Animates the camera back to the puck with easeTo (smooth), then re-enables
+	// frame-by-frame jumpTo following after the animation completes.
+	// The isEasingRef lock ensures jumpTo doesn't fight the ongoing easeTo.
+	function smoothLocate(pos: [number, number], bearing: number) {
+		const map = mapRef.current;
+		if (!map) return;
+
+		isEasingRef.current = true;
+
+		map.easeTo({
+			center: pos,
+			bearing: orientationRef.current === "heading" ? bearing : 0,
+			pitch: orientationRef.current === "heading" ? 45 : 0,
+			zoom: ZOOM_LEVEL,
+			duration: 800,
+		});
+
+		// After easeTo finishes (+100ms buffer), sync the camera refs to wherever
+		// the puck currently is, then release the lock so jumpTo resumes normally.
+		setTimeout(() => {
+			isEasingRef.current = false;
+			lastCameraPosRef.current = [...renderPosRef.current] as [number, number];
+			lastCameraBearingRef.current = renderBearingRef.current;
+		}, 900);
+	}
+
+	return { updatePuck, resetCursor, smoothLocate };
 }
