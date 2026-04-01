@@ -211,11 +211,9 @@ export default function MapControls({
 						placeholder="Search places..."
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
-						inputProps={{ inputMode: "search" }}
+						inputProps={{ inputMode: "text", enterKeyHint: "search" }}
 						onTouchStart={(e) => {
-							(
-								e.currentTarget.querySelector("input") as HTMLInputElement
-							)?.focus();
+							e.currentTarget.querySelector("input")?.focus();
 						}}
 						startAdornment={
 							<SearchRounded
