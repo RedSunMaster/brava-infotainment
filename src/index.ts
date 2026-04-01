@@ -91,7 +91,7 @@ const createWindow = (): void => {
 		frame: false,
 		fullscreen: true,
 		resizable: true,
-		show: false,
+		show: true,
 		backgroundColor: "#000000", // avoids white flash on load
 		webPreferences: {
 			zoomFactor: 1,
@@ -102,8 +102,6 @@ const createWindow = (): void => {
 			backgroundThrottling: false,
 		},
 	});
-
-	mainWindow.once("ready-to-show", () => mainWindow!.show());
 
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
