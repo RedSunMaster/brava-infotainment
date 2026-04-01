@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, session, screen } from "electron";
 import { createConnection } from "net";
+import { exec } from "child_process";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -7,11 +8,7 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 if (require("electron-squirrel-startup")) app.quit();
 
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
-// ── Wayland + Touch flags ─────────────────────────────────────────────────────
-// app.commandLine.appendSwitch("ozone-platform", "wayland");
 app.commandLine.appendSwitch("touch-events", "enabled");
-// app.commandLine.appendSwitch("enable-wayland-ime");
-// app.commandLine.appendSwitch("wayland-text-input-version", "3"); // ← ADD THIS
 app.commandLine.appendSwitch(
 	"enable-features",
 	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
@@ -77,7 +74,6 @@ const createWindow = (): void => {
 		x: 0,
 		y: 0,
 		frame: false,
-		// fullscreen: true,
 		resizable: true,
 		show: false,
 		webPreferences: {
@@ -123,6 +119,39 @@ const createWindow = (): void => {
 		startGps(mainWindow!);
 	});
 };
+
+// ── On-screen keyboard (GNOME/Wayland) ───────────────────────────────────────
+// Requires GNOME Shell unsafe mode to be enabled. Run once in terminal:
+//   gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
+//     --method org.gnome.Shell.Eval "global.context.unsafe_mode = true"
+ipcMain.on("osk-show", () => {
+	exec(
+		`gdbus call --session \
+      --dest org.gnome.Shell \
+      --object-path /org/gnome/Shell \
+      --method org.gnome.Shell.Eval \
+      "imports.ui.main.keyboard.show(0)"`,
+		(err) => {
+			if (err) console.warn("[OSK] show failed:", err.message);
+		},
+	);
+});
+
+ipcMain.on("osk-hide", () => {
+	exec(
+		`gdbus call --session \
+      --dest org.gnome.Shell \
+      --object-path /org/gnome/Shell \
+      --method org.gnome.Shell.Eval \
+      "imports.ui.main.keyboard.hide()"`,
+		(err) => {
+			if (err) console.warn("[OSK] hide failed:", err.message);
+		},
+	);
+});
+
+// ── App lifecycle (quit via renderer) ────────────────────────────────────────
+ipcMain.on("app-quit", () => app.quit());
 
 // ── Spotify auth ──────────────────────────────────────────────────────────────
 ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {

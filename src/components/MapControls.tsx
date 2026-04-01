@@ -51,6 +51,11 @@ interface Props {
 	onToggleProvider: () => void;
 }
 
+// Convenience wrapper — safe to call even outside Electron (e.g. browser dev)
+const osk = (window as any).electronOSK as
+	| { show: () => void; hide: () => void }
+	| undefined;
+
 function iconBtnStyle(active: boolean, theme: Theme) {
 	return {
 		width: 44,
@@ -95,7 +100,6 @@ export default function MapControls({
 	const [settingsAnchor, setSettingsAnchor] = useState<HTMLElement | null>(
 		null,
 	);
-	// When navigating, search collapses to an icon button until tapped
 	const [searchExpanded, setSearchExpanded] = useState(false);
 
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -107,11 +111,8 @@ export default function MapControls({
 
 	const settingsOpen = Boolean(settingsAnchor);
 
-	// When navigation ends, reset search to full-bar state automatically
 	useEffect(() => {
-		if (!isNavActive) {
-			setSearchExpanded(false);
-		}
+		if (!isNavActive) setSearchExpanded(false);
 	}, [isNavActive]);
 
 	function handleExitApp() {
@@ -158,10 +159,7 @@ export default function MapControls({
 				!wrapperRef.current.contains(e.target as Node)
 			) {
 				setDropdownOpen(false);
-				// Collapse back to icon if navigating and nothing was typed
-				if (isNavActive && query === "") {
-					setSearchExpanded(false);
-				}
+				if (isNavActive && query === "") setSearchExpanded(false);
 			}
 		}
 		document.addEventListener("mousedown", handleClickOutside);
@@ -172,6 +170,7 @@ export default function MapControls({
 		setDropdownOpen(false);
 		setQuery("");
 		setSearchExpanded(false);
+		osk?.hide();
 		setLoading(true);
 		try {
 			const url =
@@ -189,7 +188,6 @@ export default function MapControls({
 		}
 	}
 
-	// Show full search bar when not navigating, or when the user taps the icon
 	const showFullSearch = !isNavActive || searchExpanded;
 
 	return (
@@ -203,15 +201,19 @@ export default function MapControls({
 				width: showFullSearch ? "100%" : "auto",
 			}}
 		>
-			{/* Search: full bar or collapsed icon button */}
 			{showFullSearch ? (
 				<Box sx={{ position: "relative", width: "100%" }}>
+					{/* ── Search input ── */}
 					<InputBase
 						autoFocus={searchExpanded}
 						placeholder="Search places..."
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
 						inputProps={{ inputMode: "text", enterKeyHint: "search" }}
+						// ── OSK triggers ─────────────────────────────────────────────────
+						onFocus={() => osk?.show()}
+						onBlur={() => osk?.hide()}
+						// ─────────────────────────────────────────────────────────────────
 						onTouchStart={(e) => {
 							e.currentTarget.querySelector("input")?.focus();
 						}}
@@ -298,7 +300,6 @@ export default function MapControls({
 					)}
 				</Box>
 			) : (
-				// Compact search icon shown when navigating and bar is collapsed
 				<Tooltip title="Search" placement="bottom">
 					<IconButton
 						onClick={() => setSearchExpanded(true)}
@@ -380,7 +381,6 @@ export default function MapControls({
 					</IconButton>
 				</Tooltip>
 
-				{/* Settings Popover */}
 				<Popover
 					open={settingsOpen}
 					anchorEl={settingsAnchor}
@@ -402,7 +402,6 @@ export default function MapControls({
 						},
 					}}
 				>
-					{/* Theme toggle */}
 					<Box
 						onClick={() => {
 							toggleMode();
@@ -442,7 +441,6 @@ export default function MapControls({
 						sx={{ borderColor: alpha(theme.palette.text.primary, 0.08) }}
 					/>
 
-					{/* Online / Offline routing toggle */}
 					<Box
 						onClick={onToggleProvider}
 						sx={{
@@ -511,7 +509,6 @@ export default function MapControls({
 						sx={{ borderColor: alpha(theme.palette.text.primary, 0.08) }}
 					/>
 
-					{/* Exit */}
 					<Box
 						onClick={handleExitApp}
 						sx={{

@@ -19,3 +19,9 @@ import { ipcRenderer } from "electron";
 		return () => ipcRenderer.removeListener("spotify-auth-callback", handler);
 	},
 };
+
+// ── On-screen keyboard (GNOME/Wayland) ───────────────────────────────────────
+(window as any).electronOSK = {
+	show: () => ipcRenderer.send("osk-show"),
+	hide: () => ipcRenderer.send("osk-hide"),
+};
