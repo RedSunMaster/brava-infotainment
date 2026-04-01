@@ -23,15 +23,16 @@ const KeyboardContext = createContext<KeyboardContextValue>({
 export function KeyboardProvider({ children }: { children: ReactNode }) {
 	const [enterHandler, setEnterHandler] = useState<{ fn?: () => void }>({});
 	const [visible, setVisible] = useState(false);
-	// Capture the focused input at the moment the keyboard opens so fast
-	// keypresses never lose the target due to a stale document.activeElement.
 	const targetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+	// Timestamp of last open — backdrop ignores events within 300ms of this
+	const openedAtRef = useRef<number>(0);
 
 	const showKeyboard = useCallback((onEnter?: () => void) => {
 		const el = document.activeElement;
 		if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
 			targetRef.current = el;
 		}
+		openedAtRef.current = Date.now();
 		setEnterHandler({ fn: onEnter });
 		setVisible(true);
 	}, []);
@@ -39,7 +40,8 @@ export function KeyboardProvider({ children }: { children: ReactNode }) {
 	const hideKeyboard = useCallback(() => {
 		setVisible(false);
 		setEnterHandler({});
-		targetRef.current?.blur();
+		// Do NOT blur here — blurring programmatically causes the input to re-fire
+		// onFocus which immediately re-opens the keyboard in a loop.
 		targetRef.current = null;
 	}, []);
 
@@ -51,6 +53,7 @@ export function KeyboardProvider({ children }: { children: ReactNode }) {
 			{visible && (
 				<InAppKeyboard
 					targetRef={targetRef}
+					openedAtRef={openedAtRef}
 					onEnter={enterHandler.fn}
 					onClose={hideKeyboard}
 				/>

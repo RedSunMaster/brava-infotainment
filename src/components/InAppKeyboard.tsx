@@ -7,8 +7,7 @@ const QWERTY = ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"];
 const ASDF = ["a", "s", "d", "f", "g", "h", "j", "k", "l"];
 const ZXCV = ["z", "x", "c", "v", "b", "n", "m"];
 
-// ── Mutation helpers ─────────────────────────────────────────────────────────
-// Uses the stored ref so fast typing never loses the target element.
+// ── Mutation helpers ──────────────────────────────────────────────────────────
 
 function setNativeValue(
 	el: HTMLInputElement | HTMLTextAreaElement,
@@ -32,6 +31,8 @@ function insertAtCursor(
 	const e = el.selectionEnd ?? el.value.length;
 	const next = el.value.slice(0, s) + char + el.value.slice(e);
 	setNativeValue(el, next);
+	// Restore focus in case it drifted, then reset cursor
+	el.focus();
 	el.setSelectionRange(s + char.length, s + char.length);
 }
 
@@ -52,10 +53,12 @@ function deleteAtCursor(
 		pos = s - 1;
 	} else return;
 	setNativeValue(el, next);
+	el.focus();
 	el.setSelectionRange(pos, pos);
 }
 
-// ── Key button ───────────────────────────────────────────────────────────────
+// ── Key button ────────────────────────────────────────────────────────────────
+
 type KeyVariant = "default" | "special" | "active";
 
 function Key({
@@ -78,7 +81,6 @@ function Key({
 	return (
 		<Box
 			component="button"
-			// Prevent ANY default pointer behaviour so the input never loses focus
 			onMouseDown={(e: React.MouseEvent) => {
 				e.preventDefault();
 				e.stopPropagation();
@@ -122,14 +124,28 @@ function Key({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
+
 interface Props {
 	targetRef: RefObject<HTMLInputElement | HTMLTextAreaElement | null>;
+	openedAtRef: RefObject<number>;
 	onEnter?: () => void;
 	onClose: () => void;
 }
 
-export default function InAppKeyboard({ targetRef, onEnter, onClose }: Props) {
+export default function InAppKeyboard({
+	targetRef,
+	openedAtRef,
+	onEnter,
+	onClose,
+}: Props) {
 	const [shifted, setShifted] = useState(false);
+
+	// Guard: ignore backdrop dismissal if the keyboard just opened (same touch
+	// event that focused the input would immediately close it otherwise).
+	function tryClose() {
+		if (Date.now() - openedAtRef.current < 300) return;
+		onClose();
+	}
 
 	const handleChar = useCallback(
 		(char: string) => {
@@ -151,28 +167,28 @@ export default function InAppKeyboard({ targetRef, onEnter, onClose }: Props) {
 
 	return ReactDOM.createPortal(
 		<>
-			{/* ── Backdrop: tap anywhere outside keyboard to close ── */}
+			{/* Backdrop — catches taps outside keyboard */}
 			<Box
 				onMouseDown={(e) => {
 					e.preventDefault();
-					onClose();
+					tryClose();
 				}}
-				onTouchStart={(e) => {
+				onTouchEnd={(e) => {
 					e.preventDefault();
-					onClose();
+					tryClose();
 				}}
 				sx={{
 					position: "fixed",
 					inset: 0,
 					zIndex: 9998,
-					// transparent — just catches taps
 				}}
 			/>
 
-			{/* ── Keyboard panel ── */}
+			{/* Keyboard panel */}
 			<Box
 				onMouseDown={(e) => e.stopPropagation()}
 				onTouchStart={(e) => e.stopPropagation()}
+				onTouchEnd={(e) => e.stopPropagation()}
 				sx={{
 					position: "fixed",
 					bottom: 0,
