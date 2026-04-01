@@ -1,4 +1,4 @@
-import React, { useState, useCallback, RefObject } from "react";
+import React, { useState, useCallback, useRef, RefObject } from "react";
 import ReactDOM from "react-dom";
 import { Box } from "@mui/material";
 
@@ -31,7 +31,6 @@ function insertAtCursor(
 	const e = el.selectionEnd ?? el.value.length;
 	const next = el.value.slice(0, s) + char + el.value.slice(e);
 	setNativeValue(el, next);
-	// Restore focus in case it drifted, then reset cursor
 	el.focus();
 	el.setSelectionRange(s + char.length, s + char.length);
 }
@@ -61,17 +60,49 @@ function deleteAtCursor(
 
 type KeyVariant = "default" | "special" | "active";
 
-function Key({
-	label,
-	onPress,
-	flex = 1,
-	variant = "default",
-}: {
+interface KeyProps {
+	id: string;
 	label: React.ReactNode;
 	onPress: () => void;
 	flex?: number;
 	variant?: KeyVariant;
-}) {
+	pressedKey: string | null;
+	onPressStart: (id: string) => void;
+	onPressEnd: () => void;
+	// Optional long-press repeat handler (used by backspace only)
+	onHold?: () => void;
+}
+
+function Key({
+	id,
+	label,
+	onPress,
+	flex = 1,
+	variant = "default",
+	pressedKey,
+	onPressStart,
+	onPressEnd,
+	onHold,
+}: KeyProps) {
+	const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+	const startHold = () => {
+		if (!onHold) return;
+		holdTimerRef.current = setTimeout(() => {
+			holdIntervalRef.current = setInterval(onHold, 80);
+		}, 400);
+	};
+
+	const cancelHold = () => {
+		if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+		if (holdIntervalRef.current) clearInterval(holdIntervalRef.current);
+		holdTimerRef.current = null;
+		holdIntervalRef.current = null;
+	};
+
+	const isPressed = pressedKey === id;
+
 	const bg: Record<KeyVariant, string> = {
 		default: "rgba(255,255,255,0.13)",
 		special: "rgba(255,255,255,0.07)",
@@ -84,25 +115,46 @@ function Key({
 			onMouseDown={(e: React.MouseEvent) => {
 				e.preventDefault();
 				e.stopPropagation();
+				onPressStart(id);
+				startHold();
+			}}
+			onMouseUp={(e: React.MouseEvent) => {
+				e.preventDefault();
+				cancelHold();
+				onPressEnd();
+				onPress();
+			}}
+			onMouseLeave={() => {
+				cancelHold();
+				onPressEnd();
 			}}
 			onTouchStart={(e: React.TouchEvent) => {
 				e.preventDefault();
 				e.stopPropagation();
+				onPressStart(id);
+				startHold();
 			}}
 			onTouchEnd={(e: React.TouchEvent) => {
 				e.preventDefault();
 				e.stopPropagation();
+				cancelHold();
+				onPressEnd();
 				onPress();
 			}}
-			onClick={onPress}
+			onTouchCancel={() => {
+				cancelHold();
+				onPressEnd();
+			}}
 			sx={{
 				flex,
 				minWidth: 0,
 				height: 52,
-				background: bg[variant],
-				border: "1px solid rgba(255,255,255,0.08)",
+				// Flash white when pressed, otherwise use variant colour
+				background: isPressed ? "rgba(255,255,255,0.55)" : bg[variant],
+				border: `1px solid ${isPressed ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.08)"}`,
 				borderRadius: "8px",
-				color: variant === "active" ? "#111" : "rgba(255,255,255,0.9)",
+				color:
+					isPressed || variant === "active" ? "#111" : "rgba(255,255,255,0.9)",
 				fontSize: typeof label === "string" && label.length === 1 ? 17 : 13,
 				fontWeight: variant !== "default" ? 600 : 400,
 				fontFamily: "inherit",
@@ -113,9 +165,12 @@ function Key({
 				userSelect: "none",
 				WebkitTapHighlightColor: "transparent",
 				touchAction: "manipulation",
-				transition: "background 0.08s",
+				// Slight scale-down when pressed for tactile feel
+				transform: isPressed ? "scale(0.93)" : "scale(1)",
+				transition: isPressed
+					? "background 0.04s, transform 0.04s"
+					: "background 0.12s, transform 0.12s",
 				p: 0,
-				"&:active": { background: "rgba(255,255,255,0.28)" },
 			}}
 		>
 			{label}
@@ -139,9 +194,12 @@ export default function InAppKeyboard({
 	onClose,
 }: Props) {
 	const [shifted, setShifted] = useState(false);
+	// ID of the currently pressed key — drives the press flash
+	const [pressedKey, setPressedKey] = useState<string | null>(null);
 
-	// Guard: ignore backdrop dismissal if the keyboard just opened (same touch
-	// event that focused the input would immediately close it otherwise).
+	const onPressStart = useCallback((id: string) => setPressedKey(id), []);
+	const onPressEnd = useCallback(() => setPressedKey(null), []);
+
 	function tryClose() {
 		if (Date.now() - openedAtRef.current < 300) return;
 		onClose();
@@ -165,9 +223,12 @@ export default function InAppKeyboard({
 		onClose();
 	};
 
+	// Shared props every Key needs
+	const kp = { pressedKey, onPressStart, onPressEnd };
+
 	return ReactDOM.createPortal(
 		<>
-			{/* Backdrop — catches taps outside keyboard */}
+			{/* Backdrop */}
 			<Box
 				onMouseDown={(e) => {
 					e.preventDefault();
@@ -177,11 +238,7 @@ export default function InAppKeyboard({
 					e.preventDefault();
 					tryClose();
 				}}
-				sx={{
-					position: "fixed",
-					inset: 0,
-					zIndex: 9998,
-				}}
+				sx={{ position: "fixed", inset: 0, zIndex: 9998 }}
 			/>
 
 			{/* Keyboard panel */}
@@ -213,11 +270,21 @@ export default function InAppKeyboard({
 					{NUM_ROW.map((k) => (
 						<Key
 							key={k}
+							id={`n-${k}`}
 							label={k}
 							onPress={() => insertAtCursor(k, targetRef)}
+							{...kp}
 						/>
 					))}
-					<Key label="⌫" onPress={handleDelete} variant="special" flex={1.5} />
+					<Key
+						id="bksp"
+						label="⌫"
+						onPress={handleDelete}
+						onHold={handleDelete}
+						variant="special"
+						flex={1.5}
+						{...kp}
+					/>
 				</Box>
 
 				{/* QWERTY */}
@@ -225,8 +292,10 @@ export default function InAppKeyboard({
 					{QWERTY.map((k) => (
 						<Key
 							key={k}
+							id={`q-${k}`}
 							label={shifted ? k.toUpperCase() : k}
 							onPress={() => handleChar(k)}
+							{...kp}
 						/>
 					))}
 				</Box>
@@ -236,47 +305,81 @@ export default function InAppKeyboard({
 					{ASDF.map((k) => (
 						<Key
 							key={k}
+							id={`a-${k}`}
 							label={shifted ? k.toUpperCase() : k}
 							onPress={() => handleChar(k)}
+							{...kp}
 						/>
 					))}
-					<Key label="↵" onPress={handleEnter} variant="special" flex={1.5} />
+					<Key
+						id="enter"
+						label="↵"
+						onPress={handleEnter}
+						variant="special"
+						flex={1.5}
+						{...kp}
+					/>
 				</Box>
 
 				{/* ZXCV + punctuation */}
 				<Box sx={{ display: "flex", gap: 0.5 }}>
 					<Key
+						id="shift-l"
 						label="⇧"
 						onPress={() => setShifted((s) => !s)}
 						variant={shifted ? "active" : "special"}
 						flex={1.5}
+						{...kp}
 					/>
 					{ZXCV.map((k) => (
 						<Key
 							key={k}
+							id={`z-${k}`}
 							label={shifted ? k.toUpperCase() : k}
 							onPress={() => handleChar(k)}
+							{...kp}
 						/>
 					))}
-					<Key label="." onPress={() => insertAtCursor(".", targetRef)} />
-					<Key label="-" onPress={() => insertAtCursor("-", targetRef)} />
 					<Key
+						id="dot"
+						label="."
+						onPress={() => insertAtCursor(".", targetRef)}
+						{...kp}
+					/>
+					<Key
+						id="dash"
+						label="-"
+						onPress={() => insertAtCursor("-", targetRef)}
+						{...kp}
+					/>
+					<Key
+						id="shift-r"
 						label="⇧"
 						onPress={() => setShifted((s) => !s)}
 						variant={shifted ? "active" : "special"}
 						flex={1.5}
+						{...kp}
 					/>
 				</Box>
 
 				{/* Space + close */}
 				<Box sx={{ display: "flex", gap: 0.5 }}>
 					<Key
+						id="space"
 						label="space"
 						onPress={() => insertAtCursor(" ", targetRef)}
 						variant="special"
 						flex={7}
+						{...kp}
 					/>
-					<Key label="✕  close" onPress={onClose} variant="special" flex={2} />
+					<Key
+						id="close"
+						label="✕  close"
+						onPress={onClose}
+						variant="special"
+						flex={2}
+						{...kp}
+					/>
 				</Box>
 			</Box>
 		</>,
