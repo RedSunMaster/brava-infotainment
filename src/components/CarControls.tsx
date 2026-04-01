@@ -1,5 +1,4 @@
 import {
-	AcUnitRounded,
 	AppsRounded,
 	CarCrashRounded,
 	FlashlightOnRounded,
@@ -8,6 +7,7 @@ import {
 	VolumeUpRounded,
 } from "@mui/icons-material";
 import { Box, Popover, Slider, Typography } from "@mui/material";
+import ClickAwayListener from "@mui/material/ClickAwayListener";
 import React, { useEffect, useRef, useState } from "react";
 
 import FanOffIcon from "../../public/icons/fanOff.svg";
@@ -54,8 +54,10 @@ const SliderPopup = ({ anchorEl, onClose, children }: SliderPopupProps) => (
 		transformOrigin={{ vertical: "bottom", horizontal: "center" }}
 		disablePortal
 		marginThreshold={0}
+		sx={{ pointerEvents: "none" }}
 		PaperProps={{
 			sx: {
+				pointerEvents: "auto",
 				backgroundColor: "#1a1a1a",
 				border: "1px solid rgba(255,255,255,0.15)",
 				borderRadius: 3,
@@ -208,7 +210,7 @@ interface VolumeSliderPopupProps {
 	onClose: () => void;
 	value: number;
 	onChange: (v: number) => void;
-	onChangeCommitted: (v: number) => void; // ← new
+	onChangeCommitted: (v: number) => void;
 	disabled: boolean;
 }
 
@@ -217,7 +219,7 @@ const VolumeSliderPopup = ({
 	onClose,
 	value,
 	onChange,
-	onChangeCommitted, // ← new
+	onChangeCommitted,
 	disabled,
 }: VolumeSliderPopupProps) => (
 	<SliderPopup anchorEl={anchorEl} onClose={onClose}>
@@ -345,8 +347,10 @@ const MultiAppPopup = ({
 			transformOrigin={{ vertical: "bottom", horizontal: "center" }}
 			disablePortal
 			marginThreshold={0}
+			sx={{ pointerEvents: "none" }}
 			PaperProps={{
 				sx: {
+					pointerEvents: "auto",
 					backgroundColor: "#1a1a1a",
 					border: "1px solid rgba(255,255,255,0.15)",
 					borderRadius: 3,
@@ -386,11 +390,14 @@ const CarControls = () => {
 	const spotify = useSpotify();
 	const [localVolume, setLocalVolume] = useState(50);
 
-	// Popup state — only one open at a time
 	const [activePopup, setActivePopup] = useState<
 		"spotify" | "multiApp" | "temp" | "fan" | "volume" | null
 	>(null);
+
 	const close = () => setActivePopup(null);
+
+	const toggle = (popup: NonNullable<typeof activePopup>) =>
+		setActivePopup((prev) => (prev === popup ? null : popup));
 
 	// Hazard flash
 	const [hazardOn, setHazardOn] = useState(false);
@@ -420,140 +427,140 @@ const CarControls = () => {
 		}
 	};
 
-	// Slider values
 	const [temp, setTemp] = useState(5);
 	const [fanSpeed, setFanSpeed] = useState(3);
 
-	// Handlers
 	const handleRearHeat = () => console.log("rear heat toggled");
 	const handleFogLeft = () => console.log("fog left toggled");
 	const handleFogRight = () => console.log("fog right toggled");
 	const handleAirDir = () => console.log("air direction pressed");
 
 	return (
-		<Box
-			sx={{
-				display: "flex",
-				alignItems: "center",
-				width: "100%",
-				height: "100%",
-			}}
-		>
-			{/* ── Left group ───────────────────────────────────────────────────── */}
+		<ClickAwayListener onClickAway={close}>
 			<Box
 				sx={{
 					display: "flex",
-					flex: 1,
-					justifyContent: "space-evenly",
 					alignItems: "center",
+					width: "100%",
+					height: "100%",
 				}}
 			>
-				{/* Volume */}
+				{/* ── Left group ───────────────────────────────────────────────────── */}
 				<Box
 					sx={{
-						...iconBtnStyle,
-						color: spotify.isConnected ? "white" : "rgba(255,255,255,0.35)",
-					}}
-					onClick={() => {
-						setLocalVolume(spotify.volume); // snapshot current volume on open
-						setActivePopup("volume");
+						display: "flex",
+						flex: 1,
+						justifyContent: "space-evenly",
+						alignItems: "center",
 					}}
 				>
-					<VolumeUpRounded sx={{ fontSize: 48 }} />
+					{/* Volume */}
+					<Box
+						sx={{
+							...iconBtnStyle,
+							color: spotify.isConnected ? "white" : "rgba(255,255,255,0.35)",
+						}}
+						onClick={() => {
+							setLocalVolume(spotify.volume);
+							toggle("volume");
+						}}
+					>
+						<VolumeUpRounded sx={{ fontSize: 48 }} />
+					</Box>
+
+					{/* Music */}
+					<Box sx={iconBtnStyle} onClick={() => toggle("spotify")}>
+						<MusicNoteRounded sx={{ fontSize: 48 }} />
+					</Box>
+
+					{/* Multi-App */}
+					<Box sx={iconBtnStyle} onClick={() => toggle("multiApp")}>
+						<AppsRounded sx={{ fontSize: 48 }} />
+					</Box>
 				</Box>
 
-				{/* Music */}
-				<Box sx={iconBtnStyle} onClick={() => setActivePopup("spotify")}>
-					<MusicNoteRounded sx={{ fontSize: 48 }} />
-				</Box>
-
-				{/* Multi-App */}
-				<Box sx={iconBtnStyle} onClick={() => setActivePopup("multiApp")}>
-					<AppsRounded sx={{ fontSize: 48 }} />
-				</Box>
-			</Box>
-
-			{/* ── Centre: Hazard (always mathematically centred) ───────────────── */}
-			<Box
-				ref={hazardRef}
-				sx={{
-					...iconBtnStyle,
-					flexShrink: 0,
-					color: hazardOn
-						? hazardFlash
-							? "#ff3333"
-							: "rgba(255,255,255,0.15)"
-						: "white",
-					transition: hazardOn ? "color 0.1s ease" : "color 0.15s ease",
-				}}
-				onClick={handleHazard}
-			>
-				<CarCrashRounded sx={{ fontSize: 72 }} />
-			</Box>
-
-			{/* ── Right group ──────────────────────────────────────────────────── */}
-			<Box
-				sx={{
-					display: "flex",
-					flex: 1,
-					justifyContent: "space-evenly",
-					alignItems: "center",
-				}}
-			>
-				{/* Temp */}
-				<Box sx={iconBtnStyle} onClick={() => setActivePopup("temp")}>
-					<ThermostatRounded sx={{ fontSize: 48 }} />
-				</Box>
-
-				{/* Fan */}
+				{/* ── Centre: Hazard ───────────────────────────────────────────────── */}
 				<Box
-					sx={{ ...iconBtnStyle, color: "white" }}
-					onClick={() => setActivePopup("fan")}
+					ref={hazardRef}
+					sx={{
+						...iconBtnStyle,
+						flexShrink: 0,
+						color: hazardOn
+							? hazardFlash
+								? "#ff3333"
+								: "rgba(255,255,255,0.15)"
+							: "white",
+						transition: hazardOn ? "color 0.1s ease" : "color 0.15s ease",
+					}}
+					onClick={handleHazard}
 				>
-					{fanSpeed === 0 ? (
-						<FanOffIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
-					) : (
-						<FanOnIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
-					)}
+					<CarCrashRounded sx={{ fontSize: 72 }} />
 				</Box>
-			</Box>
 
-			{/* ── All popups — anchored to hazard button ────────────────────────── */}
-			<VolumeSliderPopup
-				anchorEl={activePopup === "volume" ? hazardRef.current : null}
-				onClose={close}
-				value={localVolume}
-				onChange={setLocalVolume} // ← instant local update
-				onChangeCommitted={spotify.setVolume} // ← API call on release only
-				disabled={!spotify.isConnected}
-			/>
-			<MultiAppPopup
-				anchorEl={activePopup === "multiApp" ? hazardRef.current : null}
-				onClose={close}
-				onRearHeat={handleRearHeat}
-				onFogLeft={handleFogLeft}
-				onFogRight={handleFogRight}
-				onAirDir={handleAirDir}
-				onAC={() => console.log("A/C toggled")}
-			/>
-			<TempSliderPopup
-				anchorEl={activePopup === "temp" ? hazardRef.current : null}
-				onClose={close}
-				value={temp}
-				onChange={setTemp}
-			/>
-			<FanSliderPopup
-				anchorEl={activePopup === "fan" ? hazardRef.current : null}
-				onClose={close}
-				value={fanSpeed}
-				onChange={setFanSpeed}
-			/>
-			<SpotifyPopup
-				anchorEl={activePopup === "spotify" ? hazardRef.current : null}
-				onClose={close}
-				spotify={spotify}
-			/>
-		</Box>
+				{/* ── Right group ──────────────────────────────────────────────────── */}
+				<Box
+					sx={{
+						display: "flex",
+						flex: 1,
+						justifyContent: "space-evenly",
+						alignItems: "center",
+					}}
+				>
+					{/* Temp */}
+					<Box sx={iconBtnStyle} onClick={() => toggle("temp")}>
+						<ThermostatRounded sx={{ fontSize: 48 }} />
+					</Box>
+
+					{/* Fan */}
+					<Box
+						sx={{ ...iconBtnStyle, color: "white" }}
+						onClick={() => toggle("fan")}
+					>
+						{fanSpeed === 0 ? (
+							<FanOffIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
+						) : (
+							<FanOnIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
+						)}
+					</Box>
+				</Box>
+
+				{/* ── All popups ────────────────────────────────────────────────────── */}
+				<VolumeSliderPopup
+					anchorEl={activePopup === "volume" ? hazardRef.current : null}
+					onClose={close}
+					value={localVolume}
+					onChange={setLocalVolume}
+					onChangeCommitted={spotify.setVolume}
+					disabled={!spotify.isConnected}
+				/>
+				<MultiAppPopup
+					anchorEl={activePopup === "multiApp" ? hazardRef.current : null}
+					onClose={close}
+					onRearHeat={handleRearHeat}
+					onFogLeft={handleFogLeft}
+					onFogRight={handleFogRight}
+					onAirDir={handleAirDir}
+					onAC={() => console.log("A/C toggled")}
+				/>
+				<TempSliderPopup
+					anchorEl={activePopup === "temp" ? hazardRef.current : null}
+					onClose={close}
+					value={temp}
+					onChange={setTemp}
+				/>
+				<FanSliderPopup
+					anchorEl={activePopup === "fan" ? hazardRef.current : null}
+					onClose={close}
+					value={fanSpeed}
+					onChange={setFanSpeed}
+				/>
+				<SpotifyPopup
+					anchorEl={activePopup === "spotify" ? hazardRef.current : null}
+					onClose={close}
+					spotify={spotify}
+				/>
+			</Box>
+		</ClickAwayListener>
 	);
 };
 

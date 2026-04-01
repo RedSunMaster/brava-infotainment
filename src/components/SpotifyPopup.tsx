@@ -71,9 +71,11 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 			transformOrigin={{ vertical: "bottom", horizontal: "center" }}
 			disablePortal
 			marginThreshold={0}
+			sx={{ pointerEvents: "none" }} // ← FIX: Modal root won't intercept clicks
 			slotProps={{
 				paper: {
 					sx: {
+						pointerEvents: "auto", // ← FIX: popup content stays interactive
 						backgroundColor: "#1a1a1a",
 						border: "1px solid rgba(255,255,255,0.15)",
 						borderRadius: 3,
@@ -81,7 +83,6 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 						position: "relative",
 						display: "flex",
 						flexDirection: "column",
-						// ── Compact when playing, full-width when library is open ──
 						width: libraryOpen ? "90vw" : 300,
 						height: libraryOpen ? 560 : "auto",
 						transition:
@@ -90,7 +91,7 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 				},
 			}}
 		>
-			{/* ── Now-playing panel (drives popup height) ──────────────────────── */}
+			{/* ── Now-playing panel ────────────────────────────────────────────── */}
 			<Box sx={{ p: 2.5 }}>
 				{/* ── Not connected ── */}
 				{!isConnected ? (
@@ -150,7 +151,6 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 								>
 									Open Spotify on a device to start
 								</Typography>
-								{/* Still allow library browsing when connected */}
 								<Box
 									sx={{
 										display: "flex",
@@ -249,7 +249,6 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 								</Typography>
 							</Box>
 
-							{/* ── Library / Queue icon ── */}
 							<IconButton
 								onClick={() => setLibraryOpen(true)}
 								size="small"
@@ -374,7 +373,7 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 				)}
 			</Box>
 
-			{/* ── Library overlay panel (slides in from right) ─────────────────── */}
+			{/* ── Library overlay panel ─────────────────────────────────────────── */}
 			<Box
 				sx={{
 					position: "absolute",
@@ -387,10 +386,8 @@ const SpotifyPopup = ({ anchorEl, onClose, spotify }: SpotifyPopupProps) => {
 					display: "flex",
 					flexDirection: "column",
 					overflow: "hidden",
-					// Slide in/out
 					transform: libraryOpen ? "translateX(0)" : "translateX(100%)",
 					transition: "transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
-					// Only receive pointer events when visible
 					pointerEvents: libraryOpen ? "auto" : "none",
 				}}
 			>
