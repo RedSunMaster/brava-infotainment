@@ -232,10 +232,12 @@ export default function InAppKeyboard({
 			<Box
 				onMouseDown={(e) => {
 					e.preventDefault();
+					e.stopPropagation(); // ← stops the click reaching the library behind
 					tryClose();
 				}}
 				onTouchEnd={(e) => {
 					e.preventDefault();
+					e.stopPropagation(); // ← stops the tap reaching the library behind
 					tryClose();
 				}}
 				sx={{ position: "fixed", inset: 0, zIndex: 9998 }}
