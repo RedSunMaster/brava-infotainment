@@ -1,26 +1,41 @@
 import { app, BrowserWindow, ipcMain, session, screen } from "electron";
 import { createConnection } from "net";
-import { exec } from "child_process";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 if (require("electron-squirrel-startup")) app.quit();
 
-// ── Wayland + Touch flags ─────────────────────────────────────────────────────
+// ── Wayland + GPU flags ───────────────────────────────────────────────────────
+// Use EGL instead of GLX — significantly better on Intel integrated graphics
+app.commandLine.appendSwitch("use-gl", "egl");
+// Native GPU memory buffers reduce CPU↔GPU copies on Intel
+app.commandLine.appendSwitch("enable-native-gpu-memory-buffers");
+app.commandLine.appendSwitch("enable-accelerated-2d-canvas");
+app.commandLine.appendSwitch("enable-accelerated-video-decode");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+// Touch / input
 app.commandLine.appendSwitch("touch-events", "enabled");
 app.commandLine.appendSwitch(
 	"enable-features",
-	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
+	[
+		"TouchpadOverscrollHistoryNavigation",
+		"TouchEventFeatureDetection",
+		// Enables GPU-accelerated canvas on Linux
+		"AcceleratedSmallCanvases",
+		// Reduces compositor overhead on single-window fullscreen apps
+		"VaapiVideoDecoder",
+	].join(","),
 );
 app.commandLine.appendSwitch("enable-blink-features", "PointerEvent");
-app.commandLine.appendSwitch("enable-accelerated-video-decode");
-app.commandLine.appendSwitch("enable-gpu-rasterization");
-app.commandLine.appendSwitch("ignore-gpu-blocklist");
+// Prevent background throttling — important for GPS + map updates
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
+// Reduce IPC overhead for high-frequency updates (GPS, map redraws)
+app.commandLine.appendSwitch("disable-ipc-flooding-protection");
 
-const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
@@ -51,7 +66,7 @@ function startGps(win: BrowserWindow) {
 					});
 				}
 			} catch {
-				// Do nothing
+				// ignore malformed GPSD lines
 			}
 		}
 	});
@@ -74,18 +89,22 @@ const createWindow = (): void => {
 		x: 0,
 		y: 0,
 		frame: false,
+		fullscreen: true,
 		resizable: true,
 		show: false,
+		backgroundColor: "#000000", // avoids white flash on load
 		webPreferences: {
 			zoomFactor: 1,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
 			nodeIntegration: true,
 			contextIsolation: false,
+			// Smooth scrolling and animation
+			backgroundThrottling: false,
 		},
 	});
 
-	mainWindow.show();
-	mainWindow.maximize();
+	mainWindow.once("ready-to-show", () => mainWindow!.show());
+
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
 			responseHeaders: {
@@ -119,36 +138,6 @@ const createWindow = (): void => {
 		startGps(mainWindow!);
 	});
 };
-
-// ── On-screen keyboard (GNOME/Wayland) ───────────────────────────────────────
-// Requires GNOME Shell unsafe mode to be enabled. Run once in terminal:
-//   gdbus call --session --dest org.gnome.Shell --object-path /org/gnome/Shell \
-//     --method org.gnome.Shell.Eval "global.context.unsafe_mode = true"
-ipcMain.on("osk-show", () => {
-	exec(
-		`gdbus call --session \
-      --dest org.gnome.Shell \
-      --object-path /org/gnome/Shell \
-      --method org.gnome.Shell.Eval \
-      "imports.ui.main.keyboard.show(0)"`,
-		(err) => {
-			if (err) console.warn("[OSK] show failed:", err.message);
-		},
-	);
-});
-
-ipcMain.on("osk-hide", () => {
-	exec(
-		`gdbus call --session \
-      --dest org.gnome.Shell \
-      --object-path /org/gnome/Shell \
-      --method org.gnome.Shell.Eval \
-      "imports.ui.main.keyboard.hide()"`,
-		(err) => {
-			if (err) console.warn("[OSK] hide failed:", err.message);
-		},
-	);
-});
 
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────
 ipcMain.on("app-quit", () => app.quit());
@@ -208,9 +197,7 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
-app.on("ready", () => {
-	createWindow();
-});
+app.on("ready", createWindow);
 
 app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") app.quit();
