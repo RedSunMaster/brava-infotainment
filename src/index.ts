@@ -75,8 +75,8 @@ const createWindow = (): void => {
 		height,
 		x: 0,
 		y: 0,
-		frame: true,
-		fullscreen: true,
+		frame: false,
+		// fullscreen: true,
 		resizable: true,
 		show: false,
 		webPreferences: {
@@ -88,7 +88,7 @@ const createWindow = (): void => {
 	});
 
 	mainWindow.show();
-
+	mainWindow.maximize();
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
 		callback({
 			responseHeaders: {
