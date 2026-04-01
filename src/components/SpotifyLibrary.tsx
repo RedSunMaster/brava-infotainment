@@ -16,8 +16,7 @@ import {
 	SpotifyQueueItem,
 	UseSpotifyReturn,
 } from "../hooks/useSpotify";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
+import { useKeyboard } from "../contexts/KeyboardContext";
 
 const SPOTIFY_GREEN = "#1DB954";
 
@@ -33,8 +32,6 @@ function formatMs(ms: number): string {
 	const s = Math.floor(ms / 1000);
 	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const rowSx = {
 	display: "flex",
@@ -174,8 +171,6 @@ const EmptyState = ({ text }: { text: string }) => (
 	</Typography>
 );
 
-// ─── Main export ──────────────────────────────────────────────────────────────
-
 interface SpotifyLibraryProps {
 	spotify: UseSpotifyReturn;
 	onBack: () => void;
@@ -194,17 +189,17 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 		playContext,
 	} = spotify;
 
+	const { showKeyboard, hideKeyboard } = useKeyboard();
 	const [tab, setTab] = useState<LibraryTab>("queue");
 	const [searchQuery, setSearchQuery] = useState("");
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-	// Fetch on tab switch
 	useEffect(() => {
 		if (tab === "queue") fetchQueue();
 		else if (tab === "playlists") fetchPlaylists();
-	}, [tab, fetchQueue, fetchPlaylists]);
+		else if (tab !== "search") hideKeyboard();
+	}, [tab, fetchQueue, fetchPlaylists, hideKeyboard]);
 
-	// Debounced search
 	useEffect(() => {
 		if (tab !== "search") return;
 		if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -220,7 +215,7 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-			{/* ── Header: back + tabs ── */}
+			{/* ── Header ── */}
 			<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
 				<IconButton
 					onClick={onBack}
@@ -292,6 +287,8 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 						placeholder="Artists, songs..."
 						value={searchQuery}
 						onChange={(e) => setSearchQuery(e.target.value)}
+						inputProps={{ inputMode: "none" }}
+						onFocus={() => showKeyboard()}
 						sx={{
 							flex: 1,
 							color: "white",

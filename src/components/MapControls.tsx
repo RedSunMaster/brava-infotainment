@@ -26,6 +26,7 @@ import {
 	SettingsRounded,
 } from "@mui/icons-material";
 import { useThemeMode } from "../ThemeContext";
+import { useKeyboard } from "../contexts/KeyboardContext";
 
 interface Suggestion {
 	mapbox_id: string;
@@ -50,11 +51,6 @@ interface Props {
 	provider: RoutingProvider;
 	onToggleProvider: () => void;
 }
-
-// Convenience wrapper — safe to call even outside Electron (e.g. browser dev)
-const osk = (window as any).electronOSK as
-	| { show: () => void; hide: () => void }
-	| undefined;
 
 function iconBtnStyle(active: boolean, theme: Theme) {
 	return {
@@ -93,6 +89,7 @@ export default function MapControls({
 	onToggleProvider,
 }: Props) {
 	const theme = useTheme();
+	const { showKeyboard, hideKeyboard } = useKeyboard();
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<Suggestion[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -170,7 +167,7 @@ export default function MapControls({
 		setDropdownOpen(false);
 		setQuery("");
 		setSearchExpanded(false);
-		osk?.hide();
+		hideKeyboard();
 		setLoading(true);
 		try {
 			const url =
@@ -203,17 +200,13 @@ export default function MapControls({
 		>
 			{showFullSearch ? (
 				<Box sx={{ position: "relative", width: "100%" }}>
-					{/* ── Search input ── */}
 					<InputBase
 						autoFocus={searchExpanded}
 						placeholder="Search places..."
 						value={query}
 						onChange={(e) => setQuery(e.target.value)}
-						inputProps={{ inputMode: "text", enterKeyHint: "search" }}
-						// ── OSK triggers ─────────────────────────────────────────────────
-						onFocus={() => osk?.show()}
-						onBlur={() => osk?.hide()}
-						// ─────────────────────────────────────────────────────────────────
+						inputProps={{ inputMode: "none", enterKeyHint: "search" }}
+						onFocus={() => showKeyboard()}
 						onTouchStart={(e) => {
 							e.currentTarget.querySelector("input")?.focus();
 						}}
@@ -271,6 +264,7 @@ export default function MapControls({
 							{results.map((s) => (
 								<ListItemButton
 									key={s.mapbox_id}
+									onMouseDown={(e) => e.preventDefault()}
 									onClick={() => handleSelect(s)}
 									sx={{
 										borderRadius: "6px",
