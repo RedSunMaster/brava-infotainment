@@ -8,10 +8,10 @@ if (require("electron-squirrel-startup")) app.quit();
 
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
-app.commandLine.appendSwitch("ozone-platform", "wayland");
+// app.commandLine.appendSwitch("ozone-platform", "wayland");
 app.commandLine.appendSwitch("touch-events", "enabled");
-app.commandLine.appendSwitch("enable-wayland-ime");
-app.commandLine.appendSwitch("wayland-text-input-version", "3"); // ← ADD THIS
+// app.commandLine.appendSwitch("enable-wayland-ime");
+// app.commandLine.appendSwitch("wayland-text-input-version", "3"); // ← ADD THIS
 app.commandLine.appendSwitch(
 	"enable-features",
 	"TouchpadOverscrollHistoryNavigation,TouchEventFeatureDetection",
