@@ -1,14 +1,15 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, RefObject } from "react";
 import ReactDOM from "react-dom";
 import { Box } from "@mui/material";
 
-// ── Key layout ────────────────────────────────────────────────────────────────
 const NUM_ROW = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 const QWERTY = ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"];
 const ASDF = ["a", "s", "d", "f", "g", "h", "j", "k", "l"];
 const ZXCV = ["z", "x", "c", "v", "b", "n", "m"];
 
-// ── React-compatible input mutation ──────────────────────────────────────────
+// ── Mutation helpers ─────────────────────────────────────────────────────────
+// Uses the stored ref so fast typing never loses the target element.
+
 function setNativeValue(
 	el: HTMLInputElement | HTMLTextAreaElement,
 	value: string,
@@ -21,10 +22,12 @@ function setNativeValue(
 	el.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
-function insertAtCursor(char: string) {
-	const el = document.activeElement;
-	if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement))
-		return;
+function insertAtCursor(
+	char: string,
+	targetRef: RefObject<HTMLInputElement | HTMLTextAreaElement | null>,
+) {
+	const el = targetRef.current;
+	if (!el) return;
 	const s = el.selectionStart ?? el.value.length;
 	const e = el.selectionEnd ?? el.value.length;
 	const next = el.value.slice(0, s) + char + el.value.slice(e);
@@ -32,10 +35,11 @@ function insertAtCursor(char: string) {
 	el.setSelectionRange(s + char.length, s + char.length);
 }
 
-function deleteAtCursor() {
-	const el = document.activeElement;
-	if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement))
-		return;
+function deleteAtCursor(
+	targetRef: RefObject<HTMLInputElement | HTMLTextAreaElement | null>,
+) {
+	const el = targetRef.current;
+	if (!el) return;
 	const s = el.selectionStart ?? el.value.length;
 	const e = el.selectionEnd ?? el.value.length;
 	let next: string;
@@ -51,7 +55,7 @@ function deleteAtCursor() {
 	el.setSelectionRange(pos, pos);
 }
 
-// ── Key button ────────────────────────────────────────────────────────────────
+// ── Key button ───────────────────────────────────────────────────────────────
 type KeyVariant = "default" | "special" | "active";
 
 function Key({
@@ -74,8 +78,20 @@ function Key({
 	return (
 		<Box
 			component="button"
-			onMouseDown={(e: React.MouseEvent) => e.preventDefault()}
-			onTouchStart={(e: React.TouchEvent) => e.preventDefault()}
+			// Prevent ANY default pointer behaviour so the input never loses focus
+			onMouseDown={(e: React.MouseEvent) => {
+				e.preventDefault();
+				e.stopPropagation();
+			}}
+			onTouchStart={(e: React.TouchEvent) => {
+				e.preventDefault();
+				e.stopPropagation();
+			}}
+			onTouchEnd={(e: React.TouchEvent) => {
+				e.preventDefault();
+				e.stopPropagation();
+				onPress();
+			}}
 			onClick={onPress}
 			sx={{
 				flex,
@@ -94,6 +110,7 @@ function Key({
 				justifyContent: "center",
 				userSelect: "none",
 				WebkitTapHighlightColor: "transparent",
+				touchAction: "manipulation",
 				transition: "background 0.08s",
 				p: 0,
 				"&:active": { background: "rgba(255,255,255,0.28)" },
@@ -106,19 +123,25 @@ function Key({
 
 // ── Main component ────────────────────────────────────────────────────────────
 interface Props {
+	targetRef: RefObject<HTMLInputElement | HTMLTextAreaElement | null>;
 	onEnter?: () => void;
 	onClose: () => void;
 }
 
-export default function InAppKeyboard({ onEnter, onClose }: Props) {
+export default function InAppKeyboard({ targetRef, onEnter, onClose }: Props) {
 	const [shifted, setShifted] = useState(false);
 
 	const handleChar = useCallback(
 		(char: string) => {
-			insertAtCursor(shifted ? char.toUpperCase() : char);
+			insertAtCursor(shifted ? char.toUpperCase() : char, targetRef);
 			if (shifted) setShifted(false);
 		},
-		[shifted],
+		[shifted, targetRef],
+	);
+
+	const handleDelete = useCallback(
+		() => deleteAtCursor(targetRef),
+		[targetRef],
 	);
 
 	const handleEnter = () => {
@@ -127,93 +150,120 @@ export default function InAppKeyboard({ onEnter, onClose }: Props) {
 	};
 
 	return ReactDOM.createPortal(
-		<Box
-			sx={{
-				position: "fixed",
-				bottom: 0,
-				left: 0,
-				right: 0,
-				zIndex: 9999,
-				background: "rgba(12, 12, 12, 0.97)",
-				backdropFilter: "blur(24px)",
-				WebkitBackdropFilter: "blur(24px)",
-				borderTop: "1px solid rgba(255,255,255,0.1)",
-				px: 1,
-				pt: 1,
-				pb: 2.5,
-				display: "flex",
-				flexDirection: "column",
-				gap: 0.6,
-				boxShadow: "0 -8px 40px rgba(0,0,0,0.6)",
-			}}
-		>
-			{/* ── Numbers ── */}
-			<Box sx={{ display: "flex", gap: 0.5 }}>
-				{NUM_ROW.map((k) => (
-					<Key key={k} label={k} onPress={() => insertAtCursor(k)} />
-				))}
-				<Key label="⌫" onPress={deleteAtCursor} variant="special" flex={1.5} />
-			</Box>
+		<>
+			{/* ── Backdrop: tap anywhere outside keyboard to close ── */}
+			<Box
+				onMouseDown={(e) => {
+					e.preventDefault();
+					onClose();
+				}}
+				onTouchStart={(e) => {
+					e.preventDefault();
+					onClose();
+				}}
+				sx={{
+					position: "fixed",
+					inset: 0,
+					zIndex: 9998,
+					// transparent — just catches taps
+				}}
+			/>
 
-			{/* ── QWERTY ── */}
-			<Box sx={{ display: "flex", gap: 0.5 }}>
-				{QWERTY.map((k) => (
+			{/* ── Keyboard panel ── */}
+			<Box
+				onMouseDown={(e) => e.stopPropagation()}
+				onTouchStart={(e) => e.stopPropagation()}
+				sx={{
+					position: "fixed",
+					bottom: 0,
+					left: 0,
+					right: 0,
+					zIndex: 9999,
+					background: "rgba(12, 12, 12, 0.97)",
+					backdropFilter: "blur(24px)",
+					WebkitBackdropFilter: "blur(24px)",
+					borderTop: "1px solid rgba(255,255,255,0.1)",
+					px: 1,
+					pt: 1,
+					pb: 2.5,
+					display: "flex",
+					flexDirection: "column",
+					gap: 0.6,
+					boxShadow: "0 -8px 40px rgba(0,0,0,0.6)",
+				}}
+			>
+				{/* Numbers */}
+				<Box sx={{ display: "flex", gap: 0.5 }}>
+					{NUM_ROW.map((k) => (
+						<Key
+							key={k}
+							label={k}
+							onPress={() => insertAtCursor(k, targetRef)}
+						/>
+					))}
+					<Key label="⌫" onPress={handleDelete} variant="special" flex={1.5} />
+				</Box>
+
+				{/* QWERTY */}
+				<Box sx={{ display: "flex", gap: 0.5 }}>
+					{QWERTY.map((k) => (
+						<Key
+							key={k}
+							label={shifted ? k.toUpperCase() : k}
+							onPress={() => handleChar(k)}
+						/>
+					))}
+				</Box>
+
+				{/* ASDF + Enter */}
+				<Box sx={{ display: "flex", gap: 0.5 }}>
+					{ASDF.map((k) => (
+						<Key
+							key={k}
+							label={shifted ? k.toUpperCase() : k}
+							onPress={() => handleChar(k)}
+						/>
+					))}
+					<Key label="↵" onPress={handleEnter} variant="special" flex={1.5} />
+				</Box>
+
+				{/* ZXCV + punctuation */}
+				<Box sx={{ display: "flex", gap: 0.5 }}>
 					<Key
-						key={k}
-						label={shifted ? k.toUpperCase() : k}
-						onPress={() => handleChar(k)}
+						label="⇧"
+						onPress={() => setShifted((s) => !s)}
+						variant={shifted ? "active" : "special"}
+						flex={1.5}
 					/>
-				))}
-			</Box>
-
-			{/* ── ASDF + Enter ── */}
-			<Box sx={{ display: "flex", gap: 0.5 }}>
-				{ASDF.map((k) => (
+					{ZXCV.map((k) => (
+						<Key
+							key={k}
+							label={shifted ? k.toUpperCase() : k}
+							onPress={() => handleChar(k)}
+						/>
+					))}
+					<Key label="." onPress={() => insertAtCursor(".", targetRef)} />
+					<Key label="-" onPress={() => insertAtCursor("-", targetRef)} />
 					<Key
-						key={k}
-						label={shifted ? k.toUpperCase() : k}
-						onPress={() => handleChar(k)}
+						label="⇧"
+						onPress={() => setShifted((s) => !s)}
+						variant={shifted ? "active" : "special"}
+						flex={1.5}
 					/>
-				))}
-				<Key label="↵" onPress={handleEnter} variant="special" flex={1.5} />
-			</Box>
+				</Box>
 
-			{/* ── ZXCV + punctuation ── */}
-			<Box sx={{ display: "flex", gap: 0.5 }}>
-				<Key
-					label="⇧"
-					onPress={() => setShifted((s) => !s)}
-					variant={shifted ? "active" : "special"}
-					flex={1.5}
-				/>
-				{ZXCV.map((k) => (
+				{/* Space + close */}
+				<Box sx={{ display: "flex", gap: 0.5 }}>
 					<Key
-						key={k}
-						label={shifted ? k.toUpperCase() : k}
-						onPress={() => handleChar(k)}
+						label="space"
+						onPress={() => insertAtCursor(" ", targetRef)}
+						variant="special"
+						flex={7}
 					/>
-				))}
-				<Key label="." onPress={() => insertAtCursor(".")} />
-				<Key label="-" onPress={() => insertAtCursor("-")} />
-				<Key
-					label="⇧"
-					onPress={() => setShifted((s) => !s)}
-					variant={shifted ? "active" : "special"}
-					flex={1.5}
-				/>
+					<Key label="✕  close" onPress={onClose} variant="special" flex={2} />
+				</Box>
 			</Box>
-
-			{/* ── Space + close ── */}
-			<Box sx={{ display: "flex", gap: 0.5 }}>
-				<Key
-					label="space"
-					onPress={() => insertAtCursor(" ")}
-					variant="special"
-					flex={7}
-				/>
-				<Key label="✕  close" onPress={onClose} variant="special" flex={2} />
-			</Box>
-		</Box>,
+		</>,
 		document.body,
 	);
 }

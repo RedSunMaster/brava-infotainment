@@ -2,6 +2,7 @@ import React, {
 	createContext,
 	useCallback,
 	useContext,
+	useRef,
 	useState,
 	ReactNode,
 } from "react";
@@ -22,8 +23,15 @@ const KeyboardContext = createContext<KeyboardContextValue>({
 export function KeyboardProvider({ children }: { children: ReactNode }) {
 	const [enterHandler, setEnterHandler] = useState<{ fn?: () => void }>({});
 	const [visible, setVisible] = useState(false);
+	// Capture the focused input at the moment the keyboard opens so fast
+	// keypresses never lose the target due to a stale document.activeElement.
+	const targetRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
 
 	const showKeyboard = useCallback((onEnter?: () => void) => {
+		const el = document.activeElement;
+		if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+			targetRef.current = el;
+		}
 		setEnterHandler({ fn: onEnter });
 		setVisible(true);
 	}, []);
@@ -31,7 +39,8 @@ export function KeyboardProvider({ children }: { children: ReactNode }) {
 	const hideKeyboard = useCallback(() => {
 		setVisible(false);
 		setEnterHandler({});
-		(document.activeElement as HTMLElement)?.blur();
+		targetRef.current?.blur();
+		targetRef.current = null;
 	}, []);
 
 	return (
@@ -40,7 +49,11 @@ export function KeyboardProvider({ children }: { children: ReactNode }) {
 		>
 			{children}
 			{visible && (
-				<InAppKeyboard onEnter={enterHandler.fn} onClose={hideKeyboard} />
+				<InAppKeyboard
+					targetRef={targetRef}
+					onEnter={enterHandler.fn}
+					onClose={hideKeyboard}
+				/>
 			)}
 		</KeyboardContext.Provider>
 	);
