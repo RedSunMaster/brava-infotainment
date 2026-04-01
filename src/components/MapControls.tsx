@@ -207,6 +207,7 @@ export default function MapControls({
 						onChange={(e) => setQuery(e.target.value)}
 						inputProps={{ inputMode: "none", enterKeyHint: "search" }}
 						onFocus={() => showKeyboard()}
+						onClick={() => showKeyboard()}
 						onTouchStart={(e) => {
 							e.currentTarget.querySelector("input")?.focus();
 						}}

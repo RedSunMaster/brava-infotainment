@@ -289,6 +289,7 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 						onChange={(e) => setSearchQuery(e.target.value)}
 						inputProps={{ inputMode: "none" }}
 						onFocus={() => showKeyboard()}
+						onClick={() => showKeyboard()}
 						sx={{
 							flex: 1,
 							color: "white",
