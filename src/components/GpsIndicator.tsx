@@ -13,12 +13,12 @@ const CONFIG = {
 	},
 	"no-fix": {
 		label: "No Fix",
-		color: "#f59e0b",
+		color: "#FFB000",
 		icon: <SatelliteAltIcon fontSize="small" />,
 	},
 	disconnected: {
-		label: "SIM",
-		color: "#6b7280",
+		label: "GPS Lost",
+		color: "#FF3B30",
 		icon: <GpsOffIcon fontSize="small" />,
 	},
 } as const;
@@ -34,16 +34,17 @@ export default function GpsIndicator({ status }: { status: GpsStatus }) {
 			}
 		>
 			<Chip
-				size="small"
+				size="medium"
 				icon={<Box sx={{ color, display: "flex" }}>{icon}</Box>}
 				label={label}
 				sx={{
-					bgcolor: "rgba(0,0,0,0.6)",
+					bgcolor: "rgba(9,11,13,0.9)",
 					color: "white",
 					border: `1px solid ${color}`,
-					backdropFilter: "blur(4px)",
-					fontWeight: 600,
-					fontSize: "0.7rem",
+					backdropFilter: "blur(8px)",
+					fontWeight: 800,
+					fontSize: "0.82rem",
+					minHeight: 36,
 				}}
 			/>
 		</Tooltip>

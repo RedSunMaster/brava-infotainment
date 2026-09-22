@@ -50,24 +50,31 @@ interface Props {
 	onLocate: () => void;
 	provider: RoutingProvider;
 	onToggleProvider: () => void;
+	isDriving: boolean;
 }
 
 function iconBtnStyle(active: boolean, theme: Theme) {
 	return {
-		width: 44,
-		height: 44,
+		width: 58,
+		height: 58,
 		background: active
 			? theme.palette.primary.main
-			: alpha(theme.palette.background.default, 0.85),
+			: alpha(theme.palette.surface.main, 0.96),
 		backdropFilter: "blur(10px)",
-		border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+		border: `1px solid ${
+			active
+				? alpha(theme.palette.primary.main, 0.9)
+				: alpha(theme.palette.text.primary, 0.22)
+		}`,
 		borderRadius: "10px",
-		color: active ? theme.palette.common.white : theme.palette.text.primary,
-		boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+		color: active ? theme.palette.primary.contrastText : theme.palette.text.primary,
+		boxShadow: active
+			? `0 4px 18px ${alpha(theme.palette.primary.main, 0.35)}`
+			: "0 4px 14px rgba(0,0,0,0.58)",
 		"&:hover": {
 			background: active
-				? theme.palette.primary.dark
-				: alpha(theme.palette.background.paper, 0.9),
+				? theme.palette.primary.main
+				: alpha(theme.palette.background.paper, 0.98),
 		},
 		"&:disabled": { opacity: 0.3 },
 	};
@@ -87,6 +94,7 @@ export default function MapControls({
 	onLocate,
 	provider,
 	onToggleProvider,
+	isDriving,
 }: Props) {
 	const theme = useTheme();
 	const { showKeyboard, hideKeyboard } = useKeyboard();
@@ -112,7 +120,13 @@ export default function MapControls({
 		if (!isNavActive) setSearchExpanded(false);
 	}, [isNavActive]);
 
+	useEffect(() => {
+		if (isDriving) setSettingsAnchor(null);
+	}, [isDriving]);
+
 	function handleExitApp() {
+		if (isDriving) return;
+		if (!window.confirm("Exit the infotainment app?")) return;
 		const ipcRenderer = (window as any).require?.("electron")?.ipcRenderer;
 		if (ipcRenderer) {
 			ipcRenderer.send("app-quit");
@@ -125,6 +139,11 @@ export default function MapControls({
 	}
 
 	useEffect(() => {
+		if (isDriving && isNavActive) {
+			setSearchExpanded(false);
+			setDropdownOpen(false);
+			return;
+		}
 		if (!query.trim()) {
 			setResults([]);
 			setDropdownOpen(false);
@@ -147,7 +166,7 @@ export default function MapControls({
 				setLoading(false);
 			}
 		}, 300);
-	}, [query, mapboxToken]);
+	}, [query, mapboxToken, currentPosition, isDriving, isNavActive]);
 
 	useEffect(() => {
 		function handleClickOutside(e: MouseEvent) {
@@ -185,6 +204,7 @@ export default function MapControls({
 		}
 	}
 
+	const searchLocked = isDriving && isNavActive;
 	const showFullSearch = !isNavActive || searchExpanded;
 
 	return (
@@ -198,13 +218,18 @@ export default function MapControls({
 				width: showFullSearch ? "100%" : "auto",
 			}}
 		>
-			{showFullSearch ? (
+			{showFullSearch && !searchLocked ? (
 				<Box sx={{ position: "relative", width: "100%" }}>
 					<InputBase
 						autoFocus={searchExpanded}
-						placeholder="Search places..."
+						placeholder={
+							searchLocked ? "Search unavailable while driving" : "Search places..."
+						}
 						value={query}
-						onChange={(e) => setQuery(e.target.value)}
+						onChange={(e) => {
+							if (!searchLocked) setQuery(e.target.value);
+						}}
+						disabled={searchLocked}
 						inputProps={{ inputMode: "none", enterKeyHint: "search" }}
 						onFocus={() => showKeyboard()}
 						onClick={() => showKeyboard()}
@@ -231,15 +256,16 @@ export default function MapControls({
 						}
 						sx={{
 							width: "100%",
-							background: alpha(theme.palette.background.default, 0.85),
+							background: alpha(theme.palette.surface.main, 0.96),
 							backdropFilter: "blur(10px)",
-							border: `1px solid ${alpha(theme.palette.text.primary, 0.1)}`,
+							border: `1px solid ${alpha(theme.palette.text.primary, 0.22)}`,
 							borderRadius: "10px",
 							px: 1.5,
 							py: 0.75,
 							color: "text.primary",
-							boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+							boxShadow: "0 4px 16px rgba(0,0,0,0.55)",
 							fontSize: 14,
+							minHeight: 56,
 							"& input::placeholder": { color: theme.palette.text.secondary },
 						}}
 					/>
@@ -251,7 +277,7 @@ export default function MapControls({
 								top: "calc(100% + 6px)",
 								right: 0,
 								width: "100%",
-								background: alpha(theme.palette.background.default, 0.95),
+								background: alpha(theme.palette.surface.main, 0.98),
 								backdropFilter: "blur(14px)",
 								border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
 								borderRadius: "10px",
@@ -294,25 +320,30 @@ export default function MapControls({
 						</List>
 					)}
 				</Box>
-			) : (
+			) : !searchLocked ? (
 				<Tooltip title="Search" placement="bottom">
 					<IconButton
-						onClick={() => setSearchExpanded(true)}
+						onClick={() => {
+							if (!searchLocked) setSearchExpanded(true);
+						}}
+						disabled={searchLocked}
 						sx={iconBtnStyle(false, theme)}
 						aria-label="Open search"
 					>
 						<SearchRounded fontSize="small" />
 					</IconButton>
 				</Tooltip>
-			)}
+			) : null}
 
 			{/* Icon button row */}
 			<Box
 				sx={{
 					display: "flex",
+					flexDirection: isNavActive ? "column" : "row",
 					flexWrap: "wrap",
 					gap: 1,
 					justifyContent: "flex-end",
+					alignItems: "flex-end",
 				}}
 			>
 				{isNavActive && (
@@ -366,15 +397,17 @@ export default function MapControls({
 					</IconButton>
 				</Tooltip>
 
-				<Tooltip title="Settings" placement="bottom">
-					<IconButton
-						onClick={(e) => setSettingsAnchor(e.currentTarget)}
-						sx={iconBtnStyle(settingsOpen, theme)}
-						aria-label="Settings"
-					>
-						<SettingsRounded fontSize="small" />
-					</IconButton>
-				</Tooltip>
+				{!isDriving && (
+					<Tooltip title="Settings" placement="bottom">
+						<IconButton
+							onClick={(e) => setSettingsAnchor(e.currentTarget)}
+							sx={iconBtnStyle(settingsOpen, theme)}
+							aria-label="Settings"
+						>
+							<SettingsRounded fontSize="small" />
+						</IconButton>
+					</Tooltip>
+				)}
 
 				<Popover
 					open={settingsOpen}
@@ -387,7 +420,7 @@ export default function MapControls({
 							sx: {
 								mt: 0.75,
 								minWidth: 220,
-								background: alpha(theme.palette.background.default, 0.95),
+								background: alpha(theme.palette.surface.main, 0.98),
 								backdropFilter: "blur(14px)",
 								border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
 								borderRadius: "12px",
@@ -437,14 +470,17 @@ export default function MapControls({
 					/>
 
 					<Box
-						onClick={onToggleProvider}
+						onClick={() => {
+							if (!isDriving) onToggleProvider();
+						}}
 						sx={{
 							display: "flex",
 							alignItems: "center",
 							justifyContent: "space-between",
 							px: 2,
 							py: 1.5,
-							cursor: "pointer",
+							cursor: isDriving ? "not-allowed" : "pointer",
+							opacity: isDriving ? 0.45 : 1,
 							"&:hover": {
 								background: alpha(theme.palette.text.primary, 0.06),
 							},
@@ -512,7 +548,8 @@ export default function MapControls({
 							justifyContent: "space-between",
 							px: 2,
 							py: 1.5,
-							cursor: "pointer",
+							cursor: isDriving ? "not-allowed" : "pointer",
+							opacity: isDriving ? 0.45 : 1,
 							"&:hover": {
 								background: alpha(theme.palette.error.main, 0.12),
 							},

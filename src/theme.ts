@@ -1,7 +1,7 @@
 import {
 	createTheme,
-	type PaletteMode,
 	type PaletteColor,
+	type PaletteMode,
 	type SimplePaletteColorOptions,
 } from "@mui/material/styles";
 
@@ -14,52 +14,45 @@ declare module "@mui/material/styles" {
 	}
 }
 
-// ─── NIGHT — instrument cluster amber, deep charcoal, warm off-white ──────────
-// Desaturated accents reduce optical vibration against dark backgrounds [HMI principle]
 const NIGHT = {
-	primary: "#E8A020", // amber — classic analogue gauge colour
-	secondary: "#5B8CFF", // cool blue for secondary info panels
-	error: "#FF4040", // bright — must cut through at a glance
-	warning: "#FFC107",
+	primary: "#F5A800",
+	secondary: "#38BDF8",
+	error: "#FF3B30",
+	warning: "#FFD166",
 	info: "#38BDF8",
 	success: "#4ADE80",
-
-	bgDefault: "#0F1011", // deep charcoal — not pure black (avoids halos)
-	bgPaper: "#181A1C",
-	textPrimary: "#E8E6DF", // warm off-white — less glaring than #FFFFFF at night
-	textSecondary: "#7A7870",
-	textDisabled: "#3E3D3B",
-	divider: "#27292B",
-	surface: "#1E2124",
+	bgDefault: "#090B0D",
+	bgPaper: "#12161A",
+	textPrimary: "#F7F3E8",
+	textSecondary: "#B9B5A8",
+	textDisabled: "#4D5358",
+	divider: "#2A3138",
+	surface: "#182027",
 };
 
-// ─── DAY — high-contrast, cool grays, strong blue for sunlight readability ────
-// Saturated primary needed in daylight — opposite rule to night [web:25]
 const DAY = {
-	primary: "#1D4ED8", // strong blue — readable in direct sunlight
-	secondary: "#6D28D9",
-	error: "#DC2626",
-	warning: "#D97706",
+	primary: "#FFB000",
+	secondary: "#0284C7",
+	error: "#FF3B30",
+	warning: "#B7791F",
 	info: "#0284C7",
-	success: "#15803D",
-
-	bgDefault: "#f3f3f3", // cool mid-gray — reduces glare vs pure white
-	bgPaper: "#ECEDF0",
-	textPrimary: "#0C0D0E",
-	textSecondary: "#4B5563",
-	textDisabled: "#9CA3AF",
-	divider: "#C5C7CB",
-	surface: "#E0E1E4",
+	success: "#16A34A",
+	bgDefault: "#D3DAE2",
+	bgPaper: "#E2E7ED",
+	textPrimary: "#101820",
+	textSecondary: "#53606B",
+	textDisabled: "#A3ACB5",
+	divider: "#B8C2CC",
+	surface: "#EEF2F6",
 };
 
 export function getTheme(mode: PaletteMode) {
 	const C = mode === "dark" ? NIGHT : DAY;
-	const isNight = mode === "dark";
 
 	return createTheme({
 		palette: {
 			mode,
-			primary: { main: C.primary },
+			primary: { main: C.primary, contrastText: "#101214" },
 			secondary: { main: C.secondary },
 			error: { main: C.error },
 			warning: { main: C.warning },
@@ -77,26 +70,18 @@ export function getTheme(mode: PaletteMode) {
 
 		typography: {
 			fontFamily: '"Poppins", sans-serif',
-
-			// ── Automotive rule: larger, heavier, more spaced than typical UI ────────
-			// Labels must be readable at a glance in < 1 second [web:32][web:38]
-			h1: { fontSize: "2rem", fontWeight: 700, letterSpacing: "-0.01em" },
-			h2: { fontSize: "1.5rem", fontWeight: 700, letterSpacing: "-0.01em" },
-			h3: { fontSize: "1.2rem", fontWeight: 600 },
-
+			h1: { fontSize: "2rem", fontWeight: 700, letterSpacing: 0 },
+			h2: { fontSize: "1.5rem", fontWeight: 700, letterSpacing: 0 },
+			h3: { fontSize: "1.2rem", fontWeight: 600, letterSpacing: 0 },
 			body1: { fontSize: "1rem", fontWeight: 500 },
 			body2: { fontSize: "0.875rem", fontWeight: 400, color: C.textSecondary },
-
-			// Caption used for metric labels — uppercase + spaced for scan speed
 			caption: {
 				fontSize: "0.7rem",
 				fontWeight: 700,
-				letterSpacing: "0.1em",
+				letterSpacing: "0.08em",
 				textTransform: "uppercase" as const,
 				color: C.textSecondary,
 			},
-
-			// Big numerical readouts (ETA, distance, speed)
 			h4: {
 				fontSize: "1.75rem",
 				fontWeight: 700,
@@ -114,28 +99,26 @@ export function getTheme(mode: PaletteMode) {
 			},
 		},
 
-		shape: {
-			// Slightly tighter radius than consumer apps — more precise/technical feel
-			borderRadius: 8,
-		},
+		shape: { borderRadius: 8 },
 
 		components: {
 			MuiSlider: {
 				styleOverrides: {
 					rail: {
-						width: 16, // ✅ change here — applies to both sliders
+						width: 16,
 						borderRadius: 4,
 					},
 					track: {
-						width: 16, // ✅ change here — applies to both sliders
+						width: 16,
 						borderRadius: 4,
 						border: "none",
 					},
 					thumb: {
-						width: 28,
-						height: 28,
+						width: 30,
+						height: 30,
+						boxShadow: "0 0 0 3px rgba(0,0,0,0.35)",
 						"&:hover, &.Mui-focusVisible": {
-							boxShadow: "0 0 0 10px rgba(255,255,255,0.12)",
+							boxShadow: "0 0 0 10px rgba(255,176,0,0.22)",
 						},
 					},
 					mark: {
@@ -150,28 +133,24 @@ export function getTheme(mode: PaletteMode) {
 				styleOverrides: {
 					root: {
 						textTransform: "none",
-						fontWeight: 700,
-						letterSpacing: "0.03em",
-						// Taller tap targets — important for use while moving
+						fontWeight: 800,
+						letterSpacing: 0,
 						paddingTop: 10,
 						paddingBottom: 10,
+						borderRadius: 10,
 					},
 				},
 			},
-
 			MuiIconButton: {
 				styleOverrides: {
 					root: {
-						// Larger minimum hit area for gloved/moving use
 						minWidth: 44,
 						minHeight: 44,
 					},
 				},
 			},
-
 			MuiCard: { styleOverrides: { root: { backgroundImage: "none" } } },
 			MuiPaper: { styleOverrides: { root: { backgroundImage: "none" } } },
-
 			MuiTooltip: {
 				defaultProps: { arrow: true },
 				styleOverrides: {
@@ -181,21 +160,17 @@ export function getTheme(mode: PaletteMode) {
 					},
 				},
 			},
-
 			MuiDivider: {
 				styleOverrides: {
 					root: { borderColor: C.divider },
 				},
 			},
-
 			MuiCssBaseline: {
 				styleOverrides: {
 					body: {
 						scrollbarWidth: "thin",
 						scrollbarColor: `${C.divider} transparent`,
-						// Prevent tap highlight flash on touch screens (in-car touchscreens)
 						WebkitTapHighlightColor: "transparent",
-						// Prevent text selection during swipe gestures
 						userSelect: "none",
 					},
 				},

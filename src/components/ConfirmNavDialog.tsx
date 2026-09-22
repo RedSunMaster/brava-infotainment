@@ -7,6 +7,7 @@ interface Props {
 	placeName: string;
 	duration: string;
 	distance: string;
+	confirmLabel?: string;
 	onConfirm: () => void;
 	onCancel: () => void;
 }
@@ -15,6 +16,7 @@ export default function ConfirmNavDialog({
 	placeName,
 	duration,
 	distance,
+	confirmLabel = "Take me there",
 	onConfirm,
 	onCancel,
 }: Props) {
@@ -23,9 +25,9 @@ export default function ConfirmNavDialog({
 	return (
 		<Box
 			sx={{
-				background: alpha(theme.palette.background.default, 0.92),
+				background: alpha(theme.palette.surface.main, 0.98),
 				backdropFilter: "blur(14px)",
-				border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+				border: `1px solid ${alpha(theme.palette.text.primary, 0.18)}`,
 				borderRadius: "16px",
 				boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
 				p: "16px 20px",
@@ -63,13 +65,13 @@ export default function ConfirmNavDialog({
 					onClick={onCancel}
 					fullWidth
 					sx={{
-						background: alpha(theme.palette.text.primary, 0.06),
+						background: alpha(theme.palette.text.primary, 0.1),
 						color: theme.palette.text.primary,
 						borderRadius: "10px",
 						fontWeight: 600,
 						fontSize: 13,
 						py: 1,
-						"&:hover": { background: alpha(theme.palette.text.primary, 0.1) },
+						"&:hover": { background: alpha(theme.palette.text.primary, 0.14) },
 					}}
 				>
 					Cancel
@@ -79,15 +81,15 @@ export default function ConfirmNavDialog({
 					fullWidth
 					sx={{
 						background: theme.palette.primary.main,
-						color: theme.palette.text.primary,
+						color: theme.palette.primary.contrastText,
 						borderRadius: "10px",
 						fontWeight: 600,
 						fontSize: 13,
 						py: 1,
-						"&:hover": { background: "primary.dark" },
+						"&:hover": { background: theme.palette.primary.main },
 					}}
 				>
-					Take me there
+					{confirmLabel}
 				</Button>
 			</Box>
 		</Box>

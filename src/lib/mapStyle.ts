@@ -1,6 +1,9 @@
+import type { PaletteMode } from "@mui/material";
+
 export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
 
-// Hour ranges (24h) → time of day
+const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11";
+
 const TIME_RANGES: { range: [number, number]; period: TimeOfDay }[] = [
 	{ range: [5, 9], period: "dawn" },
 	{ range: [9, 17], period: "day" },
@@ -32,9 +35,24 @@ export function getStyleForPeriod(period: TimeOfDay): string {
 		dusk: process.env.MAPBOX_STYLE_DUSK,
 		night: process.env.MAPBOX_STYLE_NIGHT,
 	}[period];
-	return `${base}?optimize=true`; // ✅
+	return withOptimize(base ?? DEFAULT_LIGHT_STYLE);
+}
+
+export function getStyleForTheme(
+	mode: PaletteMode,
+	period: TimeOfDay,
+): string {
+	if (mode === "light") {
+		return withOptimize(process.env.MAPBOX_STYLE_LIGHT ?? DEFAULT_LIGHT_STYLE);
+	}
+
+	return getStyleForPeriod(period);
 }
 
 export function getCurrentStyle(): string {
 	return getStyleForPeriod(getTimeOfDay());
+}
+
+function withOptimize(styleUrl: string): string {
+	return `${styleUrl}${styleUrl.includes("?") ? "&" : "?"}optimize=true`;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import {
@@ -10,7 +10,6 @@ import {
 	BlurOnRounded,
 	WbTwilightRounded,
 } from "@mui/icons-material";
-import React from "react";
 import { GpsStatus } from "../hooks/useGps";
 import GpsIndicator from "./GpsIndicator";
 
@@ -81,9 +80,9 @@ export default function ClockWeatherChip({ position, gpsStatus }: Props) {
 		gap: 0.75,
 		px: 1.5,
 		py: 0.6,
-		background: alpha(theme.palette.background.default, 0.85),
+		background: alpha(theme.palette.surface.main, 0.94),
 		backdropFilter: "blur(10px)",
-		border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+		border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
 		borderRadius: "10px",
 		boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
 		color: theme.palette.text.primary,

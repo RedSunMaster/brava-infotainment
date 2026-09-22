@@ -235,7 +235,7 @@ export function useSpotify(): UseSpotifyReturn {
 			}
 			if (res.status === 204 || res.status === 202 || res.status === 200)
 				return res.headers.get("content-type")?.includes("json")
-					? res.json().catch(() => null)
+					? res.json().catch((): null => null)
 					: null;
 			return null;
 		},

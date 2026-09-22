@@ -20,10 +20,11 @@ export async function getRoute(
 	origin: [number, number],
 	dest: [number, number],
 	provider: RoutingProvider,
+	stops: [number, number][] = [],
 ): Promise<NormalizedRoute> {
 	return provider === "mapbox"
-		? getMapboxRoute(origin, dest)
-		: getValhallaRoute(origin, dest);
+		? getMapboxRoute(origin, dest, stops)
+		: getValhallaRoute(origin, dest, stops);
 }
 
 export async function snapToRoad(

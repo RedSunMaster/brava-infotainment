@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Box, Typography, Button, Divider } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import AccessTimeIcon from "@mui/icons-material/AccessTime";
@@ -9,6 +9,7 @@ interface Props {
 	maneuvers: any[];
 	currentStep: number;
 	onEndNav: () => void;
+	isDriving: boolean;
 }
 
 function calcTripRemaining(maneuvers: any[], currentStep: number) {
@@ -35,10 +36,12 @@ export default function TripInfoCard({
 	maneuvers,
 	currentStep,
 	onEndNav,
+	isDriving,
 }: Props) {
+	const [confirmEnd, setConfirmEnd] = useState(false);
+	const theme = useTheme();
 	if (maneuvers.length === 0) return null;
 	const { duration, distance, eta } = calcTripRemaining(maneuvers, currentStep);
-	const theme = useTheme();
 	const statRows = [
 		{ Icon: AccessTimeIcon, label: "TIME REMAINING", value: duration },
 		{ Icon: ScheduleIcon, label: "ARRIVAL", value: eta },
@@ -48,34 +51,39 @@ export default function TripInfoCard({
 	return (
 		<Box
 			sx={(theme) => ({
-				background: alpha(theme.palette.background.default, 0.85),
+				background: alpha(theme.palette.surface.main, 0.97),
 				backdropFilter: "blur(10px)",
-				border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+				border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
 				borderRadius: "14px",
-				boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+				boxShadow: "0 5px 22px rgba(0,0,0,0.62)",
 				overflow: "hidden",
-				width: 200,
+				width: isDriving ? 160 : 200,
 			})}
 		>
 			<Box
 				sx={{
-					p: "14px 16px",
+					p: isDriving ? "9px 12px" : "14px 16px",
 					display: "flex",
 					flexDirection: "column",
-					gap: 1.2,
+					gap: isDriving ? 0.8 : 1.2,
 				}}
 			>
 				{statRows.map(({ Icon, label, value }) => (
 					<Box
 						key={label}
-						sx={{ display: "flex", alignItems: "center", gap: 1.2 }}
+						sx={{ display: "flex", alignItems: "center", gap: isDriving ? 1 : 1.2 }}
 					>
-						<Icon sx={{ color: theme.palette.primary.main, fontSize: 18 }} />
+						<Icon
+							sx={{
+								color: theme.palette.primary.main,
+								fontSize: isDriving ? 15 : 18,
+							}}
+						/>
 						<Box>
 							<Typography
 								sx={{
 									color: theme.palette.text.secondary,
-									fontSize: 10,
+									fontSize: isDriving ? 8.5 : 10,
 									lineHeight: 1,
 								}}
 							>
@@ -84,7 +92,7 @@ export default function TripInfoCard({
 							<Typography
 								sx={{
 									color: theme.palette.text.primary,
-									fontSize: 15,
+									fontSize: isDriving ? 13 : 15,
 									fontWeight: 700,
 									lineHeight: 1.3,
 								}}
@@ -97,19 +105,26 @@ export default function TripInfoCard({
 			</Box>
 			<Divider /> {/* auto uses theme.palette.divider */}
 			<Button
-				onClick={onEndNav}
+				onClick={() => {
+					if (isDriving && !confirmEnd) {
+						setConfirmEnd(true);
+						window.setTimeout(() => setConfirmEnd(false), 4000);
+						return;
+					}
+					onEndNav();
+				}}
 				fullWidth
 				sx={(theme) => ({
 					color: theme.palette.error.main,
-					fontSize: 13,
-					fontWeight: 600,
-					py: 1.2,
+					fontSize: isDriving ? 12 : 15,
+					fontWeight: 800,
+					py: isDriving ? 0.95 : 1.6,
 					borderRadius: 0,
 					letterSpacing: 0.3,
 					"&:hover": { background: alpha(theme.palette.error.main, 0.12) },
 				})}
 			>
-				End Navigation
+				{confirmEnd ? "Tap again to end" : "End Navigation"}
 			</Button>
 		</Box>
 	);

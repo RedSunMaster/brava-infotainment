@@ -31,33 +31,39 @@ export function valhallaPost(path: string, body: object): Promise<any> {
 export async function getValhallaRoute(
 	origin: [number, number],
 	dest: [number, number],
+	stops: [number, number][] = [],
 ): Promise<NormalizedRoute> {
 	const data = await valhallaPost("/route", {
-		locations: [
-			{ lon: origin[0], lat: origin[1] },
-			{ lon: dest[0], lat: dest[1] },
-		],
+		locations: [origin, ...stops, dest].map(([lon, lat]) => ({ lon, lat })),
 		costing: "auto",
 		directions_options: { units: "kilometres" },
 	});
 
-	const leg = data.trip.legs[0];
-	const coords: [number, number][] = polyline
-		.decode(leg.shape, 6)
-		.map(([lat, lon]: [number, number]) => [lon, lat]);
+	let coords: [number, number][] = [];
+	const maneuvers: NormalizedManeuver[] = [];
 
-	return {
-		coords,
-		maneuvers: leg.maneuvers.map(
-			(m: any): NormalizedManeuver => ({
+	for (const leg of data.trip.legs) {
+		const legStartIndex = coords.length;
+		const legCoords: [number, number][] = polyline
+			.decode(leg.shape, 6)
+			.map(([lat, lon]: [number, number]) => [lon, lat]);
+		coords =
+			coords.length > 0 ? [...coords, ...legCoords.slice(1)] : [...legCoords];
+
+		maneuvers.push(
+			...leg.maneuvers.map(
+				(m: any): NormalizedManeuver => ({
 				instruction: m.instruction,
 				length: m.length,
 				time: m.time,
-				begin_shape_index: m.begin_shape_index,
+				begin_shape_index: legStartIndex + m.begin_shape_index,
 				type: m.type,
 			}),
-		),
-	};
+			),
+		);
+	}
+
+	return { coords, maneuvers };
 }
 
 export async function snapToRoadValhalla(

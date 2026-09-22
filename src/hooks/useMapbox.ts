@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { DEV_ORIGIN, MAPBOX_TOKEN, ZOOM_LEVEL } from "../constants";
+import { DEV_ORIGIN, ZOOM_LEVEL } from "../constants";
 import { getCurrentStyle } from "../lib/mapStyle";
 // In useMapbox.ts — expose a loaded state
 

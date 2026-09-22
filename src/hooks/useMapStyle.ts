@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
+import type { PaletteMode } from "@mui/material";
 import {
 	getTimeOfDay,
-	getStyleForPeriod,
-	getCurrentStyle,
+	getStyleForTheme,
 	type TimeOfDay,
 } from "../lib/mapStyle";
 
@@ -20,12 +20,15 @@ function getDevOverride(): TimeOfDay | null {
 export function useMapStyle(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	mapLoaded: boolean,
+	mode: PaletteMode,
+	onStyleLoaded?: () => void,
 ) {
 	const devOverride = getDevOverride();
 	const [period, setPeriod] = useState<TimeOfDay>(
 		devOverride ?? getTimeOfDay(),
 	);
 	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	const appliedStyleRef = useRef<string | null>(getStyleForTheme(mode, period));
 
 	useEffect(() => {
 		if (devOverride) return;
@@ -42,8 +45,17 @@ export function useMapStyle(
 
 	useEffect(() => {
 		if (!mapLoaded || !mapRef.current) return;
-		mapRef.current.setStyle(getStyleForPeriod(period));
-	}, [period, mapLoaded]);
+		const desiredStyle = getStyleForTheme(mode, period);
+		if (appliedStyleRef.current === desiredStyle) return;
+		appliedStyleRef.current = desiredStyle;
+		const map = mapRef.current;
+		const handleStyleLoad = () => onStyleLoaded?.();
+		map.once("style.load", handleStyleLoad);
+		map.setStyle(desiredStyle);
+		return () => {
+			map.off("style.load", handleStyleLoad);
+		};
+	}, [mode, period, mapLoaded, onStyleLoaded]);
 
 	return { period };
 }

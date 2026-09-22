@@ -1,10 +1,11 @@
 import {
 	AppsRounded,
-	CarCrashRounded,
+	AcUnitRounded,
 	FlashlightOnRounded,
 	MusicNoteRounded,
 	ThermostatRounded,
 	VolumeUpRounded,
+	WarningAmberRounded,
 } from "@mui/icons-material";
 import { Box, Popover, Slider, Typography } from "@mui/material";
 import ClickAwayListener from "@mui/material/ClickAwayListener";
@@ -25,12 +26,15 @@ const iconBtnStyle = {
 	alignItems: "center",
 	justifyContent: "center",
 	cursor: "pointer",
-	color: "white",
-	p: 1.5,
+	color: "text.primary",
+	minWidth: 92,
+	minHeight: 92,
+	p: 2,
 	borderRadius: 2,
-	transition: "background-color 0.15s ease",
-	"&:hover": { backgroundColor: "rgba(255,255,255,0.1)" },
-	"&:active": { backgroundColor: "rgba(255,255,255,0.2)" },
+	border: "1px solid transparent",
+	transition: "background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease",
+	"&:hover": { backgroundColor: "action.hover" },
+	"&:active": { backgroundColor: "rgba(255,176,0,0.2)" },
 };
 
 const svgIconStyle: React.CSSProperties = {
@@ -58,8 +62,10 @@ const SliderPopup = ({ anchorEl, onClose, children }: SliderPopupProps) => (
 		PaperProps={{
 			sx: {
 				pointerEvents: "auto",
-				backgroundColor: "#1a1a1a",
-				border: "1px solid rgba(255,255,255,0.15)",
+				backgroundColor: "background.paper",
+				border: "1px solid",
+				borderColor: "divider",
+				color: "text.primary",
 				borderRadius: 3,
 				p: 2.5,
 				width: 100,
@@ -98,7 +104,7 @@ const TempSliderPopup = ({
 		>
 			<Typography
 				sx={{
-					color: "rgba(255,255,255,0.5)",
+					color: "text.secondary",
 					fontSize: 10,
 					letterSpacing: 2,
 				}}
@@ -161,7 +167,7 @@ const FanSliderPopup = ({
 		>
 			<Typography
 				sx={{
-					color: "rgba(255,255,255,0.5)",
+					color: "text.secondary",
 					fontSize: 10,
 					letterSpacing: 2,
 				}}
@@ -170,7 +176,7 @@ const FanSliderPopup = ({
 			</Typography>
 			<Typography
 				sx={{
-					color: "white",
+					color: "text.primary",
 					fontSize: 28,
 					fontWeight: 700,
 					lineHeight: 1,
@@ -189,13 +195,13 @@ const FanSliderPopup = ({
 				sx={{
 					height: 240,
 					width: 36,
-					color: "white",
-					"& .MuiSlider-rail": { backgroundColor: "rgba(255,255,255,0.2)" },
-					"& .MuiSlider-track": { backgroundColor: "white" },
-					"& .MuiSlider-thumb": { backgroundColor: "white" },
-					"& .MuiSlider-mark": { backgroundColor: "rgba(255,255,255,0.3)" },
+					color: "text.primary",
+					"& .MuiSlider-rail": { backgroundColor: "divider" },
+					"& .MuiSlider-track": { backgroundColor: "text.primary" },
+					"& .MuiSlider-thumb": { backgroundColor: "background.paper" },
+					"& .MuiSlider-mark": { backgroundColor: "text.disabled" },
 					"& .MuiSlider-markActive": {
-						backgroundColor: "rgba(255,255,255,0.7)",
+						backgroundColor: "text.secondary",
 					},
 				}}
 			/>
@@ -234,7 +240,7 @@ const VolumeSliderPopup = ({
 		>
 			<Typography
 				sx={{
-					color: "rgba(255,255,255,0.5)",
+					color: "text.secondary",
 					fontSize: 10,
 					letterSpacing: 2,
 				}}
@@ -243,7 +249,7 @@ const VolumeSliderPopup = ({
 			</Typography>
 			<Typography
 				sx={{
-					color: "white",
+					color: "text.primary",
 					fontSize: 28,
 					fontWeight: 700,
 					lineHeight: 1,
@@ -267,7 +273,7 @@ const VolumeSliderPopup = ({
 					color: "#1DB954",
 					"& .MuiSlider-rail": { backgroundColor: "rgba(255,255,255,0.2)" },
 					"& .MuiSlider-track": { backgroundColor: "#1DB954" },
-					"& .MuiSlider-thumb": { backgroundColor: "white" },
+					"& .MuiSlider-thumb": { backgroundColor: "background.paper" },
 					"& .MuiSlider-mark": { backgroundColor: "rgba(255,255,255,0.3)" },
 					"& .MuiSlider-markActive": {
 						backgroundColor: "rgba(29,185,84,0.5)",
@@ -278,7 +284,7 @@ const VolumeSliderPopup = ({
 			{disabled && (
 				<Typography
 					sx={{
-						color: "rgba(255,255,255,0.3)",
+						color: "text.disabled",
 						fontSize: 9,
 						textAlign: "center",
 					}}
@@ -336,6 +342,11 @@ const MultiAppPopup = ({
 			label: "Air Dir.",
 			onPress: onAirDir,
 		},
+		{
+			icon: <AcUnitRounded sx={{ fontSize: 40 }} />,
+			label: "A/C",
+			onPress: onAC,
+		},
 	];
 
 	return (
@@ -351,8 +362,10 @@ const MultiAppPopup = ({
 			PaperProps={{
 				sx: {
 					pointerEvents: "auto",
-					backgroundColor: "#1a1a1a",
-					border: "1px solid rgba(255,255,255,0.15)",
+					backgroundColor: "background.paper",
+					border: "1px solid",
+					borderColor: "divider",
+					color: "text.primary",
 					borderRadius: 3,
 					p: 1.5,
 				},
@@ -362,14 +375,14 @@ const MultiAppPopup = ({
 				{subItems.map(({ icon, label, onPress }) => (
 					<Box
 						key={label}
-						sx={{ ...iconBtnStyle, gap: 0.5, color: "white" }}
+						sx={{ ...iconBtnStyle, gap: 0.5, color: "text.primary" }}
 						onClick={onPress}
 					>
 						{icon}
 						<Typography
 							variant="caption"
 							sx={{
-								color: "rgba(255,255,255,0.65)",
+								color: "text.secondary",
 								fontSize: 9,
 								textAlign: "center",
 							}}
@@ -385,7 +398,7 @@ const MultiAppPopup = ({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const CarControls = () => {
+const CarControls = ({ isDriving }: { isDriving: boolean }) => {
 	const hazardRef = useRef<HTMLDivElement>(null);
 	const spotify = useSpotify();
 	const [localVolume, setLocalVolume] = useState(50);
@@ -443,6 +456,7 @@ const CarControls = () => {
 					alignItems: "center",
 					width: "100%",
 					height: "100%",
+					color: "text.primary",
 				}}
 			>
 				{/* ── Left group ───────────────────────────────────────────────────── */}
@@ -458,24 +472,46 @@ const CarControls = () => {
 					<Box
 						sx={{
 							...iconBtnStyle,
-							color: spotify.isConnected ? "white" : "rgba(255,255,255,0.35)",
+							color: spotify.isConnected ? "text.primary" : "text.disabled",
+							backgroundColor:
+								activePopup === "volume" ? "rgba(255,176,0,0.16)" : "transparent",
+							borderColor:
+								activePopup === "volume" ? "rgba(255,176,0,0.45)" : "transparent",
 						}}
 						onClick={() => {
 							setLocalVolume(spotify.volume);
 							toggle("volume");
 						}}
 					>
-						<VolumeUpRounded sx={{ fontSize: 48 }} />
+						<VolumeUpRounded sx={{ fontSize: 56 }} />
 					</Box>
 
 					{/* Music */}
-					<Box sx={iconBtnStyle} onClick={() => toggle("spotify")}>
-						<MusicNoteRounded sx={{ fontSize: 48 }} />
+					<Box
+						sx={{
+							...iconBtnStyle,
+							backgroundColor:
+								activePopup === "spotify" ? "rgba(255,176,0,0.16)" : "transparent",
+							borderColor:
+								activePopup === "spotify" ? "rgba(255,176,0,0.45)" : "transparent",
+						}}
+						onClick={() => toggle("spotify")}
+					>
+						<MusicNoteRounded sx={{ fontSize: 56 }} />
 					</Box>
 
 					{/* Multi-App */}
-					<Box sx={iconBtnStyle} onClick={() => toggle("multiApp")}>
-						<AppsRounded sx={{ fontSize: 48 }} />
+					<Box
+						sx={{
+							...iconBtnStyle,
+							backgroundColor:
+								activePopup === "multiApp" ? "rgba(255,176,0,0.16)" : "transparent",
+							borderColor:
+								activePopup === "multiApp" ? "rgba(255,176,0,0.45)" : "transparent",
+						}}
+						onClick={() => toggle("multiApp")}
+					>
+						<AppsRounded sx={{ fontSize: 56 }} />
 					</Box>
 				</Box>
 
@@ -487,14 +523,16 @@ const CarControls = () => {
 						flexShrink: 0,
 						color: hazardOn
 							? hazardFlash
-								? "#ff3333"
-								: "rgba(255,255,255,0.15)"
-							: "white",
+								? "#FF3B30"
+								: "text.disabled"
+							: "text.primary",
+						backgroundColor: hazardOn ? "rgba(255,59,48,0.18)" : "transparent",
+						borderColor: hazardOn ? "rgba(255,59,48,0.55)" : "transparent",
 						transition: hazardOn ? "color 0.1s ease" : "color 0.15s ease",
 					}}
 					onClick={handleHazard}
 				>
-					<CarCrashRounded sx={{ fontSize: 72 }} />
+					<WarningAmberRounded sx={{ fontSize: 82 }} />
 				</Box>
 
 				{/* ── Right group ──────────────────────────────────────────────────── */}
@@ -507,19 +545,35 @@ const CarControls = () => {
 					}}
 				>
 					{/* Temp */}
-					<Box sx={iconBtnStyle} onClick={() => toggle("temp")}>
-						<ThermostatRounded sx={{ fontSize: 48 }} />
+					<Box
+						sx={{
+							...iconBtnStyle,
+							backgroundColor:
+								activePopup === "temp" ? "rgba(255,176,0,0.16)" : "transparent",
+							borderColor:
+								activePopup === "temp" ? "rgba(255,176,0,0.45)" : "transparent",
+						}}
+						onClick={() => toggle("temp")}
+					>
+						<ThermostatRounded sx={{ fontSize: 56 }} />
 					</Box>
 
 					{/* Fan */}
 					<Box
-						sx={{ ...iconBtnStyle, color: "white" }}
+						sx={{
+							...iconBtnStyle,
+							color: fanSpeed > 0 ? "info.main" : "text.disabled",
+							backgroundColor:
+								activePopup === "fan" ? "rgba(56,189,248,0.15)" : "transparent",
+							borderColor:
+								activePopup === "fan" ? "rgba(56,189,248,0.45)" : "transparent",
+						}}
 						onClick={() => toggle("fan")}
 					>
 						{fanSpeed === 0 ? (
-							<FanOffIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
+							<FanOffIcon style={{ ...svgIconStyle, width: 56, height: 56 }} />
 						) : (
-							<FanOnIcon style={{ ...svgIconStyle, width: 48, height: 48 }} />
+							<FanOnIcon style={{ ...svgIconStyle, width: 56, height: 56 }} />
 						)}
 					</Box>
 				</Box>
@@ -558,6 +612,7 @@ const CarControls = () => {
 					anchorEl={activePopup === "spotify" ? hazardRef.current : null}
 					onClose={close}
 					spotify={spotify}
+					isDriving={isDriving}
 				/>
 			</Box>
 		</ClickAwayListener>

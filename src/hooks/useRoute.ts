@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import { getRoute, NormalizedManeuver } from "../lib/routing";
 import type { RoutingProvider } from "../constants";
@@ -25,12 +25,27 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const [maneuvers, setManeuvers] = useState<NormalizedManeuver[]>([]);
 	const theme = useTheme();
 
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map) return;
+		const redrawAfterStyleChange = () => {
+			if (coordsRef.current.length > 0 && map.isStyleLoaded()) {
+				drawRoute(coordsRef.current);
+			}
+		};
+		map.on("styledata", redrawAfterStyleChange);
+		return () => {
+			map.off("styledata", redrawAfterStyleChange);
+		};
+	}, [mapRef.current, theme.palette.primary.main]);
+
 	async function fetchRoute(
 		origin: [number, number],
 		dest: [number, number],
 		provider: RoutingProvider,
+		stops: [number, number][] = [],
 	) {
-		const result = await getRoute(origin, dest, provider);
+		const result = await getRoute(origin, dest, provider, stops);
 		coordsRef.current = result.coords;
 		maneuversRef.current = result.maneuvers;
 		setManeuvers(result.maneuvers);
@@ -39,6 +54,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 
 	function drawRoute(decoded: [number, number][]) {
 		const map = mapRef.current!;
+		if (!map.isStyleLoaded()) return;
 		const geojson = toFeature(decoded);
 
 		if (!map.getSource("route-bg")) {
@@ -51,7 +67,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				layout: { "line-cap": "round" },
 				paint: {
 					"line-color": alpha(theme.palette.primary.main, 0.25),
-					"line-width": 5,
+					"line-width": 12,
 				},
 			});
 		} else {
@@ -72,13 +88,26 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				layout: { "line-cap": "round" },
 				paint: {
 					"line-color": theme.palette.primary.main,
-					"line-width": 5,
+					"line-width": 8,
 					"line-emissive-strength": 1,
 				},
 			});
 		} else {
 			(map.getSource("route") as mapboxgl.GeoJSONSource).setData(geojson);
 		}
+	}
+
+	function clearRoute() {
+		const map = mapRef.current;
+		coordsRef.current = [];
+		maneuversRef.current = [];
+		setManeuvers([]);
+
+		if (!map) return;
+		if (map.getLayer("route")) map.removeLayer("route");
+		if (map.getLayer("route-bg")) map.removeLayer("route-bg");
+		if (map.getSource("route")) map.removeSource("route");
+		if (map.getSource("route-bg")) map.removeSource("route-bg");
 	}
 
 	// Legacy: trim by vertex index — kept for any callers that still use it
@@ -133,6 +162,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		maneuversRef,
 		maneuvers,
 		fetchRoute,
+		clearRoute,
 		trimRoute,
 		trimRouteByDistance,
 	};

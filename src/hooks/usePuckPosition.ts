@@ -134,6 +134,7 @@ export function usePositionPuck(
 	coordsRef: React.RefObject<[number, number][]>,
 	followingRef: React.RefObject<CameraMode>,
 	orientationRef: React.RefObject<Orientation>,
+	cameraTransitionRef: React.RefObject<boolean>,
 	trimRouteByDistance: (distanceM: number) => void,
 ) {
 	const speedMsRef = useRef<number>(0);
@@ -156,6 +157,23 @@ export function usePositionPuck(
 
 	// ── Easing lock: suppresses jumpTo while smoothLocate's easeTo is running ─
 	const isEasingRef = useRef<boolean>(false);
+
+	function syncPuck(pos: [number, number], bearing: number, speedMs: number) {
+		gpsPosRef.current = pos;
+		gpsBearingRef.current = bearing;
+		speedMsRef.current = speedMs;
+		targetBearingRef.current = bearing;
+		renderBearingRef.current = bearing;
+		renderPosRef.current = [...pos] as [number, number];
+		lastCameraPosRef.current = [...pos] as [number, number];
+		lastCameraBearingRef.current = bearing;
+		lastFrameTimeRef.current = performance.now();
+
+		const coords = coordsRef.current;
+		distanceCursorRef.current =
+			coords.length >= 2 ? distanceAlongRouteToPoint(coords, pos) : -1;
+		mapRef.current?.triggerRepaint();
+	}
 
 	useEffect(() => {
 		if (!mapLoaded || !mapRef.current) return;
@@ -309,11 +327,16 @@ export function usePositionPuck(
 				// Guard 1: skip entirely while smoothLocate's easeTo is animating.
 				// Guard 2: skip if position/bearing haven't meaningfully changed —
 				//          prevents 60fps jumpTo calls blocking Wayland gestures.
-				if (followingRef.current === "following" && !isEasingRef.current) {
-					const targetCenter = renderPosRef.current;
+				if (
+					followingRef.current === "following" &&
+					!isEasingRef.current &&
+					!cameraTransitionRef.current
+				) {
 					const targetBearing =
 						orientationRef.current === "heading" ? renderBearingRef.current : 0;
 					const targetPitch = orientationRef.current === "heading" ? 45 : 0;
+					const targetCenter = renderPosRef.current;
+					const cameraOffsetY = map.getCanvas().height * 0.2;
 
 					const posDelta = haversineMeters(
 						lastCameraPosRef.current,
@@ -327,11 +350,14 @@ export function usePositionPuck(
 						posDelta > CAMERA_POS_THRESHOLD_M ||
 						bearingDelta > CAMERA_BEARING_THRESHOLD_DEG
 					) {
-						map.jumpTo({
+						map.easeTo({
 							center: targetCenter,
 							bearing: targetBearing,
 							pitch: targetPitch,
 							zoom: ZOOM_LEVEL,
+							offset: [0, cameraOffsetY],
+							duration: 0,
+							essential: true,
 						});
 						lastCameraPosRef.current = [...targetCenter] as [number, number];
 						lastCameraBearingRef.current = targetBearing;
@@ -343,9 +369,20 @@ export function usePositionPuck(
 		};
 
 		const addLayer = () => {
+			if (!map.isStyleLoaded()) return;
 			if (!map.getLayer("puck-layer")) map.addLayer(dummyLayer);
+			map.triggerRepaint();
 		};
-		map.isStyleLoaded() ? addLayer() : map.once("styledata", addLayer);
+
+		const onStyleLoad = () => {
+			syncPuck(gpsPosRef.current, gpsBearingRef.current, speedMsRef.current);
+			onResize();
+			addLayer();
+		};
+
+		addLayer();
+		map.on("styledata", addLayer);
+		map.on("style.load", onStyleLoad);
 
 		const onResize = () => {
 			overlayCanvas.width = mapCanvas.width;
@@ -356,6 +393,8 @@ export function usePositionPuck(
 
 		return () => {
 			map.off("resize", onResize);
+			map.off("styledata", addLayer);
+			map.off("style.load", onStyleLoad);
 			if (map.getLayer("puck-layer")) map.removeLayer("puck-layer");
 			overlayCanvas.remove();
 			renderer.dispose();
@@ -407,12 +446,14 @@ export function usePositionPuck(
 		if (!map) return;
 
 		isEasingRef.current = true;
+		const cameraOffsetY = map.getCanvas().height * 0.2;
 
 		map.easeTo({
 			center: pos,
 			bearing: orientationRef.current === "heading" ? bearing : 0,
 			pitch: orientationRef.current === "heading" ? 45 : 0,
 			zoom: ZOOM_LEVEL,
+			offset: [0, cameraOffsetY],
 			duration: 800,
 		});
 
@@ -425,5 +466,5 @@ export function usePositionPuck(
 		}, 900);
 	}
 
-	return { updatePuck, resetCursor, smoothLocate };
+	return { updatePuck, resetCursor, smoothLocate, syncPuck };
 }

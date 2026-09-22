@@ -20,8 +20,12 @@ app.commandLine.appendSwitch("ignore-gpu-blocklist");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 
-const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
+const CAR_DISPLAY_ASPECT_RATIO = 9 / 16;
+
+function hasArg(name: string) {
+	return process.argv.includes(name);
+}
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
 function startGps(win: BrowserWindow) {
@@ -67,16 +71,20 @@ function startGps(win: BrowserWindow) {
 // ── Main window ───────────────────────────────────────────────────────────────
 const createWindow = (): void => {
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+	const previewMode = hasArg("--preview");
+	const previewHeight = Math.min(height - 80, 1100);
+	const previewWidth = Math.round(previewHeight * CAR_DISPLAY_ASPECT_RATIO);
 
 	mainWindow = new BrowserWindow({
-		width,
-		height,
-		x: 0,
-		y: 0,
-		frame: false,
-		fullscreen: true,
+		width: previewMode ? previewWidth : width,
+		height: previewMode ? previewHeight : height,
+		x: previewMode ? undefined : 0,
+		y: previewMode ? undefined : 0,
+		frame: previewMode,
+		fullscreen: !previewMode,
 		resizable: true,
 		show: false,
+		title: previewMode ? "Brava Infotainment Preview" : "Brava Infotainment",
 		webPreferences: {
 			zoomFactor: 1,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -84,6 +92,11 @@ const createWindow = (): void => {
 			contextIsolation: false,
 		},
 	});
+
+	if (previewMode) {
+		mainWindow.setAspectRatio(CAR_DISPLAY_ASPECT_RATIO);
+		mainWindow.center();
+	}
 
 	mainWindow.show();
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -107,8 +120,12 @@ const createWindow = (): void => {
 	const tod = todArg ? todArg.split("=")[1] : null;
 
 	const loadURL = () => {
-		const url = tod
-			? `${MAIN_WINDOW_WEBPACK_ENTRY}?tod=${tod}`
+		const params = new URLSearchParams();
+		if (tod) params.set("tod", tod);
+		if (previewMode) params.set("preview", "car-portrait");
+		const query = params.toString();
+		const url = query
+			? `${MAIN_WINDOW_WEBPACK_ENTRY}?${query}`
 			: MAIN_WINDOW_WEBPACK_ENTRY;
 		mainWindow!.loadURL(url).catch(() => setTimeout(loadURL, 300));
 	};
