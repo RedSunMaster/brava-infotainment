@@ -29,7 +29,7 @@ export default function GpsIndicator({ status }: { status: GpsStatus }) {
 		<Tooltip
 			title={
 				status === "disconnected"
-					? "GPS unavailable — using simulation"
+					? "GPS unavailable: location is not current"
 					: `GPS status: ${label}`
 			}
 		>
@@ -43,8 +43,8 @@ export default function GpsIndicator({ status }: { status: GpsStatus }) {
 					border: `1px solid ${color}`,
 					backdropFilter: "blur(8px)",
 					fontWeight: 800,
-					fontSize: "0.82rem",
-					minHeight: 36,
+					fontSize: 22,
+					minHeight: 42,
 				}}
 			/>
 		</Tooltip>

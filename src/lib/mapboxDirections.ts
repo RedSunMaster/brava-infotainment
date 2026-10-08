@@ -8,9 +8,20 @@ function httpsGet(url: string): Promise<any> {
 			.get(url, (res) => {
 				let raw = "";
 				res.on("data", (c: string) => (raw += c));
-				res.on("end", () => resolve(JSON.parse(raw)));
+				res.on("end", () => {
+					try {
+						if (res.statusCode !== 200)
+							throw new Error("Routing is unavailable. Try again.");
+						resolve(JSON.parse(raw));
+					} catch (error) {
+						reject(error);
+					}
+				});
 			})
-			.on("error", reject);
+			.on("error", reject)
+			.setTimeout(10000, function () {
+				this.destroy(new Error("Route calculation timed out. Try again."));
+			});
 	});
 }
 
@@ -26,6 +37,8 @@ export async function getMapboxRoute(
 		`?steps=true&geometries=polyline6&overview=full&access_token=${process.env.MAPBOX_TOKEN}`;
 
 	const data = await httpsGet(url);
+	if (!data.routes?.length)
+		throw new Error("No drivable route was found for this location.");
 	let allCoords: [number, number][] = [];
 	const maneuvers: NormalizedRoute["maneuvers"] = [];
 

@@ -7,14 +7,14 @@ import { useSimulation } from "./hooks/useSimulation";
 import { useCameraMode } from "./hooks/useCameraMode";
 import NavigationCard from "./components/NavigationCard";
 import MapControls from "./components/MapControls";
-import { getRoute, snapToRoad, type NormalizedManeuver } from "./lib/routing";
 import {
-	DEV_ORIGIN,
-	RoutingProvider,
-	ZOOM_LEVEL,
-} from "./constants";
-import { Box, Chip, useTheme } from "@mui/material";
-import { alpha } from "@mui/material/styles";
+	getRoute,
+	snapToRoad,
+	type NormalizedManeuver,
+	type NormalizedRoute,
+} from "./lib/routing";
+import { DEV_ORIGIN, RoutingProvider, ZOOM_LEVEL } from "./constants";
+import { Alert, Box, Typography } from "@mui/material";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
 import { usePositionPuck } from "./hooks/usePuckPosition";
@@ -22,8 +22,19 @@ import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
 import { useGps } from "./hooks/useGps";
 import ClockWeatherChip from "./components/ClockWeatherChip";
-import SyncRoundedIcon from "@mui/icons-material/SyncRounded";
 import { useThemeMode } from "./ThemeContext";
+import DriveButton from "./components/DriveButton";
+import {
+	VolumeOffRounded,
+	VolumeUpRounded,
+	ReplayRounded,
+} from "@mui/icons-material";
+import { useSpokenNavigation } from "./hooks/useSpokenNavigation";
+import {
+	nextDrivingState,
+	interactionLocked,
+	type DrivingState,
+} from "./lib/drivingState";
 
 function closestRouteIndex(
 	pos: [number, number],
@@ -81,7 +92,9 @@ function featureScore(feature: mapboxgl.MapboxGeoJSONFeature): number {
 	let score = 0;
 	if (pointFeatureCoords(feature)) score += 20;
 	if (mapFeatureName(feature)) score += 20;
-	if (/poi|place|transit|airport|parking|school|hospital|park|shop/.test(layerId)) {
+	if (
+		/poi|place|transit|airport|parking|school|hospital|park|shop/.test(layerId)
+	) {
 		score += 15;
 	}
 	if (typeof props.maki === "string") score += 10;
@@ -145,8 +158,7 @@ function summarizeManeuvers(maneuvers: NormalizedManeuver[]) {
 }
 
 export default function App() {
-	const theme = useTheme();
-	const { mode } = useThemeMode();
+	const { mode, period, updatePosition } = useThemeMode();
 	const mapContainer = useRef<HTMLDivElement>(null);
 	const simIndexRef = useRef(0);
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
@@ -157,7 +169,13 @@ export default function App() {
 	const destinationClickInFlightRef = useRef(false);
 	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
 	const [navActive, setNavActive] = useState(false);
-	const [navCardExpanded, setNavCardExpanded] = useState(false);
+	const previewMode =
+		new URLSearchParams(window.location.search).get("preview") ===
+		"car-portrait";
+	const [drivingState, setDrivingState] = useState<DrivingState>("unknown");
+	const [routeError, setRouteError] = useState<string | null>(null);
+	const [routeBusy, setRouteBusy] = useState(false);
+	const routeRequest = useRef(0);
 	const [isRerouting, setIsRerouting] = useState(false);
 	const [vehicleSpeedMs, setVehicleSpeedMs] = useState(0);
 	const [pendingDest, setPendingDest] = useState<{
@@ -166,15 +184,18 @@ export default function App() {
 		duration: string;
 		distance: string;
 		action: PendingNavAction;
+		route: NormalizedRoute;
+		stops: [number, number][];
 	} | null>(null);
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
-	const isDriving = vehicleSpeedMs > 1;
 	const {
 		coordsRef,
 		maneuversRef,
 		maneuvers,
 		fetchRoute,
+		applyRoute,
+		drawRoute,
 		clearRoute,
 		trimRoute,
 		trimRouteByDistance,
@@ -205,7 +226,7 @@ export default function App() {
 		trimRouteByDistance,
 	);
 
-	useMapStyle(mapRef, mapLoaded, mode, () => {
+	useMapStyle(mapRef, mapLoaded, mode, period, () => {
 		syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
 	});
 
@@ -223,6 +244,8 @@ export default function App() {
 			simIndexRef.current = 0;
 			resetNavigation();
 			resumeFollowing();
+		} catch {
+			setRouteError("Could not update the route. Keeping your current route.");
 		} finally {
 			setIsRerouting(false);
 		}
@@ -252,13 +275,15 @@ export default function App() {
 			prov: RoutingProvider,
 		) => {
 			lastPosRef.current = pos;
+			updatePosition(pos);
 			lastBearingRef.current = bearing;
 			lastSpeedRef.current = speed;
 			setVehicleSpeedMs(speed);
+			setDrivingState((previous) => nextDrivingState(previous, speed));
 			updatePuck(pos, bearing, speed);
 			await onPositionUpdate(pos, bearing, speed, prov);
 		},
-		[updatePuck, onPositionUpdate],
+		[updatePuck, onPositionUpdate, updatePosition],
 	);
 
 	// ── GPS ────────────────────────────────────────────────────────────────────
@@ -266,9 +291,11 @@ export default function App() {
 		useCallback(
 			(pos: [number, number], bearing: number, speed: number) => {
 				lastPosRef.current = pos;
+				updatePosition(pos);
 				lastBearingRef.current = bearing;
 				lastSpeedRef.current = speed;
 				setVehicleSpeedMs(speed);
+				setDrivingState((previous) => nextDrivingState(previous, speed));
 
 				updatePuck(pos, bearing, speed);
 
@@ -293,6 +320,23 @@ export default function App() {
 	);
 
 	// ── Simulation ─────────────────────────────────────────────────────────────
+	const isDriving = interactionLocked(
+		previewMode,
+		gpsStatus === "fix",
+		drivingState,
+	);
+	useEffect(() => {
+		if (isDriving) {
+			routeRequest.current++;
+			setRouteBusy(false);
+			setPendingDest(null);
+		}
+	}, [isDriving]);
+	const guidance = useSpokenNavigation(
+		maneuvers[currentStep + 1]?.instruction ?? "",
+		distanceToNextM,
+		navActive,
+	);
 	const { startSimulation, stopSimulation } = useSimulation(
 		coordsRef,
 		simIndexRef,
@@ -322,44 +366,41 @@ export default function App() {
 
 	const handleSearchSelect = useCallback(
 		async (coords: [number, number], placeName: string) => {
-			resetNavigation();
-			simIndexRef.current = 0;
-			await fetchRoute(lastPosRef.current, coords, provider);
-			syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
-			const fetchedManeuvers = maneuversRef.current;
-			if (!fetchedManeuvers.length) return;
-			showOverview(coordsRef.current);
-			const summary = summarizeManeuvers(fetchedManeuvers);
-			setPendingDest({
-				coords,
-				placeName,
-				duration: summary.duration,
-				distance: summary.distance,
-				action: "destination",
-			});
+			if (isDriving) throw new Error("Choose a destination when parked.");
+			const request = ++routeRequest.current;
+			setRouteBusy(true);
+			setRouteError(null);
+			try {
+				const stops = navActive ? [...navStopsRef.current, coords] : [];
+				const destination =
+					navActive && navDestRef.current ? navDestRef.current : coords;
+				const route = await getRoute(
+					lastPosRef.current,
+					destination,
+					provider,
+					stops,
+				);
+				if (request !== routeRequest.current) return;
+				if (!route.maneuvers.length)
+					throw new Error("No drivable route was found.");
+				if (!navActive) {
+					drawRoute(route.coords);
+					showOverview(route.coords);
+				}
+				const summary = summarizeManeuvers(route.maneuvers);
+				setPendingDest({
+					coords,
+					placeName,
+					...summary,
+					action: navActive ? "stop" : "destination",
+					route,
+					stops,
+				});
+			} finally {
+				if (request === routeRequest.current) setRouteBusy(false);
+			}
 		},
-		[coordsRef, fetchRoute, maneuversRef, provider, resetNavigation, showOverview],
-	);
-
-	const handleAddStopSelect = useCallback(
-		async (coords: [number, number], placeName: string) => {
-			if (!navDestRef.current) return;
-			const route = await getRoute(
-				lastPosRef.current,
-				navDestRef.current,
-				provider,
-				[coords],
-			);
-			const summary = summarizeManeuvers(route.maneuvers);
-			setPendingDest({
-				coords,
-				placeName,
-				duration: summary.duration,
-				distance: summary.distance,
-				action: "stop",
-			});
-		},
-		[provider],
+		[isDriving, navActive, provider, drawRoute, showOverview],
 	);
 
 	useEffect(() => {
@@ -367,7 +408,7 @@ export default function App() {
 		if (!mapLoaded || !map) return;
 
 		const handleMapClick = async (event: mapboxgl.MapMouseEvent) => {
-			if (destinationClickInFlightRef.current) return;
+			if (isDriving || destinationClickInFlightRef.current) return;
 			destinationClickInFlightRef.current = true;
 			try {
 				const coords: [number, number] = [event.lngLat.lng, event.lngLat.lat];
@@ -379,11 +420,11 @@ export default function App() {
 				const destination =
 					destinationFromFeatures(features, coords) ??
 					(await reverseGeocodeDestination(coords));
-				if (navActive) {
-					await handleAddStopSelect(destination.coords, destination.placeName);
-				} else {
-					await handleSearchSelect(destination.coords, destination.placeName);
-				}
+				await handleSearchSelect(destination.coords, destination.placeName);
+			} catch (cause) {
+				setRouteError(
+					cause instanceof Error ? cause.message : "Could not calculate route.",
+				);
 			} finally {
 				destinationClickInFlightRef.current = false;
 			}
@@ -393,71 +434,47 @@ export default function App() {
 		return () => {
 			map.off("click", handleMapClick);
 		};
-	}, [handleAddStopSelect, handleSearchSelect, mapLoaded, mapRef, navActive]);
+	}, [handleSearchSelect, mapLoaded, mapRef, isDriving]);
 
 	async function handleConfirmNav() {
-		if (!pendingDest) return;
-		if (pendingDest.action === "stop") {
-			if (!navDestRef.current) return;
-			const nextStops = [pendingDest.coords];
-			await fetchRoute(
-				lastPosRef.current,
-				navDestRef.current,
-				provider,
-				nextStops,
-			);
-			syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
-			navStopsRef.current = nextStops;
-			setPendingDest(null);
-			resetNavigation();
-			resetCursor();
-			simIndexRef.current = 0;
-			resumeFollowing();
-			if (gpsStatus !== "fix") {
-				startSimulation(provider);
-			}
-			return;
-		}
-		navDestRef.current = pendingDest.coords;
-		navStopsRef.current = [];
+		if (!pendingDest || isDriving) return;
+		stopSimulation();
+		applyRoute(pendingDest.route);
+		if (pendingDest.action === "destination")
+			navDestRef.current = pendingDest.coords;
+		navStopsRef.current = pendingDest.stops;
 		setPendingDest(null);
 		setNavActive(true);
+		resetNavigation();
+		resetCursor();
+		simIndexRef.current = 0;
 		resumeFollowing();
-		if (gpsStatus !== "fix") {
-			startSimulation(provider);
-		}
+		if (previewMode && gpsStatus !== "fix") startSimulation(provider);
 	}
 
 	function handleCancelSearch() {
-		if (pendingDest?.action === "stop") {
-			setPendingDest(null);
-			return;
-		}
+		routeRequest.current++;
 		setPendingDest(null);
-		stopSimulation();
-		resetNavigation();
-		resetCursor();
-		navDestRef.current = null;
-		navStopsRef.current = [];
-		simIndexRef.current = 0;
-		clearRoute();
-		mapRef.current?.easeTo({
-			center: lastPosRef.current,
-			zoom: ZOOM_LEVEL,
-			pitch: 0,
-			bearing: 0,
-			duration: 600,
-		});
+		setRouteBusy(false);
+		if (navActive) {
+			drawRoute(coordsRef.current);
+			resumeFollowing();
+		} else {
+			clearRoute();
+			handleLocate();
+		}
 	}
 
 	const handleEndNavigation = useCallback(() => {
 		stopSimulation();
 		resetNavigation();
 		resetCursor();
-		setVehicleSpeedMs(0);
-		lastSpeedRef.current = 0;
+		if (previewMode && gpsStatus !== "fix") {
+			setVehicleSpeedMs(0);
+			setDrivingState("parked");
+			lastSpeedRef.current = 0;
+		}
 		setNavActive(false);
-		setNavCardExpanded(false);
 		setIsRerouting(false);
 		setPendingDest(null);
 		simIndexRef.current = 0;
@@ -479,6 +496,8 @@ export default function App() {
 		resetCursor,
 		resumeFollowing,
 		stopSimulation,
+		previewMode,
+		gpsStatus,
 	]);
 
 	useEffect(() => {
@@ -487,21 +506,13 @@ export default function App() {
 		}
 	}, [currentStep, maneuvers.length, navActive, handleEndNavigation]);
 
-	useEffect(() => {
-		if (!navActive) setNavCardExpanded(false);
-	}, [navActive]);
-
-	// ── Locate button ───────────────────────────────────────────────────────────
-	// resumeFollowing() updates React cameraMode state + followingRef immediately.
-	// smoothLocate() then animates back with easeTo and holds the jumpTo lock for
-	// 900ms so the animation isn't interrupted and the map stays interactive.
 	function handleLocate() {
 		resumeFollowing();
 		smoothLocate(lastPosRef.current, lastBearingRef.current);
 	}
 
 	useEffect(() => {
-		if (!mapLoaded) return;
+		if (!mapLoaded || !previewMode) return;
 		async function snapInitialPosition() {
 			const snapped = await snapToRoad([DEV_ORIGIN, DEV_ORIGIN], provider);
 			lastPosRef.current = snapped;
@@ -516,35 +527,36 @@ export default function App() {
 				duration: 800,
 			});
 		}
-		snapInitialPosition();
+		snapInitialPosition().catch(() =>
+			setRouteError("Preview position could not be matched to the road."),
+		);
 	}, [mapLoaded]);
 
 	return (
 		<Box
 			sx={{
-				background: theme.palette.background.default,
 				height: "100vh",
 				width: "100vw",
+				position: "fixed",
+				inset: 0,
 				display: "flex",
 				flexDirection: "column",
-				position: "fixed",
-				top: 0,
-				left: 0,
-				padding: "10px",
+				bgcolor: "background.default",
+				overflow: "hidden",
 			}}
 		>
-			<Box sx={{ flex: 1, minHeight: 0, position: "relative" }}>
+			<Box
+				sx={{ flex: 1, minHeight: 0, position: "relative", m: "12px 12px 0" }}
+			>
 				<Box
 					ref={mapContainer}
 					sx={{
 						position: "absolute",
 						inset: 0,
-						borderRadius: "10px",
+						borderRadius: 3,
 						overflow: "hidden",
 					}}
 				/>
-
-				{/* Top HUD */}
 				<Box
 					sx={{
 						position: "absolute",
@@ -552,186 +564,144 @@ export default function App() {
 						left: 16,
 						right: 16,
 						zIndex: 10,
-						pointerEvents: "none",
+						display: "grid",
+						gap: 2,
 					}}
 				>
-					{navActive ? (
-						<Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
-							<Box sx={{ pointerEvents: "auto", flexShrink: 0 }}>
-								<ClockWeatherChip
-									position={lastPosRef.current}
-									gpsStatus={gpsStatus}
-								/>
-							</Box>
-							<Box
-								sx={{
-									flex: 1,
-									minWidth: 0,
-									display: "flex",
-									flexDirection: "column",
-									gap: 1,
-									pointerEvents: "auto",
-								}}
-							>
-								<NavigationCard
-									maneuvers={maneuvers}
-									currentStep={currentStep}
-									distanceToNextM={distanceToNextM}
-									timeToNextS={timeToNextS}
-									isDriving={isDriving}
-									onExpandedChange={setNavCardExpanded}
-								/>
-								{isRerouting && (
-									<Chip
-										icon={
-											<SyncRoundedIcon
-												sx={{
-													fontSize: 16,
-													animation: "spin 1s linear infinite",
-													"@keyframes spin": {
-														from: { transform: "rotate(0deg)" },
-														to: { transform: "rotate(360deg)" },
-													},
-												}}
-											/>
-										}
-										label="Rerouting…"
-										size="medium"
-										sx={{
-											alignSelf: "flex-start",
-											background: alpha(theme.palette.background.default, 0.9),
-											backdropFilter: "blur(10px)",
-											border: `1px solid ${alpha(theme.palette.warning.main, 0.4)}`,
-											color: theme.palette.warning.main,
-											fontWeight: 800,
-											fontSize: 14,
-											minHeight: 42,
-											boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-										}}
-									/>
-								)}
-								<Box
-									sx={{
-										display: "flex",
-										justifyContent: "flex-end",
-										mt: navCardExpanded ? 2 : 0,
-										transition: "margin-top 180ms ease",
-									}}
-								>
-									<MapControls
-										cameraMode={cameraMode}
-										orientation={orientation}
-										hasRoute={maneuvers.length > 0}
-										currentBearing={mapBearing}
-										currentPosition={lastPosRef.current}
-										mapboxToken={process.env.MAPBOX_TOKEN}
-										onOverview={() => showOverview(coordsRef.current)}
-										onToggleOrientation={() =>
-											toggleOrientation(
-												lastBearingRef.current,
-												lastPosRef.current,
-											)
-										}
-										onSearchSelect={handleSearchSelect}
-										onLocate={handleLocate}
-										isNavActive={navActive}
-										provider={provider}
-										onToggleProvider={handleToggleProvider}
-										isDriving={isDriving}
-									/>
-								</Box>
-							</Box>
-						</Box>
-					) : (
-						<Box
+					<Box
+						sx={{
+							display: "flex",
+							justifyContent: "space-between",
+							alignItems: "center",
+							gap: 2,
+						}}
+					>
+						<ClockWeatherChip
+							position={lastPosRef.current}
+							gpsStatus={gpsStatus}
+						/>
+						<Typography
 							sx={{
-								display: "grid",
-								gridTemplateColumns: "1fr auto 1fr",
-								alignItems: "flex-start",
-								gap: 2,
+								bgcolor: "background.paper",
+								borderRadius: 2,
+								p: 1.5,
+								fontSize: 24,
+								fontWeight: 700,
 							}}
 						>
-							<Box />
-							<Box sx={{ pointerEvents: "auto" }}>
-								<ClockWeatherChip
-									position={lastPosRef.current}
-									gpsStatus={gpsStatus}
-								/>
-							</Box>
-							<Box
-								sx={{
-									pointerEvents: "auto",
-									display: "flex",
-									justifyContent: "flex-end",
-								}}
-							>
-								<MapControls
-									cameraMode={cameraMode}
-									orientation={orientation}
-									hasRoute={maneuvers.length > 0}
-									currentBearing={mapBearing}
-									currentPosition={lastPosRef.current}
-									mapboxToken={process.env.MAPBOX_TOKEN}
-									onOverview={() => showOverview(coordsRef.current)}
-									onToggleOrientation={() =>
-										toggleOrientation(lastBearingRef.current, lastPosRef.current)
-									}
-									onSearchSelect={handleSearchSelect}
-									onLocate={handleLocate}
-									isNavActive={navActive}
-									provider={provider}
-									onToggleProvider={handleToggleProvider}
-									isDriving={isDriving}
-								/>
-							</Box>
-						</Box>
+							{previewMode && gpsStatus !== "fix"
+								? navActive
+									? "Preview: simulated drive"
+									: "Preview"
+								: gpsStatus !== "fix"
+									? "Waiting for GPS"
+									: vehicleSpeedMs > 1
+										? "Driving"
+										: "Parked"}
+						</Typography>
+					</Box>
+					{navActive && (
+						<NavigationCard
+							maneuvers={maneuvers}
+							currentStep={currentStep}
+							distanceToNextM={distanceToNextM}
+							timeToNextS={timeToNextS}
+							isDriving={isDriving}
+						/>
+					)}
+					{(routeBusy || isRerouting) && (
+						<Alert severity="info" sx={{ fontSize: 28 }}>
+							Calculating route...
+						</Alert>
+					)}
+					{routeError && (
+						<Alert
+							severity="error"
+							onClose={() => setRouteError(null)}
+							sx={{ fontSize: 26 }}
+						>
+							{routeError}
+						</Alert>
 					)}
 				</Box>
-
 				<Box
 					sx={{
 						position: "absolute",
 						bottom: 16,
-						left: "50%",
-						transform: "translateX(-50%)",
-						zIndex: 20,
+						left: 16,
+						right: 16,
+						zIndex: 12,
 					}}
 				>
-					{pendingDest && (
+					{pendingDest ? (
 						<ConfirmNavDialog
 							placeName={pendingDest.placeName}
 							duration={pendingDest.duration}
 							distance={pendingDest.distance}
 							confirmLabel={
-								pendingDest.action === "stop" ? "Add stop" : "Take me there"
+								pendingDest.action === "stop" ? "Add stop" : "Start"
 							}
 							onConfirm={handleConfirmNav}
 							onCancel={handleCancelSearch}
+							disabled={isDriving}
 						/>
-					)}
-				</Box>
-
-				{navActive && (
-					<Box sx={{ position: "absolute", bottom: 10, right: 14, zIndex: 10 }}>
+					) : navActive ? (
 						<TripInfoCard
 							maneuvers={maneuvers}
 							currentStep={currentStep}
+							distanceToNextM={distanceToNextM}
+							timeToNextS={timeToNextS}
 							onEndNav={handleEndNavigation}
 							isDriving={isDriving}
 						/>
-					</Box>
+					) : null}
+				</Box>
+			</Box>
+			<CarControls isDriving={isDriving}>
+				<MapControls
+					cameraMode={cameraMode}
+					orientation={orientation}
+					hasRoute={maneuvers.length > 0}
+					currentBearing={mapBearing}
+					currentPosition={lastPosRef.current}
+					mapboxToken={process.env.MAPBOX_TOKEN}
+					onOverview={() => showOverview(coordsRef.current)}
+					onToggleOrientation={() =>
+						toggleOrientation(lastBearingRef.current, lastPosRef.current)
+					}
+					onSearchSelect={handleSearchSelect}
+					onCancelRouting={() => {
+						routeRequest.current++;
+						setRouteBusy(false);
+					}}
+					onLocate={handleLocate}
+					isNavActive={navActive}
+					provider={provider}
+					onToggleProvider={handleToggleProvider}
+					isDriving={isDriving}
+				/>
+				{navActive && (
+					<DriveButton
+						aria-label="Repeat navigation instruction"
+						disabled={!guidance.supported}
+						onClick={guidance.speak}
+					>
+						<ReplayRounded />
+					</DriveButton>
 				)}
-			</Box>
-
-			<Box
-				sx={{
-					height: "140px",
-					flexShrink: 0,
-					background: theme.palette.background.paper,
-				}}
-			>
-				<CarControls isDriving={isDriving} />
-			</Box>
+				{navActive && (
+					<DriveButton
+						aria-label={
+							guidance.muted ? "Unmute navigation" : "Mute navigation"
+						}
+						aria-pressed={guidance.muted}
+						disabled={!guidance.supported}
+						onClick={guidance.toggleMute}
+					>
+						{guidance.muted ? <VolumeOffRounded /> : <VolumeUpRounded />}
+					</DriveButton>
+				)}
+			</CarControls>
 		</Box>
 	);
 }

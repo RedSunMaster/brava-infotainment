@@ -19,10 +19,23 @@ export function valhallaPost(path: string, body: object): Promise<any> {
 			(res) => {
 				let raw = "";
 				res.on("data", (c) => (raw += c));
-				res.on("end", () => resolve(JSON.parse(raw)));
+				res.on("end", () => {
+					try {
+						if (res.statusCode !== 200)
+							throw new Error(
+								"Local routing is unavailable. Check the routing service.",
+							);
+						resolve(JSON.parse(raw));
+					} catch (error) {
+						reject(error);
+					}
+				});
 			},
 		);
 		req.on("error", reject);
+		req.setTimeout(10000, () =>
+			req.destroy(new Error("Local routing timed out. Try again.")),
+		);
 		req.write(data);
 		req.end();
 	});
@@ -51,15 +64,13 @@ export async function getValhallaRoute(
 			coords.length > 0 ? [...coords, ...legCoords.slice(1)] : [...legCoords];
 
 		maneuvers.push(
-			...leg.maneuvers.map(
-				(m: any): NormalizedManeuver => ({
+			...leg.maneuvers.map((m: any): NormalizedManeuver => ({
 				instruction: m.instruction,
 				length: m.length,
 				time: m.time,
 				begin_shape_index: legStartIndex + m.begin_shape_index,
 				type: m.type,
-			}),
-			),
+			})),
 		);
 	}
 

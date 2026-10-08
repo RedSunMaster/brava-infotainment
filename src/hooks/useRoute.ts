@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
-import { getRoute, NormalizedManeuver } from "../lib/routing";
+import {
+	getRoute,
+	NormalizedManeuver,
+	type NormalizedRoute,
+} from "../lib/routing";
 import type { RoutingProvider } from "../constants";
 import { alpha, useTheme } from "@mui/material";
 
@@ -33,9 +37,9 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				drawRoute(coordsRef.current);
 			}
 		};
-		map.on("styledata", redrawAfterStyleChange);
+		map.on("style.load", redrawAfterStyleChange);
 		return () => {
-			map.off("styledata", redrawAfterStyleChange);
+			map.off("style.load", redrawAfterStyleChange);
 		};
 	}, [mapRef.current, theme.palette.primary.main]);
 
@@ -46,6 +50,10 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		stops: [number, number][] = [],
 	) {
 		const result = await getRoute(origin, dest, provider, stops);
+		applyRoute(result);
+	}
+
+	function applyRoute(result: NormalizedRoute) {
 		coordsRef.current = result.coords;
 		maneuversRef.current = result.maneuvers;
 		setManeuvers(result.maneuvers);
@@ -162,6 +170,8 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		maneuversRef,
 		maneuvers,
 		fetchRoute,
+		applyRoute,
+		drawRoute,
 		clearRoute,
 		trimRoute,
 		trimRouteByDistance,

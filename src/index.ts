@@ -1,6 +1,11 @@
 import { app, BrowserWindow, ipcMain, session, screen } from "electron";
 import { createConnection } from "net";
 import { exec } from "child_process";
+import {
+	configureDisplayPreview,
+	getDisplayPreviewGeometry,
+	loadDisplayPreview,
+} from "./displayPreviewMain";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -21,7 +26,6 @@ app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 
 let mainWindow: BrowserWindow | null = null;
-const CAR_DISPLAY_ASPECT_RATIO = 9 / 16;
 
 function hasArg(name: string) {
 	return process.argv.includes(name);
@@ -72,12 +76,12 @@ function startGps(win: BrowserWindow) {
 const createWindow = (): void => {
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
 	const previewMode = hasArg("--preview");
-	const previewHeight = Math.min(height - 80, 1100);
-	const previewWidth = Math.round(previewHeight * CAR_DISPLAY_ASPECT_RATIO);
+	const preview = getDisplayPreviewGeometry();
 
 	mainWindow = new BrowserWindow({
-		width: previewMode ? previewWidth : width,
-		height: previewMode ? previewHeight : height,
+		width: previewMode ? preview.width : width,
+		height: previewMode ? preview.height : height,
+		useContentSize: previewMode,
 		x: previewMode ? undefined : 0,
 		y: previewMode ? undefined : 0,
 		frame: previewMode,
@@ -86,17 +90,14 @@ const createWindow = (): void => {
 		show: false,
 		title: previewMode ? "Brava Infotainment Preview" : "Brava Infotainment",
 		webPreferences: {
-			zoomFactor: 1,
+			zoomFactor: previewMode ? preview.zoomFactor : 1,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
 			nodeIntegration: true,
 			contextIsolation: false,
 		},
 	});
 
-	if (previewMode) {
-		mainWindow.setAspectRatio(CAR_DISPLAY_ASPECT_RATIO);
-		mainWindow.center();
-	}
+	configureDisplayPreview(mainWindow, previewMode);
 
 	mainWindow.show();
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -225,7 +226,8 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
-app.on("ready", () => {
+app.on("ready", async () => {
+	await loadDisplayPreview();
 	createWindow();
 });
 

@@ -35,15 +35,21 @@ export function getStyleForPeriod(period: TimeOfDay): string {
 		dusk: process.env.MAPBOX_STYLE_DUSK,
 		night: process.env.MAPBOX_STYLE_NIGHT,
 	}[period];
-	return withOptimize(base ?? DEFAULT_LIGHT_STYLE);
+	return withOptimize(
+		base ??
+			(period === "day"
+				? DEFAULT_LIGHT_STYLE
+				: "mapbox://styles/mapbox/dark-v11"),
+	);
 }
 
-export function getStyleForTheme(
-	mode: PaletteMode,
-	period: TimeOfDay,
-): string {
-	if (mode === "light") {
-		return withOptimize(process.env.MAPBOX_STYLE_LIGHT ?? DEFAULT_LIGHT_STYLE);
+export function getStyleForTheme(mode: PaletteMode, period: TimeOfDay): string {
+	if (mode === "light" && period === "day") {
+		return withOptimize(
+			process.env.MAPBOX_STYLE_DAY ??
+				process.env.MAPBOX_STYLE_LIGHT ??
+				DEFAULT_LIGHT_STYLE,
+		);
 	}
 
 	return getStyleForPeriod(period);

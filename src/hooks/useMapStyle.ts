@@ -1,61 +1,34 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
 import type { PaletteMode } from "@mui/material";
-import {
-	getTimeOfDay,
-	getStyleForTheme,
-	type TimeOfDay,
-} from "../lib/mapStyle";
-
-const TIME_OF_DAY_VALUES: TimeOfDay[] = ["dawn", "day", "dusk", "night"];
-
-function getDevOverride(): TimeOfDay | null {
-	if (process.env.NODE_ENV !== "development") return null;
-	const param = new URLSearchParams(window.location.search).get("tod");
-	return TIME_OF_DAY_VALUES.includes(param as TimeOfDay)
-		? (param as TimeOfDay)
-		: null;
-}
+import { getStyleForTheme, type TimeOfDay } from "../lib/mapStyle";
 
 export function useMapStyle(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	mapLoaded: boolean,
 	mode: PaletteMode,
+	period: TimeOfDay,
 	onStyleLoaded?: () => void,
 ) {
-	const devOverride = getDevOverride();
-	const [period, setPeriod] = useState<TimeOfDay>(
-		devOverride ?? getTimeOfDay(),
-	);
-	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-	const appliedStyleRef = useRef<string | null>(getStyleForTheme(mode, period));
-
+	const callback = useRef(onStyleLoaded);
+	callback.current = onStyleLoaded;
+	const applied = useRef<string | null>(null);
 	useEffect(() => {
-		if (devOverride) return;
-
-		intervalRef.current = setInterval(() => {
-			const next = getTimeOfDay();
-			setPeriod((prev) => (prev !== next ? next : prev));
-		}, 60_000);
-
-		return () => {
-			if (intervalRef.current) clearInterval(intervalRef.current);
-		};
-	}, [devOverride]);
-
-	useEffect(() => {
-		if (!mapLoaded || !mapRef.current) return;
-		const desiredStyle = getStyleForTheme(mode, period);
-		if (appliedStyleRef.current === desiredStyle) return;
-		appliedStyleRef.current = desiredStyle;
 		const map = mapRef.current;
-		const handleStyleLoad = () => onStyleLoaded?.();
-		map.once("style.load", handleStyleLoad);
-		map.setStyle(desiredStyle);
+		if (!map || !mapLoaded) return;
+		const restore = () => callback.current?.();
+		map.on("style.load", restore);
 		return () => {
-			map.off("style.load", handleStyleLoad);
+			map.off("style.load", restore);
 		};
-	}, [mode, period, mapLoaded, onStyleLoaded]);
-
+	}, [mapRef, mapLoaded]);
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+		const desired = getStyleForTheme(mode, period);
+		if (applied.current === desired) return;
+		applied.current = desired;
+		map.setStyle(desired);
+	}, [mapRef, mapLoaded, mode, period]);
 	return { period };
 }

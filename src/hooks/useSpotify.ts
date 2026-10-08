@@ -87,6 +87,7 @@ export interface SpotifyPlaylist {
 	uri: string;
 }
 export interface UseSpotifyReturn {
+	error: string | null;
 	track: SpotifyTrack | null;
 	isConnected: boolean;
 	isLoading: boolean;
@@ -113,6 +114,7 @@ export interface UseSpotifyReturn {
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSpotify(): UseSpotifyReturn {
+	const [error, setError] = useState<string | null>(null);
 	const [token, setToken] = useState<string | null>(() =>
 		typeof window !== "undefined" ? getStoredToken() : null,
 	);
@@ -218,26 +220,41 @@ export function useSpotify(): UseSpotifyReturn {
 
 	const spotifyFetch = useCallback(
 		async (path: string, method = "GET", body?: object) => {
-			if (!token) return null;
-			const res = await fetch(`https://api.spotify.com/v1${path}`, {
-				method,
-				headers: {
-					Authorization: `Bearer ${token}`,
-					...(body ? { "Content-Type": "application/json" } : {}),
-				},
-				body: body ? JSON.stringify(body) : undefined,
-			});
-			if (res.status === 401) {
-				setToken(null);
-				localStorage.removeItem(TOKEN_KEY);
-				localStorage.removeItem(EXPIRY_KEY);
-				return null;
+			try {
+				if (method !== "GET") setError(null);
+				if (!token) throw new Error("Connect Spotify first.");
+				const res = await fetch(`https://api.spotify.com/v1${path}`, {
+					method,
+					headers: {
+						Authorization: `Bearer ${token}`,
+						...(body ? { "Content-Type": "application/json" } : {}),
+					},
+					body: body ? JSON.stringify(body) : undefined,
+				});
+				if (res.status === 401) {
+					setToken(null);
+					localStorage.removeItem(TOKEN_KEY);
+					localStorage.removeItem(EXPIRY_KEY);
+					throw new Error("Spotify session expired. Reconnect when parked.");
+				}
+				if (res.status === 204 || res.status === 202 || res.status === 200)
+					return res.headers.get("content-type")?.includes("json")
+						? res.json().catch((): null => null)
+						: null;
+				throw new Error(
+					res.status === 404
+						? "No Spotify playback device is active."
+						: res.status === 429
+							? "Spotify is busy. Try again shortly."
+							: "Spotify could not complete this action.",
+				);
+			} catch (cause) {
+				setError(
+					cause instanceof Error ? cause.message : "Spotify is unavailable.",
+				);
+				if (method === "GET") return null;
+				throw cause;
 			}
-			if (res.status === 204 || res.status === 202 || res.status === 200)
-				return res.headers.get("content-type")?.includes("json")
-					? res.json().catch((): null => null)
-					: null;
-			return null;
 		},
 		[token],
 	);
@@ -338,8 +355,9 @@ export function useSpotify(): UseSpotifyReturn {
 			setTrack(null);
 			return;
 		}
-		fetchPlayback();
-		pollRef.current = setInterval(fetchPlayback, 3000);
+		const poll = () => fetchPlayback().catch(() => setTrack(null));
+		poll();
+		pollRef.current = setInterval(poll, 3000);
 		return () => {
 			if (pollRef.current) clearInterval(pollRef.current);
 		};
@@ -359,12 +377,16 @@ export function useSpotify(): UseSpotifyReturn {
 
 	const next = useCallback(async () => {
 		await spotifyFetch("/me/player/next", "POST");
-		setTimeout(fetchPlayback, 600);
+		setTimeout(() => {
+			void fetchPlayback().catch(() => setTrack(null));
+		}, 600);
 	}, [spotifyFetch, fetchPlayback]);
 
 	const previous = useCallback(async () => {
 		await spotifyFetch("/me/player/previous", "POST");
-		setTimeout(fetchPlayback, 600);
+		setTimeout(() => {
+			void fetchPlayback().catch(() => setTrack(null));
+		}, 600);
 	}, [spotifyFetch, fetchPlayback]);
 
 	const toggleShuffle = useCallback(async () => {
@@ -386,13 +408,13 @@ export function useSpotify(): UseSpotifyReturn {
 
 	const setVolume = useCallback(
 		async (pct: number) => {
+			await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
 			setVolumeState(pct);
 			// Block fetchPlayback from overwriting this for 2s
 			if (volumeSettleRef.current) clearTimeout(volumeSettleRef.current);
 			volumeSettleRef.current = setTimeout(() => {
 				volumeSettleRef.current = null;
 			}, 2000);
-			await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
 		},
 		[spotifyFetch],
 	);
@@ -400,7 +422,9 @@ export function useSpotify(): UseSpotifyReturn {
 	const playTrack = useCallback(
 		async (uri: string) => {
 			await spotifyFetch("/me/player/play", "PUT", { uris: [uri] });
-			setTimeout(fetchPlayback, 600);
+			setTimeout(() => {
+				void fetchPlayback().catch(() => setTrack(null));
+			}, 600);
 		},
 		[spotifyFetch, fetchPlayback],
 	);
@@ -410,12 +434,15 @@ export function useSpotify(): UseSpotifyReturn {
 			const body: Record<string, unknown> = { context_uri: contextUri };
 			if (offsetTrackUri) body.offset = { uri: offsetTrackUri };
 			await spotifyFetch("/me/player/play", "PUT", body);
-			setTimeout(fetchPlayback, 600);
+			setTimeout(() => {
+				void fetchPlayback().catch(() => setTrack(null));
+			}, 600);
 		},
 		[spotifyFetch, fetchPlayback],
 	);
 
 	return {
+		error,
 		track,
 		isConnected: !!token,
 		isLoading,

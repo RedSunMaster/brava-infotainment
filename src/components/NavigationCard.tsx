@@ -66,6 +66,8 @@ export default function NavigationCard({
 
 	return (
 		<Box
+			role="button" tabIndex={0} aria-label="Show upcoming turns" aria-expanded={expanded}
+			onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setExpanded(value => !value); } }}
 			onClick={() => setExpanded((e) => !e)}
 			sx={{ cursor: "pointer", userSelect: "none" }}
 		>
@@ -85,8 +87,8 @@ export default function NavigationCard({
 			>
 				<Box
 					sx={(theme) => ({
-						width: 60,
-						height: 60,
+						width: 100,
+						height: 100,
 						borderRadius: "12px",
 						background: theme.palette.primary.main,
 						display: "flex",
@@ -97,7 +99,7 @@ export default function NavigationCard({
 					})}
 				>
 					<CurrentIcon
-						sx={{ fontSize: 36, color: theme.palette.primary.contrastText }}
+						sx={{ fontSize: 60, color: theme.palette.primary.contrastText }}
 					/>
 				</Box>
 
@@ -105,7 +107,7 @@ export default function NavigationCard({
 					<Typography
 						sx={{
 							color: theme.palette.text.primary,
-							fontSize: 19,
+							fontSize: 36,
 							fontWeight: 800,
 							lineHeight: 1.25,
 							wordBreak: "break-word",
@@ -117,7 +119,7 @@ export default function NavigationCard({
 					<Typography
 						sx={{
 							color: alpha(theme.palette.text.primary, 0.72),
-							fontSize: 15,
+							fontSize: 28,
 							fontWeight: 700,
 							mt: 0.4,
 						}}
@@ -137,7 +139,7 @@ export default function NavigationCard({
 						display: "flex",
 					}}
 				>
-					<ExpandMoreRounded sx={{ fontSize: 30 }} />
+					<ExpandMoreRounded sx={{ fontSize: 40 }} />
 				</Box>
 			</Box>
 
@@ -156,7 +158,7 @@ export default function NavigationCard({
 						<Typography
 							sx={{
 								color: theme.palette.text.secondary,
-								fontSize: 12,
+								fontSize: 24,
 								p: "10px 16px",
 							}}
 						>
@@ -198,7 +200,7 @@ export default function NavigationCard({
 									<Typography
 										sx={{
 											color: theme.palette.text.primary,
-											fontSize: 15,
+											fontSize: 28,
 											fontWeight: 600,
 											lineHeight: 1.22,
 											overflow: "hidden",
@@ -209,7 +211,7 @@ export default function NavigationCard({
 									>
 										{m.instruction}
 									</Typography>
-									<Typography sx={{ color: "text.secondary", fontSize: 11, mt: 0.35 }}>
+									<Typography sx={{ color: "text.secondary", fontSize: 22, mt: 0.35 }}>
 										{distanceLabel(null, m.length)}
 									</Typography>
 								</Box>

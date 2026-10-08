@@ -11,6 +11,7 @@ import {
 	SkipPreviousRounded,
 } from "@mui/icons-material";
 import {
+	Alert,
 	Box,
 	CircularProgress,
 	IconButton,
@@ -62,6 +63,9 @@ const SpotifyPopup = ({
 	} = spotify;
 
 	const [libraryOpen, setLibraryOpen] = useState(false);
+	const run = (action: () => Promise<void>) => {
+		void action().catch((): void => {});
+	};
 
 	const handleClose = () => {
 		setLibraryOpen(false);
@@ -99,6 +103,7 @@ const SpotifyPopup = ({
 		>
 			{/* ── Now-playing panel ────────────────────────────────────────────── */}
 			<Box sx={{ p: 2.5 }}>
+				{spotify.error && <Alert severity="error">{spotify.error}</Alert>}
 				{/* ── Not connected ── */}
 				{!isConnected ? (
 					<Box
@@ -123,7 +128,7 @@ const SpotifyPopup = ({
 								cursor: "pointer",
 								"&:hover": { backgroundColor: "#1ed760" },
 							}}
-							onClick={connect}
+							onClick={() => run(connect)}
 						>
 							<Typography
 								sx={{ color: "black", fontWeight: 700, fontSize: 14 }}
@@ -158,25 +163,25 @@ const SpotifyPopup = ({
 									Open Spotify on a device to start
 								</Typography>
 								{!isDriving && (
-								<Box
-									sx={{
-										display: "flex",
-										alignItems: "center",
-										gap: 0.75,
-										mt: 0.5,
-										cursor: "pointer",
-										color: SPOTIFY_GREEN,
-										"&:hover": { color: "#1ed760" },
-									}}
-									onClick={() => setLibraryOpen(true)}
-								>
-									<QueueMusicRounded sx={{ fontSize: 18 }} />
-									<Typography
-										sx={{ fontSize: 12, fontWeight: 600, color: "inherit" }}
+									<Box
+										sx={{
+											display: "flex",
+											alignItems: "center",
+											gap: 0.75,
+											mt: 0.5,
+											cursor: "pointer",
+											color: SPOTIFY_GREEN,
+											"&:hover": { color: "#1ed760" },
+										}}
+										onClick={() => setLibraryOpen(true)}
 									>
-										Browse Library
-									</Typography>
-								</Box>
+										<QueueMusicRounded sx={{ fontSize: 18 }} />
+										<Typography
+											sx={{ fontSize: 12, fontWeight: 600, color: "inherit" }}
+										>
+											Browse Library
+										</Typography>
+									</Box>
 								)}
 							</>
 						)}
@@ -258,19 +263,19 @@ const SpotifyPopup = ({
 							</Box>
 
 							{!isDriving && (
-							<IconButton
-								onClick={() => setLibraryOpen(true)}
-								size="small"
-								sx={{
-									color: "rgba(255,255,255,0.5)",
-									p: 0.5,
-									alignSelf: "flex-start",
-									flexShrink: 0,
-									"&:hover": { color: "white" },
-								}}
-							>
-								<QueueMusicRounded sx={{ fontSize: 20 }} />
-							</IconButton>
+								<IconButton
+									onClick={() => setLibraryOpen(true)}
+									size="small"
+									sx={{
+										color: "rgba(255,255,255,0.5)",
+										p: 0.5,
+										alignSelf: "flex-start",
+										flexShrink: 0,
+										"&:hover": { color: "white" },
+									}}
+								>
+									<QueueMusicRounded sx={{ fontSize: 20 }} />
+								</IconButton>
 							)}
 						</Box>
 
@@ -327,7 +332,7 @@ const SpotifyPopup = ({
 							}}
 						>
 							<IconButton
-								onClick={toggleShuffle}
+								onClick={() => run(toggleShuffle)}
 								sx={{
 									...ctrlBtn,
 									color: track.shuffle
@@ -338,12 +343,12 @@ const SpotifyPopup = ({
 								<ShuffleRounded sx={{ fontSize: 20 }} />
 							</IconButton>
 
-							<IconButton onClick={previous} sx={ctrlBtn}>
+							<IconButton onClick={() => run(previous)} sx={ctrlBtn}>
 								<SkipPreviousRounded sx={{ fontSize: 32 }} />
 							</IconButton>
 
 							<IconButton
-								onClick={track.isPlaying ? pause : play}
+								onClick={() => run(track.isPlaying ? pause : play)}
 								sx={{
 									color: "black",
 									backgroundColor: "white",
@@ -358,12 +363,12 @@ const SpotifyPopup = ({
 								)}
 							</IconButton>
 
-							<IconButton onClick={next} sx={ctrlBtn}>
+							<IconButton onClick={() => run(next)} sx={ctrlBtn}>
 								<SkipNextRounded sx={{ fontSize: 32 }} />
 							</IconButton>
 
 							<IconButton
-								onClick={cycleRepeat}
+								onClick={() => run(cycleRepeat)}
 								sx={{
 									...ctrlBtn,
 									color:
@@ -401,11 +406,13 @@ const SpotifyPopup = ({
 					pointerEvents: libraryOpen ? "auto" : "none",
 				}}
 			>
-				<SpotifyLibrary
-					spotify={spotify}
-					onBack={() => setLibraryOpen(false)}
-					isDriving={isDriving}
-				/>
+				{libraryOpen && isConnected && (
+					<SpotifyLibrary
+						spotify={spotify}
+						onBack={() => setLibraryOpen(false)}
+						isDriving={isDriving}
+					/>
+				)}
 			</Box>
 		</Popover>
 	);

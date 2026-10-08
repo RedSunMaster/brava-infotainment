@@ -4,6 +4,7 @@ import {
 	SearchRounded,
 } from "@mui/icons-material";
 import {
+	Alert,
 	Box,
 	CircularProgress,
 	IconButton,
@@ -177,7 +178,11 @@ interface SpotifyLibraryProps {
 	isDriving: boolean;
 }
 
-const SpotifyLibrary = ({ spotify, onBack, isDriving }: SpotifyLibraryProps) => {
+const SpotifyLibrary = ({
+	spotify,
+	onBack,
+	isDriving,
+}: SpotifyLibraryProps) => {
 	const {
 		queue,
 		playlists,
@@ -221,6 +226,7 @@ const SpotifyLibrary = ({ spotify, onBack, isDriving }: SpotifyLibraryProps) => 
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+			{spotify.error && <Alert severity="error">{spotify.error}</Alert>}
 			{/* ── Header ── */}
 			<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
 				<IconButton
@@ -248,7 +254,8 @@ const SpotifyLibrary = ({ spotify, onBack, isDriving }: SpotifyLibraryProps) => 
 								textAlign: "center",
 								py: 0.6,
 								borderRadius: 2,
-								cursor: isDriving && t.id === "search" ? "not-allowed" : "pointer",
+								cursor:
+									isDriving && t.id === "search" ? "not-allowed" : "pointer",
 								opacity: isDriving && t.id === "search" ? 0.35 : 1,
 								backgroundColor:
 									tab === t.id ? "rgba(255,255,255,0.1)" : "transparent",
@@ -338,7 +345,7 @@ const SpotifyLibrary = ({ spotify, onBack, isDriving }: SpotifyLibraryProps) => 
 							<TrackRow
 								key={`${item.id}-${i}`}
 								item={item}
-								onPlay={() => playTrack(item.uri)}
+								onPlay={() => void playTrack(item.uri).catch((): void => {})}
 							/>
 						))
 					)
@@ -363,7 +370,7 @@ const SpotifyLibrary = ({ spotify, onBack, isDriving }: SpotifyLibraryProps) => 
 						<TrackRow
 							key={`${item.id}-${i}`}
 							item={item}
-							onPlay={() => playTrack(item.uri)}
+							onPlay={() => void playTrack(item.uri).catch((): void => {})}
 						/>
 					))
 				)}

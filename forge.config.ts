@@ -25,6 +25,7 @@ const config: ForgeConfig = {
   plugins: [
     new AutoUnpackNativesPlugin({}),
     new WebpackPlugin({
+      port: Number(process.env.BRAVA_DEV_PORT ?? 3000),
       mainConfig,
       renderer: {
         config: rendererConfig,

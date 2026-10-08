@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { DEV_ORIGIN, ZOOM_LEVEL } from "../constants";
-import { getCurrentStyle } from "../lib/mapStyle";
+import { getStyleForTheme } from "../lib/mapStyle";
+import { useThemeMode } from "../ThemeContext";
 // In useMapbox.ts — expose a loaded state
 
 export function useMapbox(container: React.RefObject<HTMLDivElement | null>) {
+	const { mode, period } = useThemeMode();
+	const initialStyle = useRef(getStyleForTheme(mode, period));
 	const mapRef = useRef<mapboxgl.Map | null>(null);
 	const [mapLoaded, setMapLoaded] = useState(false);
 
@@ -14,7 +17,7 @@ export function useMapbox(container: React.RefObject<HTMLDivElement | null>) {
 		mapboxgl.accessToken = process.env.MAPBOX_TOKEN;
 		mapRef.current = new mapboxgl.Map({
 			container: container.current,
-			style: getCurrentStyle(),
+			style: initialStyle.current,
 			center: DEV_ORIGIN,
 			zoom: ZOOM_LEVEL,
 		});
