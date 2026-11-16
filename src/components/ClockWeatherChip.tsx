@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Box, Typography } from "@mui/material";
-import { alpha, useTheme } from "@mui/material/styles";
+import { alpha, useTheme, type Theme } from "@mui/material/styles";
 import WbSunnyRounded from "@mui/icons-material/WbSunnyRounded";
 import CloudRounded from "@mui/icons-material/CloudRounded";
 import GrainRounded from "@mui/icons-material/GrainRounded";
@@ -32,6 +32,25 @@ function wmoLabel(code: number) {
 	return "Storm";
 }
 
+// Shared look for read-only status chips (clock, weather, GPS, drive state).
+// Smaller and flatter than buttons so they do not read as tappable.
+export function statusChipSx(theme: Theme) {
+	return {
+		display: "flex",
+		alignItems: "center",
+		gap: 0.75,
+		px: 1.5,
+		height: 56,
+		boxSizing: "border-box" as const,
+		background: alpha(theme.palette.surface.main, 0.94),
+		backdropFilter: "blur(10px)",
+		border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
+		borderRadius: "10px",
+		color: theme.palette.text.primary,
+		whiteSpace: "nowrap" as const,
+	};
+}
+
 interface Props {
 	position: [number, number];
 	gpsStatus: GpsStatus; // ← add
@@ -48,26 +67,14 @@ export default function ClockWeatherChip({ gpsStatus }: Props) {
 		return () => clearInterval(id);
 	}, []);
 
-	const chipSx = {
-		display: "flex",
-		alignItems: "center",
-		gap: 0.75,
-		px: 1.5,
-		py: 0.6,
-		background: alpha(theme.palette.surface.main, 0.94),
-		backdropFilter: "blur(10px)",
-		border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
-		borderRadius: "10px",
-		boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-		color: theme.palette.text.primary,
-		whiteSpace: "nowrap" as const,
-	};
+	const chipSx = statusChipSx(theme);
 
 	return (
 		<Box
 			sx={{
 				display: "flex",
-				flexDirection: "column",
+				flexDirection: "row",
+                flexWrap: "wrap",
 				alignItems: "center",
 				gap: 0.75,
 			}}

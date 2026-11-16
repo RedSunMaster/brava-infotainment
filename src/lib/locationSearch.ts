@@ -260,12 +260,39 @@ export function mergeResults(
 				"cycleway",
 				"footway",
 			].includes(item.kind);
+			// Prefer the place the query names over businesses that merely contain
+			// it: "Christchurch Airport" should rank the airport above
+			// "Avis Christchurch Airport". Kept below the nearby bonus so a
+			// distant exact match never outranks a local one.
+			const phrase = words.join("");
+			const name = normalize(item.name);
+			const nameMatch = name === phrase ? 0.4 : name.startsWith(phrase) ? 0.2 : 0;
+			const kind = normalize(item.kind);
+			const kindMatch = words.some(
+				(word) => word.length >= 4 && kind.includes(word),
+			)
+				? 0.3
+				: 0;
+			const extraWords = item.name
+				.split(/\s+/)
+				.map(normalize)
+				.filter(
+					(candidate) =>
+						candidate &&
+						!words.some(
+							(word) =>
+								candidate.includes(word) || closeSpelling(word, candidate),
+						),
+				).length;
 			return {
 				item,
 				index,
 				coverage,
 				score:
-					coverage -
+					coverage +
+					nameMatch +
+					kindMatch -
+					Math.min(0.3, extraWords * 0.1) -
 					(incidental ? 0.25 : 0) +
 					(item.distanceMeters != null && item.distanceMeters < 50000 ? 1 : 0),
 			};
@@ -399,10 +426,11 @@ export async function searchLocations(
 					!item.poi_category?.length ||
 					item.poi_category.some((category) => categories.has(category)),
 			);
-			return businessResults([...full, ...related], sessionToken).sort(
-				(a, b) =>
-					(a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity),
-			);
+			// Keep the provider's relevance order. Sorting by distance here used
+			// to push the place a query names (a mall, an airport) below every
+			// nearer shop that merely contains its name; mergeResults still
+			// favours nearby results over distant ones.
+			return businessResults([...full, ...related], sessionToken);
 		} catch {
 			return photonResults(await request<PhotonResponse>(urls.places));
 		}

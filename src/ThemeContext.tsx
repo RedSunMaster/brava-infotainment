@@ -15,7 +15,7 @@ import {
 	type AmbientWeather,
 	type ThemePreference,
 } from "./lib/ambientTheme";
-import type { TimeOfDay } from "./lib/mapStyle";
+import type { TimeOfDay, WeatherAppearance } from "./lib/mapStyle";
 
 interface ThemeContextValue {
 	mode: PaletteMode;
@@ -23,6 +23,8 @@ interface ThemeContextValue {
 	preference: ThemePreference;
 	reason: string;
 	weather: AmbientWeather | null;
+	weatherAppearance: WeatherAppearance;
+	setWeatherAppearance: (appearance: WeatherAppearance) => void;
 	setPreference: (preference: ThemePreference) => void;
 	updatePosition: (position: [number, number]) => void;
 }
@@ -52,6 +54,14 @@ interface WeatherResponse {
 export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 	const [preference, setPreferenceState] =
 		useState<ThemePreference>(storedPreference);
+	const [weatherAppearance, setWeatherAppearanceState] = useState<WeatherAppearance>(() => {
+		try { const value = localStorage.getItem("brava.weatherAppearance"); return value === "clear" || value === "rain" || value === "snow" ? value : "auto"; }
+		catch { return "auto"; }
+	});
+	const setWeatherAppearance = useCallback((value: WeatherAppearance) => {
+		setWeatherAppearanceState(value);
+		try { localStorage.setItem("brava.weatherAppearance", value); } catch { /* Keep the current session setting. */ }
+	}, []);
 	const [position, setPosition] = useState<[number, number]>(DEV_ORIGIN);
 	const [now, setNow] = useState(() => new Date());
 	const [weather, setWeather] = useState<AmbientWeather | null>(null);
@@ -193,6 +203,8 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 				preference,
 				reason,
 				weather: freshWeather,
+				weatherAppearance,
+				setWeatherAppearance,
 				setPreference,
 				updatePosition,
 			}}

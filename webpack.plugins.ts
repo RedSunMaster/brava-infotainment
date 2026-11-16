@@ -10,13 +10,7 @@ if (!fs.existsSync(envPath)) {
 }
 dotenv.config({ path: envPath });
 
-const required = [
-	"MAPBOX_TOKEN",
-	"MAPBOX_STYLE_DAY",
-	"MAPBOX_STYLE_DAWN",
-	"MAPBOX_STYLE_DUSK",
-	"MAPBOX_STYLE_NIGHT",
-] as const;
+const required = ["MAPBOX_TOKEN"] as const;
 
 for (const key of required) {
 	if (!process.env[key]) {
@@ -29,16 +23,6 @@ for (const key of required) {
 // ✅ Exported separately so renderer can use it without ForkTsChecker
 export const envDefinePlugin = new DefinePlugin({
 	"process.env.MAPBOX_TOKEN": JSON.stringify(process.env.MAPBOX_TOKEN),
-	"process.env.MAPBOX_STYLE_DAY": JSON.stringify(process.env.MAPBOX_STYLE_DAY),
-	"process.env.MAPBOX_STYLE_DAWN": JSON.stringify(
-		process.env.MAPBOX_STYLE_DAWN,
-	),
-	"process.env.MAPBOX_STYLE_DUSK": JSON.stringify(
-		process.env.MAPBOX_STYLE_DUSK,
-	),
-	"process.env.MAPBOX_STYLE_NIGHT": JSON.stringify(
-		process.env.MAPBOX_STYLE_NIGHT,
-	),
 	"process.env.SPOTIFY_CLIENT_ID": JSON.stringify(
 		process.env.SPOTIFY_CLIENT_ID,
 	),

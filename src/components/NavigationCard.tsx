@@ -4,6 +4,7 @@ import { alpha, useTheme } from "@mui/material/styles";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import { getManeuverIcon } from "../lib/maneuverIcon";
 import type { NormalizedManeuver } from "../lib/routing";
+import { glanceLabel } from "../lib/maneuverText";
 
 interface Props {
 	maneuvers: NormalizedManeuver[];
@@ -22,20 +23,10 @@ function distanceLabel(meters: number | null | undefined, fallbackKm?: number) {
 	return fallbackKm >= 1 ? `${fallbackKm.toFixed(1)} km` : `${Math.round(fallbackKm * 1000)} m`;
 }
 
-function timeLabel(seconds: number | null | undefined, fallbackSeconds?: number) {
-	const value = seconds ?? fallbackSeconds;
-	if (value == null) return "";
-	if (value >= 3600) {
-		return `${Math.floor(value / 3600)}h ${Math.round((value % 3600) / 60)}m`;
-	}
-	return `${Math.max(1, Math.ceil(value / 60))} min`;
-}
-
 export default function NavigationCard({
 	maneuvers,
 	currentStep,
 	distanceToNextM,
-	timeToNextS,
 	isDriving,
 	onExpandedChange,
 }: Props) {
@@ -63,19 +54,26 @@ export default function NavigationCard({
 
 	if (!current) return null;
 	const CurrentIcon = getManeuverIcon(current);
+	// The routing service words an intermediate stop as "You have arrived at
+	// your destination"; say what it really is so the trip does not look over.
+	const isIntermediateStop =
+		current.type === "arrive" && currentStep + 1 < maneuvers.length - 1;
+	const label = isIntermediateStop
+		? "Your stop"
+		: glanceLabel(current.instruction);
 
 	return (
 		<Box
 			role="button" tabIndex={0} aria-label="Show upcoming turns" aria-expanded={expanded}
 			onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setExpanded(value => !value); } }}
 			onClick={() => setExpanded((e) => !e)}
-			sx={{ cursor: "pointer", userSelect: "none" }}
+			sx={{ cursor: "pointer", userSelect: "none", position: "relative", zIndex: 25 }}
 		>
 			<Box
 				sx={(theme) => ({
 					background: alpha(theme.palette.surface.main, 0.97),
 					backdropFilter: "blur(10px)",
-					borderRadius: expanded ? "12px 12px 0 0" : "12px",
+					borderRadius: "12px",
 					padding: "14px 18px",
 					display: "flex",
 					alignItems: "center",
@@ -107,27 +105,36 @@ export default function NavigationCard({
 					<Typography
 						sx={{
 							color: theme.palette.text.primary,
-							fontSize: 36,
+							fontSize: 48,
 							fontWeight: 800,
-							lineHeight: 1.25,
+							lineHeight: 1.15,
 							wordBreak: "break-word",
 							whiteSpace: "normal",
 						}}
 					>
-						{current.instruction}
+						{distanceLabel(distanceToNextM, current.length)}
 					</Typography>
+					{/* Road name only, large enough to read in a glance; the arrow carries the manoeuvre. */}
 					<Typography
 						sx={{
-							color: alpha(theme.palette.text.primary, 0.72),
-							fontSize: 28,
+							color: theme.palette.text.primary,
+							fontSize: 40,
 							fontWeight: 700,
+							lineHeight: 1.15,
 							mt: 0.4,
+							overflow: "hidden",
+							display: "-webkit-box",
+							WebkitLineClamp: 2,
+							WebkitBoxOrient: "vertical",
 						}}
 					>
-						{distanceLabel(distanceToNextM, current.length)}
-						{" \u00B7 "}
-						{timeLabel(timeToNextS, current.time)}
+						{label}
 					</Typography>
+					{label !== current.instruction && (
+						<Box component="span" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>
+							{current.instruction}
+						</Box>
+					)}
 				</Box>
 
 				<Box
@@ -143,15 +150,16 @@ export default function NavigationCard({
 				</Box>
 			</Box>
 
-			<Collapse in={expanded}>
+			{/* Drops down beneath the trip card as an overlay: it neither pushes the
+			    trip card (End stays put) nor covers the ETA and End button. */}
+			<Collapse in={expanded} sx={{ position: "absolute", top: "calc(100% + var(--car-target, 112px) + 30px)", left: 0, right: 0 }}>
 				<Box
 					sx={(theme) => ({
 						background: alpha(theme.palette.surface.main, 0.97),
 						backdropFilter: "blur(10px)",
-						borderRadius: "0 0 12px 12px",
+						borderRadius: "12px",
 						border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
-						borderTopWidth: 0,
-						boxShadow: "0 8px 24px rgba(0,0,0,0.58)",
+												boxShadow: "0 8px 24px rgba(0,0,0,0.58)",
 					})}
 				>
 					{upcoming.length === 0 && (

@@ -15,7 +15,7 @@ declare module "@mui/material/styles" {
 }
 
 const NIGHT = {
-	primary: "#F5A800",
+	primary: "#83C5F4",
 	secondary: "#38BDF8",
 	error: "#FF3B30",
 	warning: "#FFD166",
@@ -31,7 +31,7 @@ const NIGHT = {
 };
 
 const DAY = {
-	primary: "#FFB000",
+	primary: "#075985",
 	secondary: "#0284C7",
 	error: "#FF3B30",
 	warning: "#B7791F",
@@ -52,7 +52,7 @@ export function getTheme(mode: PaletteMode) {
 	return createTheme({
 		palette: {
 			mode,
-			primary: { main: C.primary, contrastText: "#101214" },
+			primary: { main: C.primary, contrastText: mode === "dark" ? "#101214" : "#FFFFFF" },
 			secondary: { main: C.secondary },
 			error: { main: C.error },
 			warning: { main: C.warning },

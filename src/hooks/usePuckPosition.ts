@@ -15,6 +15,7 @@ const BEARING_LERP_SPEED = 2.5;
 // This prevents 60fps jumpTo calls from fighting Wayland's gesture recogniser.
 const CAMERA_POS_THRESHOLD_M = 0.5; // skip if puck moved < 0.5 m
 const CAMERA_BEARING_THRESHOLD_DEG = 0.3; // skip if bearing changed < 0.3°
+const RECENTER_MS = 800; // duration of the recentre blend
 
 function haversineMeters(
 	[lon1, lat1]: [number, number],
@@ -136,6 +137,7 @@ export function usePositionPuck(
 	orientationRef: React.RefObject<Orientation>,
 	cameraTransitionRef: React.RefObject<boolean>,
 	trimRouteByDistance: (distanceM: number) => void,
+	mapOffset: React.RefObject<number>,
 ) {
 	const speedMsRef = useRef<number>(0);
 	const distanceCursorRef = useRef<number>(-1);
@@ -154,9 +156,22 @@ export function usePositionPuck(
 	// This stops the 60fps jumpTo spam that fights Wayland gesture recognition.
 	const lastCameraPosRef = useRef<[number, number]>(initialPos);
 	const lastCameraBearingRef = useRef<number>(0);
+	const lastCameraOffsetRef = useRef<number>(mapOffset.current);
 
 	// ── Easing lock: suppresses jumpTo while smoothLocate's easeTo is running ─
 	const isEasingRef = useRef<boolean>(false);
+
+	// ── Recentre blend ────────────────────────────────────────────────────────
+	// Set by smoothLocate. The render loop blends the camera from this captured
+	// view to the live follow view, so the move stays smooth while the car is
+	// moving and ends exactly on the puck with no snap.
+	const recenterRef = useRef<{
+		started: number;
+		anchor: [number, number];
+		bearing: number;
+		pitch: number;
+		zoom: number;
+	} | null>(null);
 
 	function syncPuck(pos: [number, number], bearing: number, speedMs: number) {
 		gpsPosRef.current = pos;
@@ -216,20 +231,28 @@ export function usePositionPuck(
 		texture.colorSpace = THREE.SRGBColorSpace;
 		texture.flipY = false;
 		const img = new Image();
+		let disposed = false;
 		img.onload = () => {
+			if (disposed) return;
 			texture.image = img;
 			texture.needsUpdate = true;
 			new GLTFLoader().load(spaceShuttle, (gltf) => {
 				gltf.scene.traverse((child) => {
-					if ((child as THREE.Mesh).isMesh)
-						(child as THREE.Mesh).material = new THREE.MeshBasicMaterial({
-							map: texture,
-						});
+					if (!(child as THREE.Mesh).isMesh) return;
+					const mesh = child as THREE.Mesh;
+					const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+					if (disposed) {
+						mesh.geometry.dispose();
+						materials.forEach((material) => { if ("map" in material && material.map instanceof THREE.Texture) material.map.dispose(); material.dispose(); });
+						return;
+					}
+					materials.forEach((material) => { if ("map" in material && material.map instanceof THREE.Texture) material.map.dispose(); material.dispose(); });
+					mesh.material = new THREE.MeshBasicMaterial({ map: texture });
 				});
-				scene.add(gltf.scene);
-				map.triggerRepaint();
-			});
+				if (!disposed) { scene.add(gltf.scene); map.triggerRepaint(); }
+			}, undefined, () => console.error("Unable to load vehicle model."));
 		};
+		img.onerror = () => console.error("Unable to load shuttle texture.");
 		img.src = textureUrl;
 
 		const m4 = new THREE.Matrix4();
@@ -252,7 +275,7 @@ export function usePositionPuck(
 			const bearingRad = ((brg + 180) * Math.PI) / 180;
 			const zoom = map.getZoom();
 			const zoomFactor = Math.pow(2, Math.max(0, 16 - zoom));
-			const modelScale = 3 * Math.min(zoomFactor, 8);
+			const modelScale = 4 * Math.min(zoomFactor, 8);
 
 			rotY.makeRotationAxis(new THREE.Vector3(0, 1, 0), -bearingRad);
 			scaleVec.set(scale * modelScale, -scale * modelScale, scale * modelScale);
@@ -327,16 +350,40 @@ export function usePositionPuck(
 				// Guard 1: skip entirely while smoothLocate's easeTo is animating.
 				// Guard 2: skip if position/bearing haven't meaningfully changed —
 				//          prevents 60fps jumpTo calls blocking Wayland gestures.
-				if (
-					followingRef.current === "following" &&
-					!isEasingRef.current &&
-					!cameraTransitionRef.current
-				) {
+					if (followingRef.current !== "following") recenterRef.current = null;
+					const recenter = recenterRef.current;
+					if (recenter && !cameraTransitionRef.current) {
+						const t = Math.min(1, (now - recenter.started) / RECENTER_MS);
+						const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+						const heading = orientationRef.current === "heading";
+						const goal = renderPosRef.current;
+						const goalBearing = heading ? renderBearingRef.current : 0;
+						map.easeTo({
+							center: [
+								recenter.anchor[0] + (goal[0] - recenter.anchor[0]) * e,
+								recenter.anchor[1] + (goal[1] - recenter.anchor[1]) * e,
+							],
+							bearing: lerpBearing(recenter.bearing, goalBearing, e),
+							pitch: recenter.pitch + ((heading ? 45 : 0) - recenter.pitch) * e,
+							zoom: recenter.zoom + (ZOOM_LEVEL - recenter.zoom) * e,
+							offset: [0, map.getContainer().clientHeight * mapOffset.current],
+							duration: 0,
+							essential: true,
+						});
+						lastCameraPosRef.current = [...goal] as [number, number];
+						lastCameraBearingRef.current = goalBearing;
+						lastCameraOffsetRef.current = mapOffset.current;
+						if (t >= 1) recenterRef.current = null;
+					} else if (
+						followingRef.current === "following" &&
+						!isEasingRef.current &&
+						!cameraTransitionRef.current
+					) {
 					const targetBearing =
 						orientationRef.current === "heading" ? renderBearingRef.current : 0;
 					const targetPitch = orientationRef.current === "heading" ? 45 : 0;
 					const targetCenter = renderPosRef.current;
-					const cameraOffsetY = map.getCanvas().height * 0.2;
+					const cameraOffsetY = map.getContainer().clientHeight * mapOffset.current;
 
 					const posDelta = haversineMeters(
 						lastCameraPosRef.current,
@@ -346,10 +393,17 @@ export function usePositionPuck(
 						((targetBearing - lastCameraBearingRef.current + 540) % 360) - 180,
 					);
 
+					// The offset glides when a panel opens or closes; follow it frame by
+					// frame so the map slides instead of jumping.
+					const offsetMoved =
+						Math.abs(mapOffset.current - lastCameraOffsetRef.current) > 0.0005;
+
 					if (
 						posDelta > CAMERA_POS_THRESHOLD_M ||
-						bearingDelta > CAMERA_BEARING_THRESHOLD_DEG
+						bearingDelta > CAMERA_BEARING_THRESHOLD_DEG ||
+						offsetMoved
 					) {
+						lastCameraOffsetRef.current = mapOffset.current;
 						map.easeTo({
 							center: targetCenter,
 							bearing: targetBearing,
@@ -397,7 +451,19 @@ export function usePositionPuck(
 			map.off("style.load", onStyleLoad);
 			if (map.getLayer("puck-layer")) map.removeLayer("puck-layer");
 			overlayCanvas.remove();
-			renderer.dispose();
+            disposed = true;
+            img.onload = null;
+            img.onerror = null;
+            texture.dispose();
+            ringGeo.dispose();
+            pulseMat.dispose();
+            scene.traverse((child) => {
+                if (child instanceof THREE.Mesh && child !== pulseRing) {
+                    child.geometry.dispose();
+                    (Array.isArray(child.material) ? child.material : [child.material]).forEach((material) => { if ("map" in material && material.map instanceof THREE.Texture) material.map.dispose(); material.dispose(); });
+                }
+            });
+            renderer.dispose();
 		};
 	}, [mapLoaded]);
 
@@ -441,29 +507,25 @@ export function usePositionPuck(
 	// Animates the camera back to the puck with easeTo (smooth), then re-enables
 	// frame-by-frame jumpTo following after the animation completes.
 	// The isEasingRef lock ensures jumpTo doesn't fight the ongoing easeTo.
-	function smoothLocate(pos: [number, number], bearing: number) {
+	function smoothLocate() {
 		const map = mapRef.current;
 		if (!map) return;
-
-		isEasingRef.current = true;
-		const cameraOffsetY = map.getCanvas().height * 0.2;
-
-		map.easeTo({
-			center: pos,
-			bearing: orientationRef.current === "heading" ? bearing : 0,
-			pitch: orientationRef.current === "heading" ? 45 : 0,
-			zoom: ZOOM_LEVEL,
-			offset: [0, cameraOffsetY],
-			duration: 800,
-		});
-
-		// After easeTo finishes (+100ms buffer), sync the camera refs to wherever
-		// the puck currently is, then release the lock so jumpTo resumes normally.
-		setTimeout(() => {
-			isEasingRef.current = false;
-			lastCameraPosRef.current = [...renderPosRef.current] as [number, number];
-			lastCameraBearingRef.current = renderBearingRef.current;
-		}, 900);
+		// Start from the point currently shown where the puck normally sits, so
+		// the first blended frame matches the view the driver is looking at.
+		const container = map.getContainer();
+		const anchor = map.unproject([
+			container.clientWidth / 2,
+			container.clientHeight * (0.5 + mapOffset.current),
+		]);
+		recenterRef.current = {
+			started: performance.now(),
+			anchor: [anchor.lng, anchor.lat],
+			bearing: map.getBearing(),
+			pitch: map.getPitch(),
+			zoom: map.getZoom(),
+		};
+		map.stop();
+		map.triggerRepaint();
 	}
 
 	return { updatePuck, resetCursor, smoothLocate, syncPuck };

@@ -250,7 +250,7 @@ export default function InAppKeyboard({
 				onTouchEnd={(e) => e.stopPropagation()}
 				sx={{
 					position: "fixed",
-					bottom: "var(--vehicle-strip-height, 140px)",
+					bottom: 0,
 					left: 0,
 					right: 0,
 					zIndex: 10002,
@@ -367,20 +367,27 @@ export default function InAppKeyboard({
 
 				{/* Space + close */}
 				<Box sx={{ display: "flex", gap: 0.5 }}>
-					<Key
-						id="space"
-						label="space"
-						onPress={() => insertAtCursor(" ", targetRef)}
-						variant="special"
-						flex={7}
-						{...kp}
-					/>
+					{/* Close sits on the far side, separated from Space by the comma key. */}
 					<Key
 						id="close"
 						label="✕  close"
 						onPress={onClose}
 						variant="special"
 						flex={2}
+						{...kp}
+					/>
+					<Key
+						id="comma"
+						label=","
+						onPress={() => insertAtCursor(",", targetRef)}
+						{...kp}
+					/>
+					<Key
+						id="space"
+						label="space"
+						onPress={() => insertAtCursor(" ", targetRef)}
+						variant="special"
+						flex={6}
 						{...kp}
 					/>
 				</Box>

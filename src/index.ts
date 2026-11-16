@@ -106,7 +106,8 @@ const createWindow = (): void => {
 				...details.responseHeaders,
 				"Content-Security-Policy": [
 					"default-src 'self';" +
-						"script-src 'self' 'unsafe-eval' 'unsafe-inline' blob:;" +
+						// cdn.jsdelivr.net serves the ONNX runtime used by the Kokoro voice.
+						"script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://cdn.jsdelivr.net;" +
 						"worker-src blob: 'self';" +
 						"connect-src 'self' blob: https://*.mapbox.com https://*.tiles.mapbox.com https://* http://localhost:8002;" +
 						"img-src 'self' data: blob: https://*;" +

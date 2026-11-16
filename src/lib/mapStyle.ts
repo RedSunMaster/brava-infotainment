@@ -1,64 +1,24 @@
-import type { PaletteMode } from "@mui/material";
+import type { Map } from "mapbox-gl";
+import type { AmbientWeather } from "./ambientTheme";
 
+export type WeatherAppearance = "auto" | "clear" | "rain" | "snow";
 export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
+export const MAP_STYLE = "mapbox://styles/mapbox/standard";
 
-const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11";
-
-const TIME_RANGES: { range: [number, number]; period: TimeOfDay }[] = [
-	{ range: [5, 9], period: "dawn" },
-	{ range: [9, 17], period: "day" },
-	{ range: [17, 20], period: "dusk" },
-	{ range: [20, 24], period: "night" },
-	{ range: [0, 5], period: "night" },
-];
-
-const TIME_OF_DAY_VALUES: TimeOfDay[] = ["dawn", "day", "dusk", "night"];
-
-export function getTimeOfDay(hour = new Date().getHours()): TimeOfDay {
-	if (process.env.NODE_ENV === "development") {
-		const param = new URLSearchParams(window.location.search).get("tod");
-		if (TIME_OF_DAY_VALUES.includes(param as TimeOfDay)) {
-			return param as TimeOfDay;
-		}
-	}
-
-	return (
-		TIME_RANGES.find(({ range: [start, end] }) => hour >= start && hour < end)
-			?.period ?? "day"
-	);
-}
-
-export function getStyleForPeriod(period: TimeOfDay): string {
-	const base = {
-		dawn: process.env.MAPBOX_STYLE_DAWN,
-		day: process.env.MAPBOX_STYLE_DAY,
-		dusk: process.env.MAPBOX_STYLE_DUSK,
-		night: process.env.MAPBOX_STYLE_NIGHT,
-	}[period];
-	return withOptimize(
-		base ??
-			(period === "day"
-				? DEFAULT_LIGHT_STYLE
-				: "mapbox://styles/mapbox/dark-v11"),
-	);
-}
-
-export function getStyleForTheme(mode: PaletteMode, period: TimeOfDay): string {
-	if (mode === "light" && period === "day") {
-		return withOptimize(
-			process.env.MAPBOX_STYLE_DAY ??
-				process.env.MAPBOX_STYLE_LIGHT ??
-				DEFAULT_LIGHT_STYLE,
-		);
-	}
-
-	return getStyleForPeriod(period);
-}
-
-export function getCurrentStyle(): string {
-	return getStyleForPeriod(getTimeOfDay());
-}
-
-function withOptimize(styleUrl: string): string {
-	return `${styleUrl}${styleUrl.includes("?") ? "&" : "?"}optimize=true`;
+export function applyMapAppearance(
+ map: Pick<Map, "setConfigProperty" | "setRain" | "setSnow">,
+ period: TimeOfDay,
+ weather: AmbientWeather | null,
+ now = Date.now(),
+ appearance: WeatherAppearance = "auto",
+) {
+ map.setConfigProperty("basemap", "lightPreset", period);
+ const fresh = weather && now >= weather.observedAt && now - weather.observedAt < 30 * 60000;
+ const code = fresh ? weather.code : -1;
+ const snow = appearance === "snow" || (appearance === "auto" && [71, 73, 75, 77, 85, 86].includes(code));
+ const rain = appearance === "rain" || (appearance === "auto" && [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99].includes(code));
+ // Keep precipitation subtle enough that navigation remains readable.
+ const density = appearance === "auto" ? (fresh ? Math.min(0.5, Math.max(0.1, weather.precipitation / 10)) : 0) : 0.25;
+ map.setRain(rain ? { density, intensity: 0.5, opacity: 0.5, vignette: 0 } : null);
+ map.setSnow(snow ? { density, intensity: 0.5, opacity: 0.5, vignette: 0 } : null);
 }

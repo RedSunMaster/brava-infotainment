@@ -28,10 +28,15 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		};
 		const onDrag = () => enterTemporaryOverview();
 		const onWheel = () => enterTemporaryOverview();
+		const onTouch = (event: TouchEvent) => {
+			if (event.touches.length > 1) enterTemporaryOverview();
+		};
 		map.on("dragstart", onDrag);
+		canvas.addEventListener("touchstart", onTouch, { passive: true });
 		canvas.addEventListener("wheel", onWheel, { passive: true });
 		return () => {
 			map.off("dragstart", onDrag);
+			canvas.removeEventListener("touchstart", onTouch);
 			canvas.removeEventListener("wheel", onWheel);
 			if (recenterTimeoutRef.current) clearTimeout(recenterTimeoutRef.current);
 			if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
@@ -46,12 +51,31 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 			(b, c) => b.extend(c),
 			new mapboxgl.LngLatBounds(coords[0], coords[0]),
 		);
+		// Fit the route into the map area that is actually free: below the cards
+		// at the top and above the dock. Falls back to fixed proportions when the
+		// overlays cannot be measured.
+		const height = mapRef.current.getContainer().clientHeight;
+		const edge = (selector: string, side: "top" | "bottom") =>
+			typeof document === "undefined"
+				? undefined
+				: document.querySelector(selector)?.getBoundingClientRect()[side];
+		const topEdge = edge("[data-top-overlay]", "bottom");
+		const dockEdge = edge("[data-dock]", "top");
+		const margin = 48;
 		mapRef.current.fitBounds(bounds, {
-			padding: { top: 80, bottom: 80, left: 60, right: 60 },
+			padding: {
+				top: topEdge != null ? topEdge + margin : height * 0.28,
+				bottom: dockEdge != null ? height - dockEdge + margin : height * 0.25,
+				left: 60,
+				right: 60,
+			},
 			pitch: 0,
 			bearing: 0,
 			duration: 800,
-			maxZoom: 14,
+			maxZoom: 17,
+			// Without this, Mapbox skips the animation when the OS has reduced
+			// motion enabled and the camera jumps.
+			essential: true,
 		});
 	}
 
@@ -73,7 +97,7 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 
 		// If already north-locked but map has drifted, snap north first
 		if (isNorth && Math.abs(mapBearing) > 1) {
-			map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+			map.easeTo({ bearing: 0, pitch: 0, duration: 500, essential: true });
 			return;
 		}
 
@@ -90,7 +114,7 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				bearing: next === "north" ? 0 : currentBearing,
 				pitch: next === "north" ? 0 : 45,
 				zoom: map.getZoom(),
-				offset: [0, map.getCanvas().height * 0.2],
+				offset: [0, map.getContainer().clientHeight * 0.2],
 				duration,
 				essential: true,
 			});

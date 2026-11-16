@@ -104,3 +104,17 @@ test("only the selected business is retrieved using its suggestion session", asy
 		assert.deepEqual(await resolveLocation(item, "test", new AbortController().signal), [172.5, -43.5]);
 	} finally { globalThis.fetch = original; }
 });
+
+test("the place a query names outranks businesses that merely contain its name", () => {
+	const near = (name, kind, metres) => ({ ...result(name, kind), distanceMeters: metres });
+	const matches = mergeResults([], [
+		near("Avis Christchurch Airport", "car rental", 6900),
+		near("Sudima Christchurch Airport", "hotel", 7000),
+		near("Christchurch International Airport", "airport", 7400),
+	], "Christchurch Airport");
+	assert.equal(matches[0].name, "Christchurch International Airport");
+	assert.equal(matches.length, 3);
+	// A distant exact match still does not outrank a nearby one.
+	const local = mergeResults([], [{ ...result("Riccarton Mall", "shopping mall", [174.7, -36.8]), distanceMeters: 760000 }, near("Riccarton Mall Carpark", "parking", 3000)], "Riccarton Mall");
+	assert.equal(local[0].name, "Riccarton Mall Carpark");
+});

@@ -1,38 +1,43 @@
-import AppsRounded from "@mui/icons-material/AppsRounded";
-import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
-import FlashlightOnRounded from "@mui/icons-material/FlashlightOnRounded";
-import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
-import ThermostatRounded from "@mui/icons-material/ThermostatRounded";
-import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
-import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
-import { Box, Popover, Slider, Typography } from "@mui/material";
-import ClickAwayListener from "@mui/material/ClickAwayListener";
 import React, { useEffect, useRef, useState } from "react";
 import { Alert, Box, Typography } from "@mui/material";
-import { AddRounded, RemoveRounded, PauseRounded, PlayArrowRounded, SkipNextRounded, WarningAmberRounded, CloseRounded, VolumeOffRounded, VolumeUpRounded, AcUnitRounded } from "@mui/icons-material";
+import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
+import AddRounded from "@mui/icons-material/AddRounded";
+import RemoveRounded from "@mui/icons-material/RemoveRounded";
+import PauseRounded from "@mui/icons-material/PauseRounded";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
+import VolumeOffRounded from "@mui/icons-material/VolumeOffRounded";
+import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
+import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
+import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
+import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import DriveButton from "./DriveButton";
 import SpotifyPopup from "./SpotifyPopup";
 import { useSpotify } from "../hooks/useSpotify";
+import { useKeyboard } from "../contexts/KeyboardContext";
 import RearDefrostIcon from "../../public/icons/rearWindshieldDefrost.svg";
-import FanOnIcon from "../../public/icons/fanOn.svg";
 
-interface Props { isDriving: boolean; children: React.ReactNode }
+// Flip when a real vehicle interface (CAN/serial) drives these controls.
+const VEHICLE_CONNECTED = false;
+interface Props { isDriving: boolean; panel: "media" | "climate" | null; setPanel: (panel: "media" | "climate" | null) => void }
 interface StepControlProps { label: string; value: number; onChange: (value: number) => void; maximum: number; displayValue?: string }
 function StepControl({ label, value, onChange, maximum, displayValue }: StepControlProps) {
- return <Box sx={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
-  <DriveButton aria-label={`Decrease ${label.toLowerCase()}`} disabled={value === 0} onClick={() => onChange(Math.max(0, value - 1))}><RemoveRounded /></DriveButton>
-  <Box sx={{ textAlign: "center", flex: 1, minWidth: 58 }}>
-   <Typography sx={{ fontSize: "clamp(18px, 2.4vw, 26px)", color: "text.secondary" }}>{label}</Typography>
-   <Typography aria-live="polite" sx={{ fontSize: "clamp(24px, 3.2vw, 36px)", fontWeight: 800 }}>{displayValue ?? value}</Typography>
+ return <Box sx={{ display: "flex", alignItems: "center", flex: "1 1 0", minWidth: 0 }}>
+  <DriveButton color="inherit" aria-label={`Decrease ${label.toLowerCase()}`} disabled={value === 0} onClick={() => onChange(Math.max(0, value - 1))}><RemoveRounded /></DriveButton>
+  <Box sx={{ textAlign: "center", flex: 1 }}>
+   <Typography sx={{ fontSize: 24, color: "text.secondary" }}>{label}</Typography>
+   <Typography aria-live="polite" sx={{ fontSize: 32, fontWeight: 800 }}>{displayValue ?? value}</Typography>
   </Box>
-  <DriveButton aria-label={`Increase ${label.toLowerCase()}`} disabled={value === maximum} onClick={() => onChange(Math.min(maximum, value + 1))}><AddRounded /></DriveButton>
+  <DriveButton color="inherit" aria-label={`Increase ${label.toLowerCase()}`} disabled={value === maximum} onClick={() => onChange(Math.min(maximum, value + 1))}><AddRounded /></DriveButton>
  </Box>;
 }
-export default function CarControls({ isDriving, children }: Props) {
+export default function CarControls({ isDriving, panel: tab, setPanel: setTab }: Props) {
  const spotify = useSpotify();
- const [mediaOpen, setMediaOpen] = useState(false);
- const [vehicleOpen, setVehicleOpen] = useState(false);
- const mediaAnchor = useRef<HTMLDivElement>(null);
+ const { hideKeyboard } = useKeyboard();
+ // The mini player only earns its row once an account is linked; until then
+ // Spotify is reached through the Media button.
+ const [musicVisible, setMusicVisible] = useState(spotify.isConnected);
+ useEffect(() => { if (spotify.isConnected) setMusicVisible(true); }, [spotify.isConnected]);
  const [temp, setTemp] = useState(5);
  const [fan, setFan] = useState(3);
  const [hazards, setHazards] = useState(false);
@@ -42,7 +47,7 @@ export default function CarControls({ isDriving, children }: Props) {
  const [error, setError] = useState<string | null>(null);
  const previousVolume = useRef(50);
  const ready = spotify.isConnected && spotify.track !== null;
- useEffect(() => { if (isDriving) { setVehicleOpen(false); setMediaOpen(false); } }, [isDriving]);
+ useEffect(() => { if (isDriving) { setTab(null); hideKeyboard(); } }, [isDriving, hideKeyboard, setTab]);
  async function mediaAction(action: () => Promise<void>) {
   setError(null);
   try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Playback unavailable. Try again."); }
@@ -51,31 +56,40 @@ export default function CarControls({ isDriving, children }: Props) {
   if (spotify.volume > 0) { previousVolume.current = spotify.volume; await spotify.setVolume(0); }
   else await spotify.setVolume(previousVolume.current || 50);
  });
- return <Box component="footer" aria-label="Dashboard controls" sx={{ flexShrink: 0, position: "relative", zIndex: 10000, bgcolor: "background.default", p: "12px", display: "grid", gap: "8px" }}>
-  {error && <Alert severity="error" onClose={() => setError(null)} sx={{ position: "absolute", bottom: "100%", left: 12, right: 12, fontSize: 24 }}>{error}</Alert>}
-  {vehicleOpen && <Box role="region" aria-label="Vehicle settings" sx={{ position: "absolute", bottom: "100%", left: 12, right: 12, bgcolor: "background.paper", p: 2, borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
-   <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1 }}><Typography sx={{ fontSize: 30, fontWeight: 800 }}>Climate</Typography><DriveButton aria-label="Close climate panel" onClick={() => setVehicleOpen(false)}><CloseRounded /></DriveButton></Box>
-   <Box sx={{ display: "flex", gap: 2 }}>
-    <DriveButton fullWidth aria-pressed={ac} variant={ac ? "contained" : "outlined"} onClick={() => setAc(!ac)} startIcon={<AcUnitRounded />}>A/C {ac ? "on" : "off"}</DriveButton>
-    <DriveButton fullWidth onClick={() => setAirflow(airflow === "Face" ? "Feet" : airflow === "Feet" ? "Screen" : "Face")}>Airflow: {airflow}</DriveButton>
-   </Box>
+ return <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 1, p: "0 16px 16px", pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+  {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
+  {tab && <Box role="region" id="dashboard-panel" data-map-obstruction aria-label={`${tab} controls`} sx={{ maxHeight: "min(50vh, 760px)", overflowY: "auto", position: "relative", boxShadow: 8, bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 3, p: 2 }}>
+   {tab === "media" && <SpotifyPopup spotify={spotify} isDriving={isDriving} />}
+   {tab === "climate" && <Box sx={{ display: "grid", gap: 2 }}>
+    <Box><Typography sx={{ fontSize: 32, fontWeight: 800 }}>Cabin comfort</Typography><Typography sx={{ fontSize: 22, color: "text.secondary" }}>Preview controls · vehicle not connected</Typography></Box>
+    <Box sx={{ display: "flex", gap: 2 }}>
+     <DriveButton fullWidth aria-pressed={ac} variant={ac ? "contained" : "outlined"} onClick={() => setAc(!ac)} startIcon={<AcUnitRounded />}>A/C {ac ? "on" : "off"}</DriveButton>
+     <DriveButton fullWidth variant="outlined" onClick={() => setAirflow(airflow === "Face" ? "Feet" : airflow === "Feet" ? "Screen" : "Face")}>Airflow: {airflow}</DriveButton>
+    </Box>
+   </Box>}
   </Box>}
-  <Box ref={mediaAnchor} sx={{ display: "flex", gap: 1, alignItems: "center", borderBottom: "1px solid", borderColor: "divider", pb: 1 }}>
-   <DriveButton aria-label="Open music" aria-expanded={mediaOpen} onClick={() => { setVehicleOpen(false); setMediaOpen(!mediaOpen); }} sx={{ minWidth: 0, flex: 1, justifyContent: "flex-start", textAlign: "left", px: 2 }}>
-    <Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: "clamp(22px, 2.8vw, 30px)", fontWeight: 800 }}>{spotify.track?.name ?? "Music"}</Typography><Typography noWrap sx={{ fontSize: "clamp(18px, 2.2vw, 24px)", color: "text.secondary" }}>{spotify.track?.artists ?? (spotify.isConnected ? "No active playback" : "Connect Spotify")}</Typography></Box>
-   </DriveButton>
-   <DriveButton disabled={!ready} aria-label={spotify.track?.isPlaying ? "Pause music" : "Play music"} onClick={() => mediaAction(spotify.track?.isPlaying ? spotify.pause : spotify.play)}>{spotify.track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
-   <DriveButton disabled={!ready} aria-label="Next track" onClick={() => mediaAction(spotify.next)}><SkipNextRounded /></DriveButton>
-   <DriveButton disabled={!ready} aria-label={spotify.volume === 0 ? "Unmute Spotify" : "Mute Spotify"} aria-pressed={spotify.volume === 0} onClick={mute}>{spotify.volume === 0 ? <VolumeOffRounded /> : <VolumeUpRounded />}</DriveButton>
+  {musicVisible && tab !== "media" && <Box sx={{ display: "flex", alignItems: "center", bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 3, px: 2, gap: 1, boxShadow: 6 }}>
+   {spotify.isConnected ? <>
+    {spotify.track?.albumArt && <Box component="img" src={spotify.track.albumArt} alt="" sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: 2, flexShrink: 0 }} />}
+    <DriveButton color="inherit" aria-label="Expand music player" onClick={() => { hideKeyboard(); setTab("media"); }} sx={{ flex: 1, minWidth: 0, display: "block", textAlign: "left" }}><Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>{spotify.track?.name ?? "Music"}</Typography><Typography noWrap sx={{ fontSize: 22, color: "text.secondary" }}>{spotify.track?.artists ?? "No active playback"}</Typography></DriveButton>
+    <DriveButton color="inherit" disabled={!ready} aria-label={spotify.track?.isPlaying ? "Pause music" : "Play music"} onClick={() => mediaAction(spotify.track?.isPlaying ? spotify.pause : spotify.play)}>{spotify.track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
+    <DriveButton color="inherit" disabled={!ready} aria-label="Next track" onClick={() => mediaAction(spotify.next)}><SkipNextRounded /></DriveButton>
+    <DriveButton color="inherit" disabled={!ready} aria-label={spotify.volume === 0 ? "Unmute Spotify" : "Mute Spotify"} aria-pressed={spotify.volume === 0} onClick={mute}>{spotify.volume === 0 ? <VolumeOffRounded /> : <VolumeUpRounded />}</DriveButton>
+   </> : <DriveButton color="inherit" onClick={() => setTab("media")} sx={{ flex: 1, justifyContent: "flex-start", gap: 1 }}><MusicNoteRounded /> Connect Spotify</DriveButton>}
+   <DriveButton color="inherit" aria-label="Collapse music card" onClick={() => setMusicVisible(false)}><ExpandMoreRounded /></DriveButton>
+  </Box>}
+  <Box sx={{ bgcolor: "background.paper", color: "text.primary", border: "1px solid", borderColor: "divider", borderRadius: 3, p: 1, boxShadow: 5 }}>
+  {/* No vehicle link exists yet: say so where the switches are, not only inside the Climate panel. */}
+  {!VEHICLE_CONNECTED && <Typography sx={{ fontSize: 18, color: "text.secondary", textAlign: "center", pb: 0.5 }}>Vehicle controls are a preview · not connected to the car</Typography>}
+  {/* Same 112 px tall targets as the cards above; width stays narrower so the row fits. */}
+  <Box component="nav" aria-label="Dashboard controls" sx={{ display: "flex", alignItems: "center", gap: 0.5, "--car-target": "clamp(76px, 8vw, 88px)", "& .MuiButton-root": { flexShrink: 0, minHeight: "clamp(76px, 10.4vw, 112px)" } }}>
+   <DriveButton color={tab === "media" ? "primary" : "inherit"} aria-label="Media" aria-expanded={tab === "media"} aria-controls={tab === "media" ? "dashboard-panel" : undefined} variant={tab === "media" ? "contained" : "text"} onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); setMusicVisible(true); }}><Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", fontSize: 18 }}><MusicNoteRounded />Media</Box></DriveButton>
+   <DriveButton color={tab === "climate" ? "primary" : "inherit"} aria-label="Climate" aria-expanded={tab === "climate"} aria-controls={tab === "climate" ? "dashboard-panel" : undefined} variant={tab === "climate" ? "contained" : "text"} onClick={() => { hideKeyboard(); setTab(tab === "climate" ? null : "climate"); }}><Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", fontSize: 18 }}><AcUnitRounded />Climate</Box></DriveButton>
+   <StepControl label="Warmth" value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} />
+   <StepControl label="Fan" value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} />
+   <DriveButton color={rearDemist ? "primary" : "inherit"} aria-label="Rear demist (preview)" aria-pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)} variant={rearDemist ? "contained" : "text"} sx={{ flexDirection: "column", fontSize: 20 }}><RearDefrostIcon width={36} height={36} fill="currentColor" />Demist</DriveButton>
+   <DriveButton aria-label="Hazard lights (preview)" aria-pressed={hazards} onClick={() => setHazards(!hazards)} color="error" variant={hazards ? "contained" : "outlined"} sx={{ flexDirection: "column", fontSize: 20 }}><WarningAmberRounded />Hazards</DriveButton>
   </Box>
-  <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-   <StepControl label="Warmth" value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : `${temp}/10`} />
-   <StepControl label="Fan" value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : `${fan}/10`} />
-   <DriveButton aria-label="Rear demist" aria-pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)} variant={rearDemist ? "contained" : "text"} sx={{ flexDirection: "column", fontSize: "clamp(16px, 2vw, 22px)" }}><RearDefrostIcon width={40} height={40} fill="currentColor" />Rear demist</DriveButton>
-   <DriveButton aria-label="Hazard lights" aria-pressed={hazards} onClick={() => setHazards(!hazards)} color="error" variant={hazards ? "contained" : "outlined"} sx={{ flexDirection: "column", fontSize: "clamp(16px, 2vw, 22px)" }}><WarningAmberRounded />Hazards</DriveButton>
   </Box>
-  <Box component="nav" aria-label="Navigation actions" sx={{ display: "flex", alignItems: "center", gap: 1 }}>{children}<DriveButton aria-label="Open climate controls" aria-expanded={vehicleOpen} onClick={() => { setMediaOpen(false); setVehicleOpen(!vehicleOpen); }} sx={{ flexDirection: "column", fontSize: "clamp(16px, 2vw, 22px)" }}><FanOnIcon width={36} height={36} fill="currentColor" />Climate</DriveButton></Box>
-  <SpotifyPopup anchorEl={mediaOpen ? mediaAnchor.current : null} onClose={() => setMediaOpen(false)} spotify={spotify} isDriving={isDriving} />
  </Box>;
 }
-

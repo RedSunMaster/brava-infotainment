@@ -8,14 +8,16 @@ import {
 	ListItemButton,
 	Typography,
 } from "@mui/material";
-import {
-	CloseRounded,
-	HistoryRounded,
-	LocationOnRounded,
-	SearchRounded,
-	KeyboardHideRounded,
-} from "@mui/icons-material";
+import CloseRounded from "@mui/icons-material/CloseRounded";
+import HistoryRounded from "@mui/icons-material/HistoryRounded";
+import LocationOnRounded from "@mui/icons-material/LocationOnRounded";
+import KeyboardHideRounded from "@mui/icons-material/KeyboardHideRounded";
+import KeyboardRounded from "@mui/icons-material/KeyboardRounded";
 import DriveButton from "./DriveButton";
+import { readFrequentPlaces } from "../lib/frequentPlaces";
+import { readSavedPlaces } from "../lib/savedPlaces";
+import HomeRounded from "@mui/icons-material/HomeRounded";
+import WorkRounded from "@mui/icons-material/WorkRounded";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import {
 	resultDistanceKm,
@@ -32,6 +34,8 @@ interface Props {
 	onSelect: (coords: Coordinates, name: string) => Promise<void>;
 	onClose: () => void;
 	onCancelRouting: () => void;
+	/** Overrides the heading, e.g. when choosing the Home or Work address. */
+	title?: string;
 }
 
 function formatDistance(item: LocationResult, position: Coordinates): string {
@@ -58,6 +62,23 @@ function readRecentSearches(): string[] {
 	}
 }
 
+// Panels opened from the top control row drop down directly beneath it, so the
+// panel appears next to the button that opened it and never reaches the dock.
+export const topSheetSx = {
+	position: "absolute",
+	top: "calc(100% + 12px)",
+	left: 0,
+	right: 0,
+	bgcolor: "background.paper",
+	borderRadius: 3,
+	border: "1px solid",
+	borderColor: "divider",
+	boxShadow: 8,
+	p: 2,
+	zIndex: 30,
+	boxSizing: "border-box",
+} as const;
+
 export default function DestinationSearch({
 	position,
 	token,
@@ -65,11 +86,14 @@ export default function DestinationSearch({
 	onSelect,
 	onClose,
 	onCancelRouting,
+	title,
 }: Props) {
 	const { showKeyboard, hideKeyboard, isVisible } = useKeyboard();
 	const [query, setQuery] = useState("");
 	const [results, setResults] = useState<LocationResult[]>([]);
 	const [recents, setRecents] = useState(readRecentSearches);
+	const [frequent] = useState(readFrequentPlaces);
+	const [saved] = useState(readSavedPlaces);
 	const [status, setStatus] = useState<
 		"idle" | "searching" | "ready" | "routing" | "error"
 	>("idle");
@@ -131,7 +155,7 @@ export default function DestinationSearch({
 		};
 	}, [cleanQuery, token, retry]);
 	async function select(item: LocationResult) {
-		if (status !== "ready" || routing.current) return;
+		if ((status !== "ready" && (status !== "idle" || cleanQuery)) || routing.current) return;
 		routing.current = true;
 		hideKeyboard();
 		setStatus("routing");
@@ -145,14 +169,14 @@ export default function DestinationSearch({
 			);
 			if (!mounted.current || retrieval.current.signal.aborted) return;
 			if (item.source === "searchbox") session.current = crypto.randomUUID();
-			await onSelect(coords, `${item.name}, ${item.address}`);
+			await onSelect(coords, item.address ? `${item.name}, ${item.address}` : item.name);
 			if (!mounted.current) return;
 			const next = [
 				cleanQuery,
 				...recents.filter(
 					(value) => value.toLowerCase() !== cleanQuery.toLowerCase(),
 				),
-			].slice(0, 5);
+			].filter(Boolean).slice(0, 5);
 			setRecents(next);
 			try {
 				localStorage.setItem("brava-recent-searches", JSON.stringify(next));
@@ -189,24 +213,10 @@ export default function DestinationSearch({
 			role="region"
 			aria-label="Destination search"
 			sx={{
-				position: "fixed",
-				left: 12,
-				right: 12,
-				bottom: isVisible
-					? "calc(var(--vehicle-strip-height) + var(--keyboard-height))"
-					: "var(--vehicle-strip-height)",
-				height: isVisible
-					? "min(960px, calc(100vh - var(--vehicle-strip-height) - var(--keyboard-height) - 24px))"
-					: "min(960px, calc(100vh - var(--vehicle-strip-height) - 24px))",
+				...topSheetSx,
+				height: "min(820px, 45vh)",
 				display: "flex",
 				flexDirection: "column",
-				bgcolor: "background.paper",
-				borderRadius: "20px 20px 0 0",
-				border: "1px solid",
-				borderColor: "divider",
-				p: 2,
-				zIndex: 10001,
-				boxSizing: "border-box",
 			}}
 		>
 			<Box
@@ -219,7 +229,7 @@ export default function DestinationSearch({
 			>
 				<Box>
 					<Typography sx={{ fontSize: 32, fontWeight: 800 }}>
-						{isNavActive ? "Add a stop" : "Where to?"}
+						{title ?? (isNavActive ? "Add a stop" : "Where to?")}
 					</Typography>
 					<Typography sx={{ fontSize: 22, color: "text.secondary" }}>
 						Search New Zealand
@@ -283,7 +293,7 @@ export default function DestinationSearch({
 								}
 					}
 				>
-					{isVisible ? <KeyboardHideRounded /> : <SearchRounded />}
+					{isVisible ? <KeyboardHideRounded /> : <KeyboardRounded />}
 				</DriveButton>
 			</Box>
 			<Box
@@ -307,7 +317,7 @@ export default function DestinationSearch({
 								? `${results.length} results`
 								: cleanQuery
 									? "Type at least 3 characters"
-									: "Recent searches"}
+									: "Saved and frequent places"}
 				</Typography>
 			</Box>
 			{error && (
@@ -377,6 +387,22 @@ export default function DestinationSearch({
 							</Typography>
 						</ListItemButton>
 					))}
+					{!cleanQuery && ([["home", "Home", HomeRounded], ["work", "Work", WorkRounded]] as const).map(([slot, label, Icon]) => {
+						const place = saved[slot];
+						return place ? (
+							<ListItemButton key={slot} disabled={busy} onClick={() => void select({ id: slot, name: place.name, address: "", coords: place.coords, kind: label, source: "mapbox" })} sx={{ minHeight: "var(--car-target)", gap: 2 }}>
+								<Icon sx={{ fontSize: 36 }} />
+								<Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>{label}</Typography><Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{place.name.split(",").slice(0, 2).join(",")}</Typography></Box>
+							</ListItemButton>
+						) : null;
+					})}
+					{!cleanQuery && frequent.map((place) => (
+						<ListItemButton key={place.name + place.coords.join(",")} disabled={busy} onClick={() => void select({ id: place.name, name: place.name, address: "", coords: place.coords, kind: "Frequent destination", source: "mapbox" })} sx={{ minHeight: "var(--car-target)", gap: 2 }}>
+							<LocationOnRounded sx={{ fontSize: 36 }} />
+							<Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>{place.name.split(",")[0]}</Typography><Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{[place.name.split(",")[1]?.trim(), `${place.visits} ${place.visits === 1 ? "trip" : "trips"}`].filter(Boolean).join(" · ")}</Typography></Box>
+						</ListItemButton>
+					))}
+					{!cleanQuery && recents.length > 0 && <Typography sx={{ px: 2, pt: 2, fontSize: 22, color: "text.secondary" }}>Recent searches</Typography>}
 					{!cleanQuery &&
 						recents.map((value) => (
 							<ListItemButton
@@ -392,7 +418,7 @@ export default function DestinationSearch({
 							</ListItemButton>
 						))}
 				</List>
-				{!cleanQuery && !recents.length && (
+				{!cleanQuery && !recents.length && !frequent.length && (
 					<Typography sx={{ p: 2, fontSize: 26 }}>
 						Enter a place name or an address with its town.
 					</Typography>

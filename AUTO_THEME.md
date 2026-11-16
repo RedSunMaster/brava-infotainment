@@ -1,6 +1,6 @@
 # Automatic map and interface appearance
 
-Settings → Appearance offers Auto (default), Day and Night. The preference survives restart. Both the interface and existing Mapbox Studio styles change during runtime; restarting the app is unnecessary.
+Settings → Appearance offers Auto (default), Day and Night. The preference survives restart. The interface and Mapbox Standard lighting change during runtime; restarting the app is unnecessary. One Standard style uses the basemap lightPreset configuration for dawn, day, dusk and night. Separate MAPBOX_STYLE_* URLs are no longer used.
 
 Auto calculates solar elevation from UTC date and geographic position using NOAA fractional-year equations. It checks every minute and on window focus/visibility changes. Dawn/dusk use civil twilight (-6° to +6°); night is below -6°. The interface changes to night below the horizon and returns to day above +1°, with a deadband to avoid oscillation.
 
@@ -8,8 +8,8 @@ Shared Open-Meteo weather refreshes every ten minutes and after approximately fi
 
 Weather is a model estimate, not measured cabin illumination. It cannot automatically detect tunnels. Location follows app position updates; before GPS supplies a location, the app uses its existing Christchurch preview origin. Development `tod` overrides remain available and are identified as Preview in settings.
 
-Style changes retain camera position and restore the location puck and route layers after style load. The style-load callback is independent of React render frequency. Missing nighttime custom styles fall back to Mapbox Dark, rather than Light.
+Lighting changes do not replace the style, retaining camera position, routes and the location puck. Fresh weather codes enable subtle Mapbox rain or snow effects; clear, missing or stale weather clears them. Appearance is reapplied after a style load.
 
-Validation: five solar/weather tests, eleven search tests and six display tests pass; TypeScript and scoped ESLint pass. Fullscreen Electron was inspected with live weather and manual Night then Auto runtime switching.
+Validation: run node --test scripts/test-map-appearance.mjs scripts/test-ambient-theme.mjs, plus TypeScript and ESLint checks.
 
 References: https://gml.noaa.gov/grad/solcalc/solareqns.PDF, https://docs.mapbox.com/mapbox-gl-js/guides/styles/set-a-style/, https://open-meteo.com/en/docs.

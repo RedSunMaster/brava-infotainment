@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type mapboxgl from "mapbox-gl";
+import { useMapOcclusion } from "./hooks/useMapOcclusion";
 import { useMapbox } from "./hooks/useMapbox";
 import { useRoute } from "./hooks/useRoute";
 import { useNavigation } from "./hooks/useNavigation";
@@ -15,21 +16,24 @@ import {
 } from "./lib/routing";
 import { DEV_ORIGIN, RoutingProvider, ZOOM_LEVEL } from "./constants";
 import { Alert, Box, Typography } from "@mui/material";
+import { useTheme } from "@mui/material/styles";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
 import { usePositionPuck } from "./hooks/usePuckPosition";
 import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
 import { useGps } from "./hooks/useGps";
-import ClockWeatherChip from "./components/ClockWeatherChip";
+import ClockWeatherChip, { statusChipSx } from "./components/ClockWeatherChip";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
-import {
-	VolumeOffRounded,
-	VolumeUpRounded,
-	ReplayRounded,
-} from "@mui/icons-material";
+import { readFrequentPlaces, recordFrequentPlace } from "./lib/frequentPlaces";
+import { readSavedPlaces, savePlace, type PlaceSlot } from "./lib/savedPlaces";
+import { distanceKm } from "./lib/locationSearch";
+import QuickDestinations from "./components/QuickDestinations";
+import FlagRounded from "@mui/icons-material/FlagRounded";
+import ReplayRounded from "@mui/icons-material/ReplayRounded";
 import { useSpokenNavigation } from "./hooks/useSpokenNavigation";
+import { kokoroVoice } from "./lib/kokoroVoice";
 import {
 	nextDrivingState,
 	interactionLocked,
@@ -158,7 +162,15 @@ function summarizeManeuvers(maneuvers: NormalizedManeuver[]) {
 }
 
 export default function App() {
-	const { mode, period, updatePosition } = useThemeMode();
+	const { period, weather, weatherAppearance, updatePosition } = useThemeMode();
+	const theme = useTheme();
+	const kokoroStatus = useSyncExternalStore(kokoroVoice.subscribe, () => kokoroVoice.status);
+	const voiceStatus =
+		kokoroStatus === "ready"
+			? "Kokoro (natural voice) ready"
+			: kokoroStatus === "failed"
+				? `system voice — Kokoro failed: ${kokoroVoice.error ?? "unknown error"}`
+				: "system voice — Kokoro is loading (first use downloads about 90 MB)";
 	const mapContainer = useRef<HTMLDivElement>(null);
 	const simIndexRef = useRef(0);
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
@@ -168,12 +180,21 @@ export default function App() {
 	const navStopsRef = useRef<[number, number][]>([]);
 	const destinationClickInFlightRef = useRef(false);
 	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
+	const [openPanel, setOpenPanel] = useState<"search" | "settings" | "media" | "climate" | null>(null);
 	const [navActive, setNavActive] = useState(false);
+	const [navToolsOpen, setNavToolsOpen] = useState(false);
 	const previewMode =
 		new URLSearchParams(window.location.search).get("preview") ===
 		"car-portrait";
 	const [drivingState, setDrivingState] = useState<DrivingState>("unknown");
 	const [routeError, setRouteError] = useState<string | null>(null);
+	const [savedPlaces, setSavedPlaces] = useState(readSavedPlaces);
+	// Set while the search panel is choosing the Home or Work address.
+	const [placeSlot, setPlaceSlot] = useState<PlaceSlot | null>(null);
+	const [arrivedAt, setArrivedAt] = useState<string | null>(null);
+	const navDestNameRef = useRef<string | null>(null);
+	// True while the latest raw position is within 30 m of the end of the route.
+	const [nearRouteEnd, setNearRouteEnd] = useState(false);
 	const [routeBusy, setRouteBusy] = useState(false);
 	const routeRequest = useRef(0);
 	const [isRerouting, setIsRerouting] = useState(false);
@@ -213,6 +234,8 @@ export default function App() {
 		toggleOrientation,
 	} = useCameraMode(mapRef);
 
+	const mapOffset = useMapOcclusion(mapRef, mapLoaded);
+
 	// ── Puck — render loop drives both model and camera ────────────────────────
 	// smoothLocate is destructured here alongside updatePuck and resetCursor.
 	const { updatePuck, resetCursor, smoothLocate, syncPuck } = usePositionPuck(
@@ -224,9 +247,10 @@ export default function App() {
 		orientationRef,
 		cameraTransitionRef,
 		trimRouteByDistance,
+		mapOffset,
 	);
 
-	useMapStyle(mapRef, mapLoaded, mode, period, () => {
+	useMapStyle(mapRef, mapLoaded, period, weather, weatherAppearance, () => {
 		syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
 	});
 
@@ -280,6 +304,8 @@ export default function App() {
 			lastSpeedRef.current = speed;
 			setVehicleSpeedMs(speed);
 			setDrivingState((previous) => nextDrivingState(previous, speed));
+			const routeEnd = coordsRef.current[coordsRef.current.length - 1];
+			setNearRouteEnd(!!routeEnd && distanceKm(pos, routeEnd) < 0.03);
 			updatePuck(pos, bearing, speed);
 			await onPositionUpdate(pos, bearing, speed, prov);
 		},
@@ -326,12 +352,12 @@ export default function App() {
 		drivingState,
 	);
 	useEffect(() => {
-		if (isDriving) {
+		if (isDriving && !navActive) {
 			routeRequest.current++;
 			setRouteBusy(false);
 			setPendingDest(null);
 		}
-	}, [isDriving]);
+	}, [isDriving, navActive]);
 	const guidance = useSpokenNavigation(
 		maneuvers[currentStep + 1]?.instruction ?? "",
 		distanceToNextM,
@@ -366,7 +392,9 @@ export default function App() {
 
 	const handleSearchSelect = useCallback(
 		async (coords: [number, number], placeName: string) => {
-			if (isDriving) throw new Error("Choose a destination when parked.");
+			// A new destination needs the car parked; a stop can be added on the move.
+			if (isDriving && !navActive)
+				throw new Error("Choose a destination when parked.");
 			const request = ++routeRequest.current;
 			setRouteBusy(true);
 			setRouteError(null);
@@ -383,10 +411,7 @@ export default function App() {
 				if (request !== routeRequest.current) return;
 				if (!route.maneuvers.length)
 					throw new Error("No drivable route was found.");
-				if (!navActive) {
-					drawRoute(route.coords);
-					showOverview(route.coords);
-				}
+				if (!navActive) drawRoute(route.coords);
 				const summary = summarizeManeuvers(route.maneuvers);
 				setPendingDest({
 					coords,
@@ -407,12 +432,12 @@ export default function App() {
 		const map = mapRef.current;
 		if (!mapLoaded || !map) return;
 
-		const handleMapClick = async (event: mapboxgl.MapMouseEvent) => {
-			if (isDriving || destinationClickInFlightRef.current) return;
+		// Shared by a tap (parked) and a press-and-hold (also while navigating).
+		const pickLocation = async (lngLat: mapboxgl.LngLat, point: mapboxgl.Point) => {
+			if (destinationClickInFlightRef.current) return;
 			destinationClickInFlightRef.current = true;
 			try {
-				const coords: [number, number] = [event.lngLat.lng, event.lngLat.lat];
-				const point = event.point;
+				const coords: [number, number] = [lngLat.lng, lngLat.lat];
 				const features = map.queryRenderedFeatures([
 					[point.x - 18, point.y - 18],
 					[point.x + 18, point.y + 18],
@@ -430,21 +455,108 @@ export default function App() {
 			}
 		};
 
-		map.on("click", handleMapClick);
-		return () => {
-			map.off("click", handleMapClick);
+		// A tap sets a destination only while parked, so a stray touch on the
+		// move does nothing.
+		let ignoreClickUntil = 0;
+		const handleMapClick = (event: mapboxgl.MapMouseEvent) => {
+			if (isDriving || Date.now() < ignoreClickUntil) return;
+			void pickLocation(event.lngLat, event.point);
 		};
-	}, [handleSearchSelect, mapLoaded, mapRef, isDriving]);
+
+		// Press and hold picks the location under the finger. During navigation
+		// it adds a stop, and works while moving because it is deliberate.
+		let holdTimer = 0;
+		let holdStart: mapboxgl.Point | null = null;
+		const cancelHold = () => {
+			window.clearTimeout(holdTimer);
+			holdTimer = 0;
+		};
+		const startHold = (event: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
+			cancelHold();
+			if ("points" in event && event.points.length > 1) return;
+			if (isDriving && !navActive) return;
+			const { lngLat, point } = event;
+			holdStart = point;
+			holdTimer = window.setTimeout(() => {
+				holdTimer = 0;
+				ignoreClickUntil = Date.now() + 800;
+				void pickLocation(lngLat, point);
+			}, 650);
+		};
+		const moveHold = (event: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
+			if (holdTimer && holdStart && event.point.dist(holdStart) > 12) cancelHold();
+		};
+
+		map.on("click", handleMapClick);
+		map.on("mousedown", startHold);
+		map.on("touchstart", startHold);
+		map.on("mousemove", moveHold);
+		map.on("touchmove", moveHold);
+		for (const end of ["mouseup", "touchend", "touchcancel", "dragstart"] as const)
+			map.on(end, cancelHold);
+		return () => {
+			cancelHold();
+			map.off("click", handleMapClick);
+			map.off("mousedown", startHold);
+			map.off("touchstart", startHold);
+			map.off("mousemove", moveHold);
+			map.off("touchmove", moveHold);
+			for (const end of ["mouseup", "touchend", "touchcancel", "dragstart"] as const)
+				map.off(end, cancelHold);
+		};
+	}, [handleSearchSelect, mapLoaded, mapRef, isDriving, navActive]);
+
+	// Fit the route preview once the confirmation card is on screen, so the
+	// route fills the space actually left between the cards and the dock.
+	const previewCoords = pendingDest && !navActive ? pendingDest.route.coords : null;
+	useEffect(() => {
+		if (!previewCoords) return;
+		const frame = requestAnimationFrame(() => showOverview(previewCoords));
+		return () => cancelAnimationFrame(frame);
+	}, [previewCoords]);
+
+	// ── Saved and frequent destinations ────────────────────────────────────────
+	useEffect(() => {
+		if (openPanel !== "search") setPlaceSlot(null);
+	}, [openPanel]);
+	const quickPlaces = useMemo(() => {
+		const saved = Object.values(savedPlaces);
+		const near = (a: [number, number], b: [number, number]) =>
+			Math.abs(a[0] - b[0]) < 0.0005 && Math.abs(a[1] - b[1]) < 0.0005;
+		return readFrequentPlaces()
+			.filter((place) => !saved.some((item) => near(item.coords, place.coords)))
+			.slice(0, 2);
+		// Re-read when a trip starts or ends, since that changes the ranking.
+	}, [savedPlaces, navActive]);
+	function handleQuickDestination(coords: [number, number], placeName: string) {
+		setOpenPanel(null);
+		handleSearchSelect(coords, placeName).catch((cause) =>
+			setRouteError(
+				cause instanceof Error ? cause.message : "Could not calculate route.",
+			),
+		);
+	}
+	function handleSetPlace(slot: PlaceSlot) {
+		setPlaceSlot(slot);
+		setOpenPanel("search");
+	}
 
 	async function handleConfirmNav() {
-		if (!pendingDest || isDriving) return;
+		if (!pendingDest || (isDriving && pendingDest.action !== "stop")) return;
+		recordFrequentPlace(pendingDest.placeName, pendingDest.coords);
 		stopSimulation();
 		applyRoute(pendingDest.route);
-		if (pendingDest.action === "destination")
+		if (pendingDest.action === "destination") {
 			navDestRef.current = pendingDest.coords;
+			navDestNameRef.current = pendingDest.placeName;
+		}
+		setArrivedAt(null);
+		setNearRouteEnd(false);
 		navStopsRef.current = pendingDest.stops;
 		setPendingDest(null);
 		setNavActive(true);
+		setNavToolsOpen(false);
+		setOpenPanel(null);
 		resetNavigation();
 		resetCursor();
 		simIndexRef.current = 0;
@@ -475,23 +587,20 @@ export default function App() {
 			lastSpeedRef.current = 0;
 		}
 		setNavActive(false);
+		setNavToolsOpen(false);
 		setIsRerouting(false);
 		setPendingDest(null);
 		simIndexRef.current = 0;
 		navDestRef.current = null;
+		navDestNameRef.current = null;
+		setNearRouteEnd(false);
 		navStopsRef.current = [];
 		clearRoute();
 		resumeFollowing();
-		mapRef.current?.easeTo({
-			center: lastPosRef.current,
-			zoom: ZOOM_LEVEL,
-			pitch: 0,
-			bearing: 0,
-			duration: 800,
-		});
+		smoothLocate();
 	}, [
 		clearRoute,
-		mapRef,
+		smoothLocate,
 		resetNavigation,
 		resetCursor,
 		resumeFollowing,
@@ -500,15 +609,34 @@ export default function App() {
 		gpsStatus,
 	]);
 
+	// ── Arrival ────────────────────────────────────────────────────────────────
+	// The last maneuver is the arrival itself: finish when it becomes current,
+	// or when the car is within a few metres of it (real GPS rarely lands on the
+	// exact final point).
 	useEffect(() => {
-		if (navActive && maneuvers.length > 0 && currentStep >= maneuvers.length) {
-			handleEndNavigation();
-		}
-	}, [currentStep, maneuvers.length, navActive, handleEndNavigation]);
+		if (!navActive || maneuvers.length < 2) return;
+		const last = maneuvers.length - 1;
+		// "Near the end" uses the raw position as well as the smoothed, map-matched
+		// distance, because smoothing can leave the latter a few car lengths short
+		// once position updates stop.
+		const arrived =
+			currentStep >= last ||
+			(currentStep === last - 1 &&
+				(nearRouteEnd || (distanceToNextM != null && distanceToNextM <= 25)));
+		if (!arrived) return;
+		const name = navDestNameRef.current;
+		handleEndNavigation();
+		setArrivedAt(name ?? "your destination");
+	}, [currentStep, distanceToNextM, nearRouteEnd, maneuvers.length, navActive, handleEndNavigation]);
+	useEffect(() => {
+		if (!arrivedAt) return;
+		const timer = window.setTimeout(() => setArrivedAt(null), 20000);
+		return () => window.clearTimeout(timer);
+	}, [arrivedAt]);
 
 	function handleLocate() {
 		resumeFollowing();
-		smoothLocate(lastPosRef.current, lastBearingRef.current);
+		smoothLocate();
 	}
 
 	useEffect(() => {
@@ -522,9 +650,11 @@ export default function App() {
 			mapRef.current?.easeTo({
 				center: snapped,
 				zoom: ZOOM_LEVEL,
-				pitch: 0,
+				pitch: 45,
 				bearing: 0,
+				offset: [0, (mapRef.current?.getContainer().clientHeight ?? 0) * 0.2],
 				duration: 800,
+				essential: true,
 			});
 		}
 		snapInitialPosition().catch(() =>
@@ -545,24 +675,16 @@ export default function App() {
 				overflow: "hidden",
 			}}
 		>
-			<Box
-				sx={{ flex: 1, minHeight: 0, position: "relative", m: "12px 12px 0" }}
-			>
 				<Box
-					ref={mapContainer}
+					data-top-overlay
 					sx={{
 						position: "absolute",
-						inset: 0,
-						borderRadius: 3,
-						overflow: "hidden",
-					}}
-				/>
-				<Box
-					sx={{
-						position: "absolute",
-						top: 16,
-						left: 16,
-						right: 16,
+						top: 0,
+						left: 0,
+						right: 0,
+						p: "16px 24px",
+						pointerEvents: "none",
+						"& > *": { pointerEvents: "auto" },
 						zIndex: 10,
 						display: "grid",
 						gap: 2,
@@ -581,23 +703,21 @@ export default function App() {
 							gpsStatus={gpsStatus}
 						/>
 						<Typography
-							sx={{
-								bgcolor: "background.paper",
-								borderRadius: 2,
-								p: 1.5,
-								fontSize: 24,
-								fontWeight: 700,
-							}}
+							role="status"
+							sx={{ ...statusChipSx(theme), fontSize: 24, fontWeight: 700 }}
 						>
-							{previewMode && gpsStatus !== "fix"
-								? navActive
-									? "Preview: simulated drive"
-									: "Preview"
-								: gpsStatus !== "fix"
-									? "Waiting for GPS"
-									: vehicleSpeedMs > 1
-										? "Driving"
-										: "Parked"}
+							{gpsStatus !== "fix" && !(previewMode && navActive) ? (
+								previewMode ? "Preview" : "Waiting for GPS"
+							) : (
+								<>
+									<Box component="span" aria-label="Current speed" sx={{ fontSize: 34, fontWeight: 800, fontVariantNumeric: "tabular-nums", minWidth: "2ch", textAlign: "right" }}>
+										{Math.round(vehicleSpeedMs * 3.6)}
+									</Box>
+									<Box component="span" sx={{ fontSize: 20, color: "text.secondary" }}>
+										km/h{gpsStatus !== "fix" ? " · simulated" : ""}
+									</Box>
+								</>
+							)}
 						</Typography>
 					</Box>
 					{navActive && (
@@ -609,8 +729,63 @@ export default function App() {
 							isDriving={isDriving}
 						/>
 					)}
+					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: "var(--car-target, 112px)", bgcolor: "background.paper", boxShadow: 2, borderRadius: 3, "&:hover": { bgcolor: "surface.main" } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
+				<MapControls
+                    panel={openPanel === "search" || openPanel === "settings" ? openPanel : null}
+                    setPanel={setOpenPanel}
+					cameraMode={cameraMode}
+					orientation={orientation}
+					hasRoute={maneuvers.length > 0}
+					currentBearing={mapBearing}
+					currentPosition={lastPosRef.current}
+					mapboxToken={process.env.MAPBOX_TOKEN}
+					onOverview={() => showOverview(coordsRef.current)}
+					onToggleOrientation={() =>
+						toggleOrientation(lastBearingRef.current, lastPosRef.current)
+					}
+					onSearchSelect={
+						placeSlot
+							? async (coords, placeName) => {
+									setSavedPlaces(savePlace(placeSlot, placeName, coords));
+								}
+							: handleSearchSelect
+					}
+					searchTitle={placeSlot ? (placeSlot === "home" ? "Set Home address" : "Set Work address") : undefined}
+					onSetPlace={navActive ? undefined : handleSetPlace}
+					voiceStatus={voiceStatus}
+					onCancelRouting={() => {
+						routeRequest.current++;
+						setRouteBusy(false);
+					}}
+					onLocate={handleLocate}
+					isNavActive={navActive}
+					provider={provider}
+					onToggleProvider={handleToggleProvider}
+					isDriving={isDriving}
+					extraActions={navActive && (
+						<DriveButton color="inherit"
+							className="map-action"
+							aria-label="Repeat navigation instruction"
+							disabled={!guidance.supported}
+							onClick={guidance.speak}
+						>
+							<ReplayRounded />
+						</DriveButton>
+					)}
+				/>
+					</Box>
+
+					{!navActive && !pendingDest && !arrivedAt && !isDriving && (
+						<QuickDestinations
+							saved={savedPlaces}
+							frequent={quickPlaces}
+							onGo={handleQuickDestination}
+							onSet={handleSetPlace}
+							disabled={routeBusy}
+						/>
+					)}
 					{(routeBusy || isRerouting) && (
-						<Alert severity="info" sx={{ fontSize: 28 }}>
+						<Alert severity="info" sx={{ fontSize: 28, order: 2 }}>
 							Calculating route...
 						</Alert>
 					)}
@@ -618,19 +793,16 @@ export default function App() {
 						<Alert
 							severity="error"
 							onClose={() => setRouteError(null)}
-							sx={{ fontSize: 26 }}
+							sx={{ fontSize: 26, order: 2 }}
 						>
 							{routeError}
 						</Alert>
 					)}
-				</Box>
 				<Box
 					sx={{
-						position: "absolute",
-						bottom: 16,
-						left: 16,
-						right: 16,
+						position: "relative",
 						zIndex: 12,
+						order: navActive ? 0 : 1,
 					}}
 				>
 					{pendingDest ? (
@@ -643,7 +815,7 @@ export default function App() {
 							}
 							onConfirm={handleConfirmNav}
 							onCancel={handleCancelSearch}
-							disabled={isDriving}
+							disabled={isDriving && pendingDest.action !== "stop"}
 						/>
 					) : navActive ? (
 						<TripInfoCard
@@ -651,57 +823,46 @@ export default function App() {
 							currentStep={currentStep}
 							distanceToNextM={distanceToNextM}
 							timeToNextS={timeToNextS}
-							onEndNav={handleEndNavigation}
+							toolsOpen={navToolsOpen}
+                            onToggleTools={() => setNavToolsOpen(value => !value)}
+                            onLocate={handleLocate}
+                            onEndNav={handleEndNavigation}
 							isDriving={isDriving}
+							muted={guidance.muted}
+							onToggleMute={guidance.toggleMute}
+							voiceSupported={guidance.supported}
+							orientation={orientation}
+							canLocate={cameraMode !== "following"}
+							onToggleOrientation={() =>
+								toggleOrientation(lastBearingRef.current, lastPosRef.current)
+							}
 						/>
+					) : arrivedAt ? (
+						<Box role="status" sx={{ bgcolor: "background.paper", borderRadius: 3, border: "1px solid", borderColor: "divider", p: 2, display: "flex", alignItems: "center", gap: 2 }}>
+							<FlagRounded color="primary" sx={{ fontSize: 56, flexShrink: 0 }} />
+							<Box sx={{ flex: 1, minWidth: 0 }}>
+								<Typography sx={{ fontSize: 34, fontWeight: 800 }}>You have arrived</Typography>
+								<Typography noWrap sx={{ fontSize: 26, color: "text.secondary" }}>{arrivedAt.split(",")[0]}</Typography>
+							</Box>
+							<DriveButton variant="contained" onClick={() => setArrivedAt(null)}>Done</DriveButton>
+						</Box>
 					) : null}
 				</Box>
-			</Box>
-			<CarControls isDriving={isDriving}>
-				<MapControls
-					cameraMode={cameraMode}
-					orientation={orientation}
-					hasRoute={maneuvers.length > 0}
-					currentBearing={mapBearing}
-					currentPosition={lastPosRef.current}
-					mapboxToken={process.env.MAPBOX_TOKEN}
-					onOverview={() => showOverview(coordsRef.current)}
-					onToggleOrientation={() =>
-						toggleOrientation(lastBearingRef.current, lastPosRef.current)
-					}
-					onSearchSelect={handleSearchSelect}
-					onCancelRouting={() => {
-						routeRequest.current++;
-						setRouteBusy(false);
+				</Box>
+			<Box
+				sx={{ position: "absolute", inset: 0 }}
+			>
+				<Box
+					ref={mapContainer}
+					sx={{
+						position: "absolute",
+						inset: 0,
+						overflow: "hidden",
 					}}
-					onLocate={handleLocate}
-					isNavActive={navActive}
-					provider={provider}
-					onToggleProvider={handleToggleProvider}
-					isDriving={isDriving}
 				/>
-				{navActive && (
-					<DriveButton
-						aria-label="Repeat navigation instruction"
-						disabled={!guidance.supported}
-						onClick={guidance.speak}
-					>
-						<ReplayRounded />
-					</DriveButton>
-				)}
-				{navActive && (
-					<DriveButton
-						aria-label={
-							guidance.muted ? "Unmute navigation" : "Mute navigation"
-						}
-						aria-pressed={guidance.muted}
-						disabled={!guidance.supported}
-						onClick={guidance.toggleMute}
-					>
-						{guidance.muted ? <VolumeOffRounded /> : <VolumeUpRounded />}
-					</DriveButton>
-				)}
-			</CarControls>
+
+			</Box>
+			<CarControls isDriving={isDriving} panel={openPanel === "media" || openPanel === "climate" ? openPanel : null} setPanel={setOpenPanel} />
 		</Box>
 	);
 }

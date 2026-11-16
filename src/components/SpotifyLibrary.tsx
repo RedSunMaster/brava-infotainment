@@ -5,7 +5,6 @@ import {
 	Alert,
 	Box,
 	CircularProgress,
-	IconButton,
 	InputBase,
 	Typography,
 } from "@mui/material";
@@ -15,6 +14,7 @@ import {
 	SpotifyQueueItem,
 	UseSpotifyReturn,
 } from "../hooks/useSpotify";
+import DriveButton from "./DriveButton";
 import { useKeyboard } from "../contexts/KeyboardContext";
 
 const SPOTIFY_GREEN = "#1DB954";
@@ -33,10 +33,11 @@ function formatMs(ms: number): string {
 }
 
 const rowSx = {
+    minHeight: "var(--car-target)",
 	display: "flex",
 	alignItems: "center",
-	gap: 1.5,
-	px: 0.5,
+	gap: 2,
+	px: 1,
 	py: 0.75,
 	borderRadius: 2,
 	cursor: "pointer",
@@ -47,7 +48,7 @@ const rowSx = {
 const ArtBox = ({
 	src,
 	alt,
-	size = 40,
+	size = 88,
 }: {
 	src: string;
 	alt: string;
@@ -80,7 +81,7 @@ const ArtBox = ({
 			}}
 		>
 			<MusicNoteRounded
-				sx={{ fontSize: size * 0.5, color: "rgba(255,255,255,0.3)" }}
+				sx={{ fontSize: size * 0.5, color: "text.secondary" }}
 			/>
 		</Box>
 	);
@@ -92,13 +93,13 @@ const TrackRow = ({
 	item: SpotifyQueueItem;
 	onPlay: () => void;
 }) => (
-	<Box sx={rowSx} onClick={onPlay}>
+	<Box component="button" type="button" sx={{ ...rowSx, width: "100%", border: 0, bgcolor: "transparent", textAlign: "left", font: "inherit" }} onClick={onPlay}>
 		<ArtBox src={item.albumArt} alt={item.name} />
 		<Box sx={{ flex: 1, minWidth: 0 }}>
 			<Typography
 				sx={{
-					color: "white",
-					fontSize: 13,
+					color: "text.primary",
+					fontSize: 24,
 					fontWeight: 500,
 					overflow: "hidden",
 					textOverflow: "ellipsis",
@@ -109,8 +110,8 @@ const TrackRow = ({
 			</Typography>
 			<Typography
 				sx={{
-					color: "rgba(255,255,255,0.5)",
-					fontSize: 11,
+					color: "text.secondary",
+					fontSize: 24,
 					overflow: "hidden",
 					textOverflow: "ellipsis",
 					whiteSpace: "nowrap",
@@ -120,47 +121,25 @@ const TrackRow = ({
 			</Typography>
 		</Box>
 		<Typography
-			sx={{ color: "rgba(255,255,255,0.3)", fontSize: 11, flexShrink: 0 }}
+			sx={{ color: "text.secondary", fontSize: 24, flexShrink: 0 }}
 		>
 			{formatMs(item.durationMs)}
 		</Typography>
 	</Box>
 );
 
-const PlaylistRow = ({
-	playlist,
-	onPlay,
-}: {
-	playlist: SpotifyPlaylist;
-	onPlay: () => void;
-}) => (
-	<Box sx={rowSx} onClick={onPlay}>
-		<ArtBox src={playlist.imageUrl} alt={playlist.name} />
-		<Box sx={{ flex: 1, minWidth: 0 }}>
-			<Typography
-				sx={{
-					color: "white",
-					fontSize: 13,
-					fontWeight: 500,
-					overflow: "hidden",
-					textOverflow: "ellipsis",
-					whiteSpace: "nowrap",
-				}}
-			>
-				{playlist.name}
-			</Typography>
-			<Typography sx={{ color: "rgba(255,255,255,0.5)", fontSize: 11 }}>
-				{playlist.tracksTotal} tracks
-			</Typography>
-		</Box>
-	</Box>
+const PlaylistRow = ({ playlist, onPlay }: { playlist: SpotifyPlaylist; onPlay: () => void }) => (
+ <Box component="button" type="button" onClick={onPlay} sx={{ display: "flex", alignItems: "center", gap: 2, width: "100%", minWidth: 0, minHeight: "var(--car-target)", p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 3, bgcolor: "background.default", color: "text.primary", textAlign: "left", cursor: "pointer", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}>
+  <ArtBox src={playlist.imageUrl} alt="" size={120} />
+  <Box sx={{ minWidth: 0 }}><Typography sx={{ fontSize: 24, fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{playlist.name}</Typography><Typography sx={{ color: "text.secondary", fontSize: 20 }}>{playlist.tracksTotal} tracks</Typography></Box>
+ </Box>
 );
 
 const EmptyState = ({ text }: { text: string }) => (
 	<Typography
 		sx={{
-			color: "rgba(255,255,255,0.35)",
-			fontSize: 12,
+			color: "text.secondary",
+			fontSize: 24,
 			textAlign: "center",
 			pt: 4,
 			px: 2,
@@ -195,6 +174,11 @@ const SpotifyLibrary = ({
 
 	const { showKeyboard, hideKeyboard } = useKeyboard();
 	const [tab, setTab] = useState<LibraryTab>("queue");
+	const [actionError, setActionError] = useState<string | null>(null);
+	async function playItem(action: () => Promise<void>) {
+		setActionError(null);
+		try { await action(); } catch (error) { setActionError(error instanceof Error ? error.message : "Playback unavailable. Try again."); }
+	}
 	const [searchQuery, setSearchQuery] = useState("");
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -224,25 +208,27 @@ const SpotifyLibrary = ({
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-			{spotify.error && <Alert severity="error">{spotify.error}</Alert>}
+			{(actionError || spotify.error) && <Alert severity="error">{actionError || spotify.error}</Alert>}
 			{/* ── Header ── */}
 			<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
-				<IconButton
+				<DriveButton aria-label="Back to now playing"
 					onClick={onBack}
 					size="small"
 					sx={{
-						color: "rgba(255,255,255,0.6)",
+						color: "text.secondary",
 						p: 0.5,
 						flexShrink: 0,
-						"&:hover": { color: "white" },
+						"&:hover": { color: "text.primary" },
 					}}
 				>
-					<ArrowBackRounded sx={{ fontSize: 18 }} />
-				</IconButton>
+					<ArrowBackRounded sx={{ fontSize: 32 }} />
+				</DriveButton>
 
 				<Box sx={{ display: "flex", flex: 1, gap: 0.5 }}>
 					{TABS.map((t) => (
-						<Box
+						<DriveButton
+                            aria-pressed={tab === t.id}
+                            disabled={isDriving && t.id === "search"}
 							key={t.id}
 							onClick={() => {
 								if (!(isDriving && t.id === "search")) setTab(t.id);
@@ -263,14 +249,14 @@ const SpotifyLibrary = ({
 						>
 							<Typography
 								sx={{
-									fontSize: 11,
+									fontSize: 24,
 									fontWeight: tab === t.id ? 700 : 400,
-									color: tab === t.id ? "white" : "rgba(255,255,255,0.45)",
+									color: tab === t.id ? "text.primary" : "text.secondary",
 								}}
 							>
 								{t.label}
 							</Typography>
-						</Box>
+						</DriveButton>
 					))}
 				</Box>
 			</Box>
@@ -291,8 +277,8 @@ const SpotifyLibrary = ({
 				>
 					<SearchRounded
 						sx={{
-							fontSize: 16,
-							color: "rgba(255,255,255,0.45)",
+							fontSize: 28,
+							color: "text.secondary",
 							flexShrink: 0,
 						}}
 					/>
@@ -306,10 +292,10 @@ const SpotifyLibrary = ({
 						onClick={() => showKeyboard()}
 						sx={{
 							flex: 1,
-							color: "white",
-							fontSize: 13,
+							color: "text.primary",
+							fontSize: 24,
 							"& .MuiInputBase-input::placeholder": {
-								color: "rgba(255,255,255,0.3)",
+								color: "text.secondary",
 								opacity: 1,
 							},
 						}}
@@ -343,7 +329,7 @@ const SpotifyLibrary = ({
 							<TrackRow
 								key={`${item.id}-${i}`}
 								item={item}
-								onPlay={() => void playTrack(item.uri).catch((): void => {})}
+								onPlay={() => void playItem(() => playTrack(item.uri))}
 							/>
 						))
 					)
@@ -351,13 +337,13 @@ const SpotifyLibrary = ({
 					playlists.length === 0 ? (
 						<EmptyState text="No playlists found" />
 					) : (
-						playlists.map((pl) => (
+						<Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>{playlists.map((pl) => (
 							<PlaylistRow
 								key={pl.id}
 								playlist={pl}
-								onPlay={() => playContext(pl.uri)}
+								onPlay={() => void playItem(() => playContext(pl.uri))}
 							/>
-						))
+						))}</Box>
 					)
 				) : !searchQuery.trim() ? (
 					<EmptyState text="Type to search" />

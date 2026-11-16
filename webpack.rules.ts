@@ -11,6 +11,8 @@ export const rules: Required<ModuleOptions>["rules"] = [
 	// webpack.rules.ts
 	{
 		test: /[/\\]node_modules[/\\].+\.(m?js|node)$/,
+		// Files imported with ?url are emitted untouched (see the rule below).
+		resourceQuery: { not: [/url/] },
 		parser: { amd: false },
 		exclude: [
 			/node_modules[/\\]mapbox-gl/,
@@ -32,6 +34,14 @@ export const rules: Required<ModuleOptions>["rules"] = [
 				transpileOnly: true,
 			},
 		},
+	},
+	// `import url from "./file.js?url"` emits the file as-is and returns its URL.
+	// Used for the Kokoro voice worker and its prebuilt browser bundle, which
+	// must not be re-bundled for the Electron renderer target.
+	{
+		resourceQuery: /url/,
+		type: "asset/resource",
+		generator: { filename: "[name].[hash][ext]" },
 	},
 	{
 		test: /\.svg$/,

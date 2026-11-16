@@ -1,419 +1,77 @@
-import LibraryMusicRounded from "@mui/icons-material/LibraryMusicRounded";
+import React, { useEffect, useState } from "react";
+import { Alert, Box, LinearProgress, Popover, Typography } from "@mui/material";
 import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
-import PauseRounded from "@mui/icons-material/PauseRounded";
-import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
-import QueueMusicRounded from "@mui/icons-material/QueueMusicRounded";
-import RepeatOneRounded from "@mui/icons-material/RepeatOneRounded";
-import RepeatRounded from "@mui/icons-material/RepeatRounded";
-import ShuffleRounded from "@mui/icons-material/ShuffleRounded";
-import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
 import SkipPreviousRounded from "@mui/icons-material/SkipPreviousRounded";
-import {
-	Alert,
-	Box,
-	CircularProgress,
-	IconButton,
-	Popover,
-	Slider,
-	Typography,
-} from "@mui/material";
-import React, { useState } from "react";
+import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import PauseRounded from "@mui/icons-material/PauseRounded";
+import ShuffleRounded from "@mui/icons-material/ShuffleRounded";
+import RepeatRounded from "@mui/icons-material/RepeatRounded";
+import RepeatOneRounded from "@mui/icons-material/RepeatOneRounded";
+import RemoveRounded from "@mui/icons-material/RemoveRounded";
+import AddRounded from "@mui/icons-material/AddRounded";
+import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
+import LibraryMusicRounded from "@mui/icons-material/LibraryMusicRounded";
 import { UseSpotifyReturn } from "../hooks/useSpotify";
+import DriveButton from "./DriveButton";
 import SpotifyLibrary from "./SpotifyLibrary";
+import { useKeyboard } from "../contexts/KeyboardContext";
 
-interface SpotifyPopupProps {
-	anchorEl: HTMLElement | null;
-	onClose: () => void;
-	spotify: UseSpotifyReturn;
-	isDriving: boolean;
+interface Props { spotify: UseSpotifyReturn; isDriving: boolean }
+function formatTime(ms: number) {
+ const seconds = Math.max(0, Math.floor(ms / 1000));
+ return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
-
-function formatMs(ms: number): string {
-	const s = Math.floor(ms / 1000);
-	return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+export default function SpotifyPopup({ spotify, isDriving }: Props) {
+ const [libraryOpen, setLibraryOpen] = useState(false);
+ const [volumeAnchor, setVolumeAnchor] = useState<HTMLElement | null>(null);
+ const [error, setError] = useState<string | null>(null);
+ const { hideKeyboard } = useKeyboard();
+ useEffect(() => () => hideKeyboard(), [hideKeyboard]);
+ useEffect(() => { if (isDriving) setLibraryOpen(false); }, [isDriving]);
+ async function run(action: () => Promise<void>) {
+  setError(null);
+  try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Playback unavailable. Try again."); }
+ }
+ const { track } = spotify;
+ return <Box sx={{ display: "flex", flexDirection: "column", gap: 1, minHeight: 0 }}>
+  {(error || spotify.error) && <Alert severity="error">{error || spotify.error}</Alert>}
+  {libraryOpen ? <Box sx={{ height: "min(42vh, 650px)", minHeight: 240 }}><SpotifyLibrary spotify={spotify} isDriving={isDriving} onBack={() => { hideKeyboard(); setLibraryOpen(false); }} /></Box> : <>
+   <Box sx={{ display: "flex", gap: 2, alignItems: "center", minWidth: 0 }}>
+    <Box sx={{ width: "clamp(80px, 11vw, 120px)", aspectRatio: "1", borderRadius: 2, bgcolor: "action.hover", flexShrink: 0, overflow: "hidden", display: "grid", placeItems: "center" }}>
+     {track?.albumArt ? <Box component="img" src={track.albumArt} alt="" sx={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <MusicNoteRounded sx={{ fontSize: 60, color: "text.secondary" }} />}
+    </Box>
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+     <Typography sx={{ fontSize: 20, color: "text.secondary", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".08em" }}>Now playing</Typography>
+     <Typography noWrap sx={{ fontSize: "clamp(26px, 3vw, 34px)", fontWeight: 800 }}>{track?.name ?? "Your music"}</Typography>
+     <Typography noWrap sx={{ fontSize: 24, color: "text.secondary" }}>{track?.artists ?? (spotify.isConnected ? "Open Spotify on a device to start playback" : "Connect Spotify while parked")}</Typography>
+     {track?.albumName && <Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{track.albumName}</Typography>}
+    </Box>
+    {spotify.isConnected && <>
+     <DriveButton color="inherit" disabled={!track} aria-label={`Spotify volume ${spotify.volume}%`} aria-expanded={Boolean(volumeAnchor)} aria-controls={volumeAnchor ? "spotify-volume" : undefined} onClick={(event) => setVolumeAnchor(event.currentTarget)} sx={{ flexShrink: 0, flexDirection: "column", fontSize: 20 }}><VolumeUpRounded />{spotify.volume}%</DriveButton>
+     <DriveButton disabled={isDriving} variant="outlined" aria-label="Browse library" onClick={() => setLibraryOpen(true)} sx={{ flexShrink: 0 }}><LibraryMusicRounded /></DriveButton>
+    </>}
+   </Box>
+   {!spotify.isConnected ? <DriveButton variant="contained" disabled={isDriving || spotify.isLoading} onClick={() => void run(spotify.connect)}>{spotify.isLoading ? "Connecting…" : "Connect Spotify"}</DriveButton> : <>
+    {track && <Box>
+     <LinearProgress aria-label="Track progress" variant="determinate" value={track.durationMs > 0 ? Math.min(100, Math.max(0, track.progressMs / track.durationMs * 100)) : 0} sx={{ height: 6, borderRadius: 3 }} />
+     <Box sx={{ display: "flex", justifyContent: "space-between", color: "text.secondary", fontSize: 20, mt: 0.5 }}><span>{formatTime(track.progressMs)}</span><span>{formatTime(track.durationMs)}</span></Box>
+    </Box>}
+    <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 1 }}>
+     <DriveButton color={track?.shuffle ? "primary" : "inherit"} disabled={!track} aria-label="Shuffle" aria-pressed={track?.shuffle ?? false} onClick={() => void run(spotify.toggleShuffle)}><ShuffleRounded /></DriveButton>
+     <DriveButton color="inherit" disabled={!track} aria-label="Previous track" onClick={() => void run(spotify.previous)}><SkipPreviousRounded /></DriveButton>
+     <DriveButton variant="contained" disabled={!track} aria-label={track?.isPlaying ? "Pause music" : "Play music"} onClick={() => void run(track?.isPlaying ? spotify.pause : spotify.play)}>{track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
+     <DriveButton color="inherit" disabled={!track} aria-label="Next track" onClick={() => void run(spotify.next)}><SkipNextRounded /></DriveButton>
+     <DriveButton color={track?.repeat !== "off" && track ? "primary" : "inherit"} disabled={!track} aria-label={`Repeat ${track?.repeat ?? "off"}`} onClick={() => void run(spotify.cycleRepeat)}>{track?.repeat === "track" ? <RepeatOneRounded /> : <RepeatRounded />}</DriveButton>
+    </Box>
+    <Popover id="spotify-volume" open={Boolean(volumeAnchor)} anchorEl={volumeAnchor} onClose={() => setVolumeAnchor(null)} anchorOrigin={{ vertical: "top", horizontal: "center" }} transformOrigin={{ vertical: "bottom", horizontal: "center" }} slotProps={{ paper: { sx: { p: 1, borderRadius: 3, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" } } }}>
+     <Box role="group" aria-label="Spotify volume" sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+      <DriveButton color="inherit" disabled={!track || spotify.volume === 0} aria-label="Decrease Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.max(0, spotify.volume - 10)))}><RemoveRounded /></DriveButton>
+      <Typography aria-live="polite" sx={{ minWidth: 64, textAlign: "center", fontSize: 24 }}>{spotify.volume}%</Typography>
+      <DriveButton color="inherit" disabled={!track || spotify.volume === 100} aria-label="Increase Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.min(100, spotify.volume + 10)))}><AddRounded /></DriveButton>
+     </Box>
+    </Popover>
+   </>}
+  </>}
+ </Box>;
 }
-
-const SPOTIFY_GREEN = "#1DB954";
-
-const ctrlBtn = {
-	color: "white",
-	p: 0.75,
-	"&:hover": { color: "rgba(255,255,255,0.7)" },
-} as const;
-
-const SpotifyPopup = ({
-	anchorEl,
-	onClose,
-	spotify,
-	isDriving,
-}: SpotifyPopupProps) => {
-	const {
-		track,
-		isConnected,
-		isLoading,
-		connect,
-		play,
-		pause,
-		next,
-		previous,
-		toggleShuffle,
-		cycleRepeat,
-	} = spotify;
-
-	const [libraryOpen, setLibraryOpen] = useState(false);
-	const run = (action: () => Promise<void>) => {
-		void action().catch((): void => {});
-	};
-
-	const handleClose = () => {
-		setLibraryOpen(false);
-		onClose();
-	};
-
-	return (
-		<Popover
-			open={Boolean(anchorEl)}
-			anchorEl={anchorEl}
-			onClose={handleClose}
-			anchorOrigin={{ vertical: "top", horizontal: "center" }}
-			transformOrigin={{ vertical: "bottom", horizontal: "center" }}
-			disablePortal
-			marginThreshold={0}
-			sx={{ pointerEvents: "none" }} // ← FIX: Modal root won't intercept clicks
-			slotProps={{
-				paper: {
-					sx: {
-						pointerEvents: "auto", // ← FIX: popup content stays interactive
-						backgroundColor: "#12161A",
-						border: "1px solid rgba(255,255,255,0.24)",
-						borderRadius: 3,
-						overflow: "hidden",
-						position: "relative",
-						display: "flex",
-						flexDirection: "column",
-						width: libraryOpen ? "90vw" : 300,
-						height: libraryOpen ? 560 : "auto",
-						transition:
-							"width 0.28s cubic-bezier(0.4,0,0.2,1), height 0.28s cubic-bezier(0.4,0,0.2,1)",
-					},
-				},
-			}}
-		>
-			{/* ── Now-playing panel ────────────────────────────────────────────── */}
-			<Box sx={{ p: 2.5 }}>
-				{spotify.error && <Alert severity="error">{spotify.error}</Alert>}
-				{/* ── Not connected ── */}
-				{!isConnected ? (
-					<Box
-						sx={{
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "center",
-							gap: 2,
-							py: 1,
-						}}
-					>
-						<LibraryMusicRounded sx={{ fontSize: 48, color: SPOTIFY_GREEN }} />
-						<Typography sx={{ color: "white", fontWeight: 600 }}>
-							Connect to Spotify
-						</Typography>
-						<Box
-							sx={{
-								backgroundColor: SPOTIFY_GREEN,
-								borderRadius: 10,
-								px: 3,
-								py: 1,
-								cursor: "pointer",
-								"&:hover": { backgroundColor: "#1ed760" },
-							}}
-							onClick={() => run(connect)}
-						>
-							<Typography
-								sx={{ color: "black", fontWeight: 700, fontSize: 14 }}
-							>
-								{isLoading ? "Connecting…" : "Connect"}
-							</Typography>
-						</Box>
-					</Box>
-				) : !track ? (
-					/* ── Connected, no active device ── */
-					<Box
-						sx={{
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "center",
-							gap: 1.5,
-							py: 1,
-						}}
-					>
-						{isLoading ? (
-							<CircularProgress size={32} sx={{ color: SPOTIFY_GREEN }} />
-						) : (
-							<>
-								<Typography
-									sx={{ color: "rgba(255,255,255,0.5)", fontSize: 13 }}
-								>
-									No active playback
-								</Typography>
-								<Typography
-									sx={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}
-								>
-									Open Spotify on a device to start
-								</Typography>
-								{!isDriving && (
-									<Box
-										sx={{
-											display: "flex",
-											alignItems: "center",
-											gap: 0.75,
-											mt: 0.5,
-											cursor: "pointer",
-											color: SPOTIFY_GREEN,
-											"&:hover": { color: "#1ed760" },
-										}}
-										onClick={() => setLibraryOpen(true)}
-									>
-										<QueueMusicRounded sx={{ fontSize: 18 }} />
-										<Typography
-											sx={{ fontSize: 12, fontWeight: 600, color: "inherit" }}
-										>
-											Browse Library
-										</Typography>
-									</Box>
-								)}
-							</>
-						)}
-					</Box>
-				) : (
-					/* ── Now playing ── */
-					<Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-						{/* Album art + track info + library button */}
-						<Box sx={{ display: "flex", gap: 2, alignItems: "center" }}>
-							{track.albumArt ? (
-								<Box
-									component="img"
-									src={track.albumArt}
-									alt={track.albumName}
-									sx={{
-										width: 72,
-										height: 72,
-										borderRadius: 2,
-										flexShrink: 0,
-										objectFit: "cover",
-										boxShadow: "0 4px 16px rgba(0,0,0,0.5)",
-									}}
-								/>
-							) : (
-								<Box
-									sx={{
-										width: 72,
-										height: 72,
-										borderRadius: 2,
-										backgroundColor: "rgba(255,255,255,0.08)",
-										display: "flex",
-										alignItems: "center",
-										justifyContent: "center",
-										flexShrink: 0,
-									}}
-								>
-									<MusicNoteRounded
-										sx={{ color: "rgba(255,255,255,0.3)", fontSize: 32 }}
-									/>
-								</Box>
-							)}
-
-							<Box sx={{ overflow: "hidden", flex: 1, minWidth: 0 }}>
-								<Typography
-									sx={{
-										color: "white",
-										fontWeight: 700,
-										fontSize: 14,
-										overflow: "hidden",
-										textOverflow: "ellipsis",
-										whiteSpace: "nowrap",
-									}}
-								>
-									{track.name}
-								</Typography>
-								<Typography
-									sx={{
-										color: "rgba(255,255,255,0.6)",
-										fontSize: 12,
-										overflow: "hidden",
-										textOverflow: "ellipsis",
-										whiteSpace: "nowrap",
-									}}
-								>
-									{track.artists}
-								</Typography>
-								<Typography
-									sx={{
-										color: "rgba(255,255,255,0.3)",
-										fontSize: 11,
-										overflow: "hidden",
-										textOverflow: "ellipsis",
-										whiteSpace: "nowrap",
-										mt: 0.25,
-									}}
-								>
-									{track.albumName}
-								</Typography>
-							</Box>
-
-							{!isDriving && (
-								<IconButton
-									onClick={() => setLibraryOpen(true)}
-									size="small"
-									sx={{
-										color: "rgba(255,255,255,0.5)",
-										p: 0.5,
-										alignSelf: "flex-start",
-										flexShrink: 0,
-										"&:hover": { color: "white" },
-									}}
-								>
-									<QueueMusicRounded sx={{ fontSize: 20 }} />
-								</IconButton>
-							)}
-						</Box>
-
-						{/* Progress */}
-						<Box>
-							<Slider
-								value={track.progressMs}
-								min={0}
-								max={track.durationMs}
-								size="small"
-								sx={{
-									color: SPOTIFY_GREEN,
-									height: 3,
-									padding: "8px 0",
-									"& .MuiSlider-thumb": {
-										width: 12,
-										height: 12,
-										transition: "none",
-										"&:hover, &.Mui-active": {
-											boxShadow: "0 0 0 6px rgba(29,185,84,0.2)",
-										},
-									},
-									"& .MuiSlider-rail": {
-										backgroundColor: "rgba(255,255,255,0.15)",
-									},
-								}}
-							/>
-							<Box
-								sx={{
-									display: "flex",
-									justifyContent: "space-between",
-									mt: -1,
-								}}
-							>
-								<Typography
-									sx={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}
-								>
-									{formatMs(track.progressMs)}
-								</Typography>
-								<Typography
-									sx={{ color: "rgba(255,255,255,0.35)", fontSize: 10 }}
-								>
-									{formatMs(track.durationMs)}
-								</Typography>
-							</Box>
-						</Box>
-
-						{/* Controls row */}
-						<Box
-							sx={{
-								display: "flex",
-								alignItems: "center",
-								justifyContent: "space-between",
-							}}
-						>
-							<IconButton
-								onClick={() => run(toggleShuffle)}
-								sx={{
-									...ctrlBtn,
-									color: track.shuffle
-										? SPOTIFY_GREEN
-										: "rgba(255,255,255,0.5)",
-								}}
-							>
-								<ShuffleRounded sx={{ fontSize: 20 }} />
-							</IconButton>
-
-							<IconButton onClick={() => run(previous)} sx={ctrlBtn}>
-								<SkipPreviousRounded sx={{ fontSize: 32 }} />
-							</IconButton>
-
-							<IconButton
-								onClick={() => run(track.isPlaying ? pause : play)}
-								sx={{
-									color: "black",
-									backgroundColor: "white",
-									p: 1,
-									"&:hover": { backgroundColor: "rgba(255,255,255,0.85)" },
-								}}
-							>
-								{track.isPlaying ? (
-									<PauseRounded sx={{ fontSize: 28 }} />
-								) : (
-									<PlayArrowRounded sx={{ fontSize: 28 }} />
-								)}
-							</IconButton>
-
-							<IconButton onClick={() => run(next)} sx={ctrlBtn}>
-								<SkipNextRounded sx={{ fontSize: 32 }} />
-							</IconButton>
-
-							<IconButton
-								onClick={() => run(cycleRepeat)}
-								sx={{
-									...ctrlBtn,
-									color:
-										track.repeat !== "off"
-											? SPOTIFY_GREEN
-											: "rgba(255,255,255,0.5)",
-								}}
-							>
-								{track.repeat === "track" ? (
-									<RepeatOneRounded sx={{ fontSize: 20 }} />
-								) : (
-									<RepeatRounded sx={{ fontSize: 20 }} />
-								)}
-							</IconButton>
-						</Box>
-					</Box>
-				)}
-			</Box>
-
-			{/* ── Library overlay panel ─────────────────────────────────────────── */}
-			<Box
-				sx={{
-					position: "absolute",
-					top: 0,
-					left: 0,
-					right: 0,
-					bottom: 0,
-					p: 2,
-					backgroundColor: "#12161A",
-					display: "flex",
-					flexDirection: "column",
-					overflow: "hidden",
-					transform: libraryOpen ? "translateX(0)" : "translateX(100%)",
-					transition: "transform 0.28s cubic-bezier(0.4, 0, 0.2, 1)",
-					pointerEvents: libraryOpen ? "auto" : "none",
-				}}
-			>
-				{libraryOpen && isConnected && (
-					<SpotifyLibrary
-						spotify={spotify}
-						onBack={() => setLibraryOpen(false)}
-						isDriving={isDriving}
-					/>
-				)}
-			</Box>
-		</Popover>
-	);
-};
-
-export default SpotifyPopup;

@@ -1,5 +1,10 @@
 declare module "*.css";
 
+declare module "*?url" {
+	const url: string;
+	export default url;
+}
+
 declare module "*.glb" {
 	const url: string;
 	export default url;
@@ -18,10 +23,6 @@ declare module "*.svg" {
 declare namespace NodeJS {
 	interface ProcessEnv {
 		MAPBOX_TOKEN: string;
-		MAPBOX_STYLE_DAY: string;
-		MAPBOX_STYLE_DAWN: string;
-		MAPBOX_STYLE_DUSK: string;
-		MAPBOX_STYLE_NIGHT: string;
 		SPOTIFY_CLIENT_ID: string;
 	}
 }
