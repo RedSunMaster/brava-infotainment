@@ -1,11 +1,10 @@
-import {
-	AppsRounded,
-	CarCrashRounded,
-	FlashlightOnRounded,
-	MusicNoteRounded,
-	ThermostatRounded,
-	VolumeUpRounded,
-} from "@mui/icons-material";
+import AppsRounded from "@mui/icons-material/AppsRounded";
+import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
+import FlashlightOnRounded from "@mui/icons-material/FlashlightOnRounded";
+import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
+import ThermostatRounded from "@mui/icons-material/ThermostatRounded";
+import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
+import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import { Box, Popover, Slider, Typography } from "@mui/material";
 import ClickAwayListener from "@mui/material/ClickAwayListener";
 import React, { useEffect, useRef, useState } from "react";

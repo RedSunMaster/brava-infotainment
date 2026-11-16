@@ -1,8 +1,6 @@
-import {
-	ArrowBackRounded,
-	MusicNoteRounded,
-	SearchRounded,
-} from "@mui/icons-material";
+import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
+import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
+import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
 	Box,
 	CircularProgress,

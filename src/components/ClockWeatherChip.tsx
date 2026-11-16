@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
 import { Box, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
-import {
-	WbSunnyRounded,
-	CloudRounded,
-	GrainRounded,
-	AcUnitRounded,
-	FlashOnRounded,
-	BlurOnRounded,
-	WbTwilightRounded,
-} from "@mui/icons-material";
-import React from "react";
+import WbSunnyRounded from "@mui/icons-material/WbSunnyRounded";
+import CloudRounded from "@mui/icons-material/CloudRounded";
+import GrainRounded from "@mui/icons-material/GrainRounded";
+import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
+import FlashOnRounded from "@mui/icons-material/FlashOnRounded";
+import BlurOnRounded from "@mui/icons-material/BlurOnRounded";
+import WbTwilightRounded from "@mui/icons-material/WbTwilightRounded";
 import { GpsStatus } from "../hooks/useGps";
 import GpsIndicator from "./GpsIndicator";
 

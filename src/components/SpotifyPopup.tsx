@@ -1,15 +1,13 @@
-import {
-	LibraryMusicRounded,
-	MusicNoteRounded,
-	PauseRounded,
-	PlayArrowRounded,
-	QueueMusicRounded,
-	RepeatOneRounded,
-	RepeatRounded,
-	ShuffleRounded,
-	SkipNextRounded,
-	SkipPreviousRounded,
-} from "@mui/icons-material";
+import LibraryMusicRounded from "@mui/icons-material/LibraryMusicRounded";
+import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
+import PauseRounded from "@mui/icons-material/PauseRounded";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import QueueMusicRounded from "@mui/icons-material/QueueMusicRounded";
+import RepeatOneRounded from "@mui/icons-material/RepeatOneRounded";
+import RepeatRounded from "@mui/icons-material/RepeatRounded";
+import ShuffleRounded from "@mui/icons-material/ShuffleRounded";
+import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
+import SkipPreviousRounded from "@mui/icons-material/SkipPreviousRounded";
 import {
 	Box,
 	CircularProgress,

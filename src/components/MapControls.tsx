@@ -14,17 +14,15 @@ import {
 } from "@mui/material";
 import { alpha, useTheme, type Theme } from "@mui/material/styles";
 import type { CameraMode, Orientation, RoutingProvider } from "../constants";
-import {
-	CloseRounded,
-	DarkModeRounded,
-	ExploreOffRounded,
-	ExploreRounded,
-	LightModeRounded,
-	MyLocationRounded,
-	RouteRounded,
-	SearchRounded,
-	SettingsRounded,
-} from "@mui/icons-material";
+import CloseRounded from "@mui/icons-material/CloseRounded";
+import DarkModeRounded from "@mui/icons-material/DarkModeRounded";
+import ExploreOffRounded from "@mui/icons-material/ExploreOffRounded";
+import ExploreRounded from "@mui/icons-material/ExploreRounded";
+import LightModeRounded from "@mui/icons-material/LightModeRounded";
+import MyLocationRounded from "@mui/icons-material/MyLocationRounded";
+import RouteRounded from "@mui/icons-material/RouteRounded";
+import SearchRounded from "@mui/icons-material/SearchRounded";
+import SettingsRounded from "@mui/icons-material/SettingsRounded";
 import { useThemeMode } from "../ThemeContext";
 import { useKeyboard } from "../contexts/KeyboardContext";
 

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Box, Collapse, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
+import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import { getManeuverIcon } from "../lib/maneuverIcon";
-import { ExpandMoreRounded } from "@mui/icons-material";
+import type { NormalizedManeuver } from "../lib/routing";
 
 interface Props {
 	maneuvers: any[];

@@ -1,19 +1,21 @@
-import {
-	StraightRounded,
-	TurnSlightRightRounded,
-	TurnRightRounded,
-	TurnSharpRightRounded,
-	UTurnRightRounded,
-	UTurnLeftRounded,
-	TurnSharpLeftRounded,
-	TurnLeftRounded,
-	TurnSlightLeftRounded,
-	RoundaboutRightRounded,
-	FlagRounded,
-	NearMeRounded,
-	RampRightRounded,
-	RampLeftRounded,
-} from "@mui/icons-material";
+import StraightRounded from "@mui/icons-material/StraightRounded";
+import TurnSlightRightRounded from "@mui/icons-material/TurnSlightRightRounded";
+import TurnRightRounded from "@mui/icons-material/TurnRightRounded";
+import TurnSharpRightRounded from "@mui/icons-material/TurnSharpRightRounded";
+import UTurnRightRounded from "@mui/icons-material/UTurnRightRounded";
+import UTurnLeftRounded from "@mui/icons-material/UTurnLeftRounded";
+import TurnSharpLeftRounded from "@mui/icons-material/TurnSharpLeftRounded";
+import TurnLeftRounded from "@mui/icons-material/TurnLeftRounded";
+import TurnSlightLeftRounded from "@mui/icons-material/TurnSlightLeftRounded";
+import RoundaboutLeftRounded from "@mui/icons-material/RoundaboutLeftRounded";
+import RoundaboutRightRounded from "@mui/icons-material/RoundaboutRightRounded";
+import FlagRounded from "@mui/icons-material/FlagRounded";
+import NavigationRounded from "@mui/icons-material/NavigationRounded";
+import RampRightRounded from "@mui/icons-material/RampRightRounded";
+import RampLeftRounded from "@mui/icons-material/RampLeftRounded";
+import ForkRightRounded from "@mui/icons-material/ForkRightRounded";
+import ForkLeftRounded from "@mui/icons-material/ForkLeftRounded";
+import MergeRounded from "@mui/icons-material/MergeRounded";
 import type { SvgIconProps } from "@mui/material";
 import type { ComponentType } from "react";
 
