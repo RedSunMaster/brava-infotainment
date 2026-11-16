@@ -148,14 +148,14 @@ function Key({
 			sx={{
 				flex,
 				minWidth: 0,
-				height: 52,
+				height: "calc((var(--keyboard-height, 340px) - 64px) / 5)",
 				// Flash white when pressed, otherwise use variant colour
 				background: isPressed ? "rgba(255,255,255,0.55)" : bg[variant],
 				border: `1px solid ${isPressed ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.08)"}`,
 				borderRadius: "8px",
 				color:
 					isPressed || variant === "active" ? "#111" : "rgba(255,255,255,0.9)",
-				fontSize: typeof label === "string" && label.length === 1 ? 17 : 13,
+				fontSize: typeof label === "string" && label.length === 1 ? 26 : 20,
 				fontWeight: variant !== "default" ? 600 : 400,
 				fontFamily: "inherit",
 				cursor: "pointer",
@@ -240,7 +240,7 @@ export default function InAppKeyboard({
 					e.stopPropagation(); // ← stops the tap reaching the library behind
 					tryClose();
 				}}
-				sx={{ position: "fixed", inset: 0, zIndex: 9998 }}
+				sx={{ display: "none" }}
 			/>
 
 			{/* Keyboard panel */}
@@ -250,10 +250,11 @@ export default function InAppKeyboard({
 				onTouchEnd={(e) => e.stopPropagation()}
 				sx={{
 					position: "fixed",
-					bottom: 0,
+					bottom: "var(--vehicle-strip-height, 140px)",
 					left: 0,
 					right: 0,
-					zIndex: 9999,
+					zIndex: 10002,
+					height: "var(--keyboard-height, 340px)",
 					background: "rgba(12, 12, 12, 0.97)",
 					backdropFilter: "blur(24px)",
 					WebkitBackdropFilter: "blur(24px)",

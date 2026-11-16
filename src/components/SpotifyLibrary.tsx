@@ -2,6 +2,7 @@ import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
 import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
+	Alert,
 	Box,
 	CircularProgress,
 	IconButton,
@@ -172,9 +173,14 @@ const EmptyState = ({ text }: { text: string }) => (
 interface SpotifyLibraryProps {
 	spotify: UseSpotifyReturn;
 	onBack: () => void;
+	isDriving: boolean;
 }
 
-const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
+const SpotifyLibrary = ({
+	spotify,
+	onBack,
+	isDriving,
+}: SpotifyLibraryProps) => {
 	const {
 		queue,
 		playlists,
@@ -193,10 +199,15 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
+		if (isDriving && tab === "search") {
+			setTab("queue");
+			hideKeyboard();
+			return;
+		}
 		if (tab === "queue") fetchQueue();
 		else if (tab === "playlists") fetchPlaylists();
 		else if (tab !== "search") hideKeyboard();
-	}, [tab, fetchQueue, fetchPlaylists, hideKeyboard]);
+	}, [tab, fetchQueue, fetchPlaylists, hideKeyboard, isDriving]);
 
 	useEffect(() => {
 		if (tab !== "search") return;
@@ -213,6 +224,7 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+			{spotify.error && <Alert severity="error">{spotify.error}</Alert>}
 			{/* ── Header ── */}
 			<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
 				<IconButton
@@ -232,13 +244,17 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 					{TABS.map((t) => (
 						<Box
 							key={t.id}
-							onClick={() => setTab(t.id)}
+							onClick={() => {
+								if (!(isDriving && t.id === "search")) setTab(t.id);
+							}}
 							sx={{
 								flex: 1,
 								textAlign: "center",
 								py: 0.6,
 								borderRadius: 2,
-								cursor: "pointer",
+								cursor:
+									isDriving && t.id === "search" ? "not-allowed" : "pointer",
+								opacity: isDriving && t.id === "search" ? 0.35 : 1,
 								backgroundColor:
 									tab === t.id ? "rgba(255,255,255,0.1)" : "transparent",
 								transition: "background-color 0.15s",
@@ -327,7 +343,7 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 							<TrackRow
 								key={`${item.id}-${i}`}
 								item={item}
-								onPlay={() => playTrack(item.uri)}
+								onPlay={() => void playTrack(item.uri).catch((): void => {})}
 							/>
 						))
 					)
@@ -352,7 +368,7 @@ const SpotifyLibrary = ({ spotify, onBack }: SpotifyLibraryProps) => {
 						<TrackRow
 							key={`${item.id}-${i}`}
 							item={item}
-							onPlay={() => playTrack(item.uri)}
+							onPlay={() => void playTrack(item.uri).catch((): void => {})}
 						/>
 					))
 				)}

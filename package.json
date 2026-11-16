@@ -11,10 +11,13 @@
 		"make": "electron-forge make",
 		"publish": "electron-forge publish",
 		"lint": "eslint --ext .ts,.tsx .",
+		"start:preview": "electron-forge start -- --preview",
 		"start:day": "electron-forge start -- --tod=day",
 		"start:dawn": "electron-forge start -- --tod=dawn",
 		"start:dusk": "electron-forge start -- --tod=dusk",
-		"start:night": "electron-forge start -- --tod=night"
+		"start:night": "electron-forge start -- --tod=night",
+		"start:preview:day": "electron-forge start -- --preview --tod=day",
+		"start:preview:night": "electron-forge start -- --preview --tod=night"
 	},
 	"keywords": [],
 	"author": {
@@ -35,12 +38,12 @@
 		"@svgr/webpack": "^8.1.0",
 		"@types/mapbox__polyline": "^1.0.5",
 		"@types/mapbox-gl": "^3.4.1",
-		"@types/node": "^25.5.0",
+		"@types/node": "^25.9.4",
 		"@types/react": "^19.2.14",
 		"@types/react-dom": "^19.2.3",
 		"@types/three": "^0.183.1",
-		"@typescript-eslint/eslint-plugin": "^5.62.0",
-		"@typescript-eslint/parser": "^5.62.0",
+		"@typescript-eslint/eslint-plugin": "^8.62.1",
+		"@typescript-eslint/parser": "^8.62.1",
 		"@vercel/webpack-asset-relocator-loader": "^1.7.3",
 		"css-loader": "^6.11.0",
 		"dotenv": "^17.3.1",
@@ -51,7 +54,7 @@
 		"node-loader": "^2.1.0",
 		"style-loader": "^3.3.4",
 		"ts-loader": "^9.5.4",
-		"typescript": "~4.5.4",
+		"typescript": "^5.9.3",
 		"webpack": "^5.105.4"
 	},
 	"dependencies": {

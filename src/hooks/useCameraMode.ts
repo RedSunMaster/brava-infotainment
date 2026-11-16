@@ -7,6 +7,9 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const [orientation, setOrientation] = useState<Orientation>("heading");
 	const followingRef = useRef<CameraMode>("following");
 	const orientationRef = useRef<Orientation>("heading");
+	const cameraTransitionRef = useRef<boolean>(false);
+	const recenterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	function setMode(mode: CameraMode) {
 		setCameraMode(mode);
@@ -18,18 +21,26 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		if (!map) return;
 		const canvas = map.getCanvas();
 
-		const onDrag = () => setMode("overview");
-		const onWheel = () => setMode("overview");
+		const enterTemporaryOverview = () => {
+			setMode("overview");
+			if (recenterTimeoutRef.current) clearTimeout(recenterTimeoutRef.current);
+			recenterTimeoutRef.current = setTimeout(() => setMode("following"), 12_000);
+		};
+		const onDrag = () => enterTemporaryOverview();
+		const onWheel = () => enterTemporaryOverview();
 		map.on("dragstart", onDrag);
 		canvas.addEventListener("wheel", onWheel, { passive: true });
 		return () => {
 			map.off("dragstart", onDrag);
 			canvas.removeEventListener("wheel", onWheel);
+			if (recenterTimeoutRef.current) clearTimeout(recenterTimeoutRef.current);
+			if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
 		};
 	}, [mapRef.current]);
 
 	function showOverview(coords: [number, number][]) {
 		if (!mapRef.current || coords.length === 0) return;
+		if (recenterTimeoutRef.current) clearTimeout(recenterTimeoutRef.current);
 		setMode("overview");
 		const bounds = coords.reduce(
 			(b, c) => b.extend(c),
@@ -46,16 +57,23 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 
 	// Just re-enable following — the render loop's jumpTo takes over next frame.
 	function resumeFollowing() {
+		if (recenterTimeoutRef.current) clearTimeout(recenterTimeoutRef.current);
 		setMode("following");
 	}
 
-	function toggleOrientation(currentBearing: number) {
-		const mapBearing = mapRef.current?.getBearing() ?? 0;
+	function toggleOrientation(
+		currentBearing: number,
+		currentPosition: [number, number],
+	) {
+		const map = mapRef.current;
+		if (!map) return;
+		const mapBearing = map.getBearing();
 		const isNorth = orientationRef.current === "north";
+		const duration = 650;
 
 		// If already north-locked but map has drifted, snap north first
 		if (isNorth && Math.abs(mapBearing) > 1) {
-			mapRef.current!.easeTo({ bearing: 0, pitch: 0, duration: 500 });
+			map.easeTo({ bearing: 0, pitch: 0, duration: 500 });
 			return;
 		}
 
@@ -63,12 +81,28 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		orientationRef.current = next;
 		setOrientation(next);
 
-		// In overview, animate manually. In following, render loop applies it next frame.
-		if (followingRef.current !== "following") {
-			mapRef.current!.easeTo({
+		if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
+
+		if (followingRef.current === "following") {
+			cameraTransitionRef.current = true;
+			map.easeTo({
+				center: currentPosition,
 				bearing: next === "north" ? 0 : currentBearing,
 				pitch: next === "north" ? 0 : 45,
-				duration: 500,
+				zoom: map.getZoom(),
+				offset: [0, map.getCanvas().height * 0.2],
+				duration,
+				essential: true,
+			});
+			transitionTimeoutRef.current = setTimeout(() => {
+				cameraTransitionRef.current = false;
+			}, duration + 100);
+		} else {
+			map.easeTo({
+				bearing: next === "north" ? 0 : currentBearing,
+				pitch: next === "north" ? 0 : 45,
+				duration,
+				essential: true,
 			});
 		}
 	}
@@ -78,6 +112,7 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		orientation,
 		followingRef, // consumed by usePositionPuck render loop
 		orientationRef, // consumed by usePositionPuck render loop
+		cameraTransitionRef,
 		showOverview,
 		resumeFollowing,
 		toggleOrientation,

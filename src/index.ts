@@ -1,6 +1,11 @@
 import { app, BrowserWindow, ipcMain, session, screen } from "electron";
 import { createConnection } from "net";
 import { exec } from "child_process";
+import {
+	configureDisplayPreview,
+	getDisplayPreviewGeometry,
+	loadDisplayPreview,
+} from "./displayPreviewMain";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -20,8 +25,11 @@ app.commandLine.appendSwitch("ignore-gpu-blocklist");
 app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-background-timer-throttling");
 
-const REDIRECT_URI = "myapp://callback";
 let mainWindow: BrowserWindow | null = null;
+
+function hasArg(name: string) {
+	return process.argv.includes(name);
+}
 
 // ── GPS ───────────────────────────────────────────────────────────────────────
 function startGps(win: BrowserWindow) {
@@ -67,23 +75,29 @@ function startGps(win: BrowserWindow) {
 // ── Main window ───────────────────────────────────────────────────────────────
 const createWindow = (): void => {
 	const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+	const previewMode = hasArg("--preview");
+	const preview = getDisplayPreviewGeometry();
 
 	mainWindow = new BrowserWindow({
-		width,
-		height,
-		x: 0,
-		y: 0,
-		frame: false,
-		fullscreen: true,
+		width: previewMode ? preview.width : width,
+		height: previewMode ? preview.height : height,
+		useContentSize: previewMode,
+		x: previewMode ? undefined : 0,
+		y: previewMode ? undefined : 0,
+		frame: previewMode,
+		fullscreen: !previewMode,
 		resizable: true,
 		show: false,
+		title: previewMode ? "Brava Infotainment Preview" : "Brava Infotainment",
 		webPreferences: {
-			zoomFactor: 1,
+			zoomFactor: previewMode ? preview.zoomFactor : 1,
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
 			nodeIntegration: true,
 			contextIsolation: false,
 		},
 	});
+
+	configureDisplayPreview(mainWindow, previewMode);
 
 	mainWindow.show();
 	session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
@@ -107,8 +121,12 @@ const createWindow = (): void => {
 	const tod = todArg ? todArg.split("=")[1] : null;
 
 	const loadURL = () => {
-		const url = tod
-			? `${MAIN_WINDOW_WEBPACK_ENTRY}?tod=${tod}`
+		const params = new URLSearchParams();
+		if (tod) params.set("tod", tod);
+		if (previewMode) params.set("preview", "car-portrait");
+		const query = params.toString();
+		const url = query
+			? `${MAIN_WINDOW_WEBPACK_ENTRY}?${query}`
 			: MAIN_WINDOW_WEBPACK_ENTRY;
 		mainWindow!.loadURL(url).catch(() => setTimeout(loadURL, 300));
 	};
@@ -208,7 +226,8 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
-app.on("ready", () => {
+app.on("ready", async () => {
+	await loadDisplayPreview();
 	createWindow();
 });
 

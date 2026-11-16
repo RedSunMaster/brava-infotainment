@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Box, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import WbSunnyRounded from "@mui/icons-material/WbSunnyRounded";
@@ -10,6 +10,7 @@ import BlurOnRounded from "@mui/icons-material/BlurOnRounded";
 import WbTwilightRounded from "@mui/icons-material/WbTwilightRounded";
 import { GpsStatus } from "../hooks/useGps";
 import GpsIndicator from "./GpsIndicator";
+import { useThemeMode } from "../ThemeContext";
 
 function wmoIcon(code: number) {
 	if (code === 0) return <WbSunnyRounded fontSize="small" />;
@@ -36,12 +37,10 @@ interface Props {
 	gpsStatus: GpsStatus; // ← add
 }
 
-export default function ClockWeatherChip({ position, gpsStatus }: Props) {
+export default function ClockWeatherChip({ gpsStatus }: Props) {
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
-	const [weather, setWeather] = useState<{ temp: number; code: number } | null>(
-		null,
-	);
+	const { weather } = useThemeMode();
 
 	// Clock — tick every second
 	useEffect(() => {
@@ -49,38 +48,15 @@ export default function ClockWeatherChip({ position, gpsStatus }: Props) {
 		return () => clearInterval(id);
 	}, []);
 
-	// Weather — fetch once on mount, refresh every 10 min
-	useEffect(() => {
-		const [lng, lat] = position;
-		async function fetchWeather() {
-			try {
-				const res = await fetch(
-					`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-						`&current=temperature_2m,weather_code&temperature_unit=celsius&timezone=auto`,
-				);
-				const data = await res.json();
-				setWeather({
-					temp: Math.round(data.current.temperature_2m),
-					code: data.current.weather_code,
-				});
-			} catch {
-				// Do Nothing
-			}
-		}
-		fetchWeather();
-		const id = setInterval(fetchWeather, 10 * 60 * 1000);
-		return () => clearInterval(id);
-	}, []); // intentionally once — weather doesn't need position reactivity
-
 	const chipSx = {
 		display: "flex",
 		alignItems: "center",
 		gap: 0.75,
 		px: 1.5,
 		py: 0.6,
-		background: alpha(theme.palette.background.default, 0.85),
+		background: alpha(theme.palette.surface.main, 0.94),
 		backdropFilter: "blur(10px)",
-		border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+		border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
 		borderRadius: "10px",
 		boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
 		color: theme.palette.text.primary,
@@ -100,7 +76,7 @@ export default function ClockWeatherChip({ position, gpsStatus }: Props) {
 			<Box sx={chipSx}>
 				<Typography
 					sx={{
-						fontSize: 15,
+						fontSize: 28,
 						fontWeight: 700,
 						letterSpacing: "0.04em",
 						fontVariantNumeric: "tabular-nums",
@@ -119,11 +95,11 @@ export default function ClockWeatherChip({ position, gpsStatus }: Props) {
 					<Box sx={{ display: "flex", color: theme.palette.primary.main }}>
 						{wmoIcon(weather.code)}
 					</Box>
-					<Typography sx={{ fontSize: 13, fontWeight: 600 }}>
+					<Typography sx={{ fontSize: 24, fontWeight: 600 }}>
 						{weather.temp}&deg;C
 					</Typography>
 					<Typography
-						sx={{ fontSize: 11, color: theme.palette.text.secondary }}
+						sx={{ fontSize: 22, color: theme.palette.text.secondary }}
 					>
 						{wmoLabel(weather.code)}
 					</Typography>

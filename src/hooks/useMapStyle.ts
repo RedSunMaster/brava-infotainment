@@ -1,49 +1,34 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
-import {
-	getTimeOfDay,
-	getStyleForPeriod,
-	getCurrentStyle,
-	type TimeOfDay,
-} from "../lib/mapStyle";
-
-const TIME_OF_DAY_VALUES: TimeOfDay[] = ["dawn", "day", "dusk", "night"];
-
-function getDevOverride(): TimeOfDay | null {
-	if (process.env.NODE_ENV !== "development") return null;
-	const param = new URLSearchParams(window.location.search).get("tod");
-	return TIME_OF_DAY_VALUES.includes(param as TimeOfDay)
-		? (param as TimeOfDay)
-		: null;
-}
+import type { PaletteMode } from "@mui/material";
+import { getStyleForTheme, type TimeOfDay } from "../lib/mapStyle";
 
 export function useMapStyle(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	mapLoaded: boolean,
+	mode: PaletteMode,
+	period: TimeOfDay,
+	onStyleLoaded?: () => void,
 ) {
-	const devOverride = getDevOverride();
-	const [period, setPeriod] = useState<TimeOfDay>(
-		devOverride ?? getTimeOfDay(),
-	);
-	const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
+	const callback = useRef(onStyleLoaded);
+	callback.current = onStyleLoaded;
+	const applied = useRef<string | null>(null);
 	useEffect(() => {
-		if (devOverride) return;
-
-		intervalRef.current = setInterval(() => {
-			const next = getTimeOfDay();
-			setPeriod((prev) => (prev !== next ? next : prev));
-		}, 60_000);
-
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+		const restore = () => callback.current?.();
+		map.on("style.load", restore);
 		return () => {
-			if (intervalRef.current) clearInterval(intervalRef.current);
+			map.off("style.load", restore);
 		};
-	}, [devOverride]);
-
+	}, [mapRef, mapLoaded]);
 	useEffect(() => {
-		if (!mapLoaded || !mapRef.current) return;
-		mapRef.current.setStyle(getStyleForPeriod(period));
-	}, [period, mapLoaded]);
-
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+		const desired = getStyleForTheme(mode, period);
+		if (applied.current === desired) return;
+		applied.current = desired;
+		map.setStyle(desired);
+	}, [mapRef, mapLoaded, mode, period]);
 	return { period };
 }
