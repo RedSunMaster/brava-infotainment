@@ -43,7 +43,8 @@ test("passed route fades while the remaining line starts between vertices", () =
  const progress = layers.get("route").paint["line-trim-offset"][1];
  assert.ok(progress > 0 && progress < 1);
  assert.deepEqual(sources.get("route").data.geometry.coordinates, coords);
- assert.match(layers.get("route").paint["line-trim-color"], /0\.12\)/);
+ // The driven part stays as a faint trail rather than vanishing.
+ assert.match(layers.get("route").paint["line-trim-color"], /0\.4\)/);
  assert.ok(layers.get("route").paint["line-trim-fade-range"][1] > 0);
  const { validate: validateStyle } = require("mapbox-gl/dist/style-spec/index.cjs");
  assert.deepEqual(validateStyle({ version: 8, sources: { route: { type: "geojson", data: sources.get("route").data, lineMetrics: true } }, layers: [layers.get("route")] }), []);
@@ -83,8 +84,9 @@ test("alternative routes draw behind the selected route and clear when navigatio
  const alternate = [[172,-43], [172.01,-43.01], [172.02,-43]];
  route.drawRoute(coords);
  route.drawAlternatives([alternate]);
- assert.deepEqual(order.at(-1), ["route-alternatives", "route"]);
- assert.equal(layers.get("route-alternatives").paint["line-color"], "#747d87");
+ // Behind the selected route's casing, which itself sits under the route line.
+ assert.deepEqual(order.at(-1), ["route-alternatives", "route-casing"]);
+ assert.equal(layers.get("route-alternatives").paint["line-color"], "#6b7480");
  assert.deepEqual(sources.get("route-alternatives").data.features[0].geometry.coordinates, alternate);
  route.drawAlternatives([]);
  assert.equal(layers.has("route-alternatives"), false);

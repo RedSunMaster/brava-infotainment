@@ -80,9 +80,9 @@ test("dock: warmth and fan steppers, five icon-only switches and a way into the 
  // The fan direction is one button beside Fan that steps through the settings, starting at the face.
  assert.match(html, /aria-label="Airflow direction: face[^"]*"/);
  assert.ok(html.indexOf('aria-label="Decrease fan"') < html.indexOf('aria-label="Airflow direction'), "direction follows Fan");
- // Hazards sit between the climate switches and the demist switch.
- const order = ["Air conditioning", "Hazard lights", "Rear demist"].map(name => html.indexOf('aria-label="' + name));
- assert.deepEqual([...order].sort((a, b) => a - b), order, "hazards sit in the middle of the switches");
+ // The air switches run demist, then A/C, with the hazards last at the driver's end of the bar.
+ const order = ["Rear demist", "Air conditioning", "Hazard lights"].map(name => html.indexOf('aria-label="' + name));
+ assert.deepEqual([...order].sort((a, b) => a - b), order, "hazards come last, after the climate switches");
  for (const word of [">Media<", ">Climate<", ">Demist<", ">Hazards<"]) assert.ok(!html.includes(word), "no text labels: " + word);
  assert.ok(!html.includes('id="dashboard-panel"'));
  // The music strip is the way in to the player, and is there even before an account is linked.
@@ -172,9 +172,9 @@ test("settings offers independent time and map-weather choices", () => {
  const MapControls = load("src/components/MapControls.tsx").default;
  const props = { orientation: "heading", hasRoute: false, isNavActive: false, isDriving: false, currentPosition: [172,-43], mapboxToken: "", provider: "mapbox", panel: "settings", setPanel() {} };
  const html = renderToStaticMarkup(React.createElement(MapControls, props));
- for (const label of ["Time of day", "Map weather", "Clear", "Rain", "Snow", "Advanced"]) assert.ok(html.includes(label), label);
- // Routing provider and Exit sit behind Advanced so they cannot be hit by mistake.
- for (const hidden of ["Routing:", "Exit app"]) assert.ok(!html.includes(hidden), hidden);
+ for (const label of ["Display", "Sound", "Driving", "System", "Time of day", "Map weather", "Clear", "Rain", "Snow"]) assert.ok(html.includes(label), label);
+ // Settings is tabbed: Routing and Exit app live on the System tab, not on the Display tab shown first.
+ for (const hidden of ["Routing", "Exit app"]) assert.ok(!html.includes(hidden), hidden);
 });
 
 

@@ -8,7 +8,7 @@ const now = Date.now();
 const weather = { temp: 10, code: 63, cloudCover: 90, precipitation: 2, observedAt: now };
 function fixture() {
  const state = {};
- const map = { setConfigProperty: (...args) => { state.light = args; }, setRain: value => { state.rain = value; }, setSnow: value => { state.snow = value; }, setFog: value => { state.fog = value; } };
+ const map = { getCanvas: () => ({ style: {} }), setConfigProperty: (...args) => { state.light = args; }, setRain: value => { state.rain = value; }, setSnow: value => { state.snow = value; }, setFog: value => { state.fog = value; } };
  return { state, map };
 }
 test("terrain is restored without duplicating its source and uses realistic elevation", () => {
@@ -33,9 +33,9 @@ test("all lighting periods update the same Standard map without replacing its st
 test("rain, snow and clear conditions reset the previous effect", () => {
  const { map, state } = fixture();
  applyMapAppearance(map, "day", weather, now);
- assert.equal(state.rain.density, 0.2); assert.equal(state.snow, null);
- applyMapAppearance(map, "night", { ...weather, code: 75 }, now);
- assert.equal(state.rain, null); assert.equal(state.snow.density, 0.2);
+ assert.equal(state.rain.density, 0.3); assert.equal(state.snow, null);
+ applyMapAppearance(map, "night", { ...weather, code: 75 }, now); // heavy snow
+ assert.equal(state.rain, null); assert.equal(state.snow.density, 0.8);
  applyMapAppearance(map, "day", { ...weather, code: 0 }, now);
  assert.equal(state.rain, null); assert.equal(state.snow, null);
 });
@@ -50,13 +50,13 @@ test("stale, future and missing weather disable precipitation", () => {
 test("weather overrides apply without a live forecast and restore automatic weather", () => {
  const { map, state } = fixture();
  applyMapAppearance(map, "night", null, now, "rain");
- assert.equal(state.rain.density, 0.25); assert.equal(state.snow, null);
+ assert.equal(state.rain.density, 0.3); assert.equal(state.snow, null);
  applyMapAppearance(map, "night", weather, now, "snow");
- assert.equal(state.rain, null); assert.equal(state.snow.density, 0.25);
+ assert.equal(state.rain, null); assert.equal(state.snow.density, 0.3);
  applyMapAppearance(map, "day", weather, now, "clear");
  assert.equal(state.rain, null); assert.equal(state.snow, null);
  applyMapAppearance(map, "day", weather, now, "auto");
- assert.equal(state.rain.density, 0.2); assert.equal(state.snow, null);
+ assert.equal(state.rain.density, 0.3); assert.equal(state.snow, null);
 });
 test("live traffic is drawn on roads once, only for slow traffic, with orange and red colours", () => {
  const sources = new Map(), layers = new Map();
@@ -72,16 +72,17 @@ test("live traffic is drawn on roads once, only for slow traffic, with orange an
  assert.equal(layers.size, 1);
 });
 test("fog follows the lighting preset and thickens in precipitation", () => {
- const day = fogFor("day"), night = fogFor("night"), rain = fogFor("day", true);
+ const day = fogFor("day"), night = fogFor("night"), rain = fogFor("day", 0.9, 0.15);
  assert.notEqual(day.color, night.color);
  assert.equal(day["star-intensity"], 0);
  assert.ok(night["star-intensity"] > 0.5);
  assert.ok(rain.range[1] < day.range[1] && rain["horizon-blend"] > day["horizon-blend"]);
  const { state, map } = fixture();
  applyMapAppearance(map, "dusk", { ...weather, code: 0, precipitation: 0 }, now);
- assert.deepEqual(state.fog, fogFor("dusk", false));
+ // Clear weather code, but the observation still reports 90% cloud: the sky greys, with no ground mist.
+ assert.deepEqual(state.fog, fogFor("dusk", 0.9, 0));
  applyMapAppearance(map, "dusk", weather, now);
- assert.deepEqual(state.fog, fogFor("dusk", true));
+ assert.deepEqual(state.fog, fogFor("dusk", 0.9, 0.15)); // rain: cloud plus a little mist
 });
 test("traffic is wider on main roads, can be hidden, and fades while a route is shown", () => {
  const layers = new Map(), sources = new Map();
