@@ -6,7 +6,7 @@ import ts from "typescript";
 const compiled = ts.transpileModule(await readFile(new URL("../src/lib/locationSearch.ts", import.meta.url), "utf8"), {
 	compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2021 },
 }).outputText;
-const { searchUrls, mapboxResults, photonResults, mergeResults, searchLocations, businessResults, resolveLocation } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+const { searchUrls, mapboxResults, photonResults, mergeResults, searchLocations, businessResults, resolveLocation, sameBusinessName, spellingVariants } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 const position = [172.6, -43.5];
 const result = (name, kind = "supermarket", coords = position) => ({ id: name + kind + coords.join(","), name, address: "Christchurch", kind, coords, source: "photon" });
 
@@ -21,6 +21,7 @@ test("both providers restrict searches to New Zealand and bias the actual positi
 test("routing uses the vehicle access point rather than the building centre", () => {
 	const matches = mapboxResults({ features: [{ geometry: { coordinates: [172.5, -43.5] }, properties: { name: "2 Riccarton Road", coordinates: { routable_points: [{ name: "default", longitude: 172.51, latitude: -43.51 }] } } }] });
 	assert.deepEqual(matches[0].coords, [172.51, -43.51]);
+	assert.deepEqual(matches[0].buildingCoords, [172.5, -43.5]);
 });
 
 test("foreign results and invalid coordinates are rejected", () => {
@@ -42,6 +43,11 @@ test("duplicate places merge but different branches remain available", () => {
 
 test("a minor spelling mistake does not discard a provider's useful match", () => {
 	assert.equal(mergeResults([], [result("Christchurch Airport", "aerodrome")], "Chrischurch airport").length, 1);
+});
+
+test("New Zealand unit addresses match a provider's building-number and unit result", () => {
+	const unit = result("226 Antigua Street, #1", "Address");
+	assert.deepEqual(mergeResults([unit], [], "1/226 Antigua"), [unit]);
 });
 
 test("complete provider failure reports a recoverable connection error", async () => {
@@ -97,11 +103,19 @@ test("only the selected business is retrieved using its suggestion session", asy
 		const [item] = businessResults([{ mapbox_id: "hornby", name: "Hornby" }], "test-session");
 		globalThis.fetch = async raw => {
 			const url = new URL(raw);
+			if (url.pathname.includes("/places/v1/details/")) return Response.json({ mapbox_id: "hornby", opening_hours: "Mo-Fr 09:00-17:00", photos: [{ url: "https://example.com/shop.jpg" }] });
 			assert.equal(url.searchParams.get("session_token"), "test-session");
 			assert.ok(url.pathname.endsWith("/hornby"));
-			return Response.json({ features: [{ geometry: { coordinates: [172.5, -43.5] } }] });
+			return Response.json({ features: [{ geometry: { coordinates: [172.5, -43.5] }, properties: { full_address: "81 Example Street", poi_category: ["gym"], metadata: { phone: "12345", website: "https://example.com", wheelchair_accessible: true } } }] });
 		};
-		assert.deepEqual(await resolveLocation(item, "test", new AbortController().signal), [172.5, -43.5]);
+		const resolved = await resolveLocation(item, "test", new AbortController().signal);
+		assert.deepEqual(resolved.coords, [172.5, -43.5]);
+		assert.deepEqual(resolved.buildingCoords, [172.5, -43.5]);
+		assert.equal(resolved.details.address, "81 Example Street");
+		assert.equal(resolved.details.phone, "12345");
+		assert.equal(resolved.details.accessibility, "Wheelchair accessible");
+		assert.equal(resolved.details.hours, "Mo-Fr 09:00-17:00");
+		assert.equal(resolved.details.photo, "https://example.com/shop.jpg");
 	} finally { globalThis.fetch = original; }
 });
 
@@ -117,4 +131,24 @@ test("the place a query names outranks businesses that merely contain its name",
 	// A distant exact match still does not outrank a nearby one.
 	const local = mergeResults([], [{ ...result("Riccarton Mall", "shopping mall", [174.7, -36.8]), distanceMeters: 760000 }, near("Riccarton Mall Carpark", "parking", 3000)], "Riccarton Mall");
 	assert.equal(local[0].name, "Riccarton Mall Carpark");
+});
+
+test("map labels match their fuller search names without matching unrelated places", () => {
+	assert.equal(sameBusinessName("New World", "New World Northwood"), true);
+	assert.equal(sameBusinessName("Pak'nSave", "PAK'N SAVE Hornby"), true);
+	assert.equal(sameBusinessName("Northwood Park", "Supa Centa"), false);
+	assert.equal(sameBusinessName("A", "A"), false);
+});
+
+test("compound brand queries are respelled from Photon without echoing the typed text", async () => {
+	const photon = Promise.resolve({ features: [
+		{ geometry: { coordinates: [172.6, -43.5] }, properties: { name: "PBTech", countrycode: "NZ", osm_id: 1, osm_type: "N" } },
+		{ geometry: { coordinates: [172.6, -43.5] }, properties: { name: "PB Tech", countrycode: "NZ", osm_id: 2, osm_type: "N" } },
+		{ geometry: { coordinates: [172.6, -43.5] }, properties: { name: "PB Tech", countrycode: "NZ", osm_id: 3, osm_type: "N" } },
+		{ geometry: { coordinates: [172.6, -43.5] }, properties: { name: "Unrelated Cafe", countrycode: "NZ", osm_id: 4, osm_type: "N" } },
+	] });
+	assert.deepEqual(await spellingVariants("pbtech", photon), ["PB Tech"]);
+	assert.deepEqual(await spellingVariants("mitre10", Promise.resolve({ features: [] })), ["mitre 10"]);
+	assert.deepEqual(await spellingVariants("pb", photon), []);
+	assert.deepEqual(await spellingVariants("pbtech", Promise.reject(new Error("offline"))), []);
 });

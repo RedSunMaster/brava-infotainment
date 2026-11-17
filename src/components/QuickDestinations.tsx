@@ -10,8 +10,8 @@ import type { PlaceSlot, SavedPlaces } from "../lib/savedPlaces";
 interface Props {
 	saved: SavedPlaces;
 	/** Most-visited places, already excluding Home and Work. */
-	frequent: { name: string; coords: Coordinates }[];
-	onGo: (coords: Coordinates, name: string) => void;
+	frequent: { name: string; coords: Coordinates; buildingCoords?: Coordinates }[];
+	onGo: (coords: Coordinates, name: string, buildingCoords?: Coordinates) => void;
 	onSet: (slot: PlaceSlot) => void;
 	disabled?: boolean;
 }
@@ -40,14 +40,14 @@ export default function QuickDestinations({ saved, frequent, onGo, onSet, disabl
 			{SLOTS.map(({ slot, label, Icon }) => {
 				const place = saved[slot];
 				return (
-					<DriveButton key={slot} color="inherit" disabled={disabled} aria-label={place ? `Navigate ${label.toLowerCase()}` : `Set ${label.toLowerCase()} address`} onClick={() => (place ? onGo(place.coords, place.name) : onSet(slot))} sx={buttonSx}>
+					<DriveButton key={slot} color="inherit" disabled={disabled} aria-label={place ? `Navigate ${label.toLowerCase()}` : `Set ${label.toLowerCase()} address`} onClick={() => (place ? onGo(place.coords, place.name, place.buildingCoords) : onSet(slot))} sx={buttonSx}>
 						<Icon />
 						<Box component="span" sx={{ ...labelSx, color: place ? "inherit" : "text.secondary" }}>{place ? label : `Set ${label}`}</Box>
 					</DriveButton>
 				);
 			})}
 			{frequent.map((place) => (
-				<DriveButton key={place.name + place.coords.join(",")} color="inherit" disabled={disabled} aria-label={`Navigate to ${place.name}`} onClick={() => onGo(place.coords, place.name)} sx={buttonSx}>
+				<DriveButton key={place.name + place.coords.join(",")} color="inherit" disabled={disabled} aria-label={`Navigate to ${place.name}`} onClick={() => onGo(place.coords, place.name, place.buildingCoords)} sx={buttonSx}>
 					<PlaceRounded />
 					<Box component="span" sx={labelSx}>{place.name.split(",")[0]}</Box>
 				</DriveButton>

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type mapboxgl from "mapbox-gl";
+import mapboxgl from "mapbox-gl";
 import { useMapOcclusion } from "./hooks/useMapOcclusion";
 import { useMapbox } from "./hooks/useMapbox";
+import { useDestinationHighlight } from "./hooks/useDestinationHighlight";
 import { useRoute } from "./hooks/useRoute";
 import { useNavigation } from "./hooks/useNavigation";
 import { useSimulation } from "./hooks/useSimulation";
@@ -10,15 +11,19 @@ import NavigationCard from "./components/NavigationCard";
 import MapControls from "./components/MapControls";
 import {
 	getRoute,
-	snapToRoad,
+	getRoutes,
 	type NormalizedManeuver,
 	type NormalizedRoute,
+	type RoutePreference,
 } from "./lib/routing";
 import { DEV_ORIGIN, RoutingProvider, ZOOM_LEVEL } from "./constants";
 import { Alert, Box, Typography } from "@mui/material";
 import { useTheme } from "@mui/material/styles";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
+import RouteAlerts from "./components/RouteAlerts";
+import { buildRouteAlerts } from "./lib/routeAlerts";
+import { routeLineMetrics } from "./lib/routeLine";
 import { usePositionPuck } from "./hooks/usePuckPosition";
 import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
@@ -28,7 +33,7 @@ import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
 import { readFrequentPlaces, recordFrequentPlace } from "./lib/frequentPlaces";
 import { readSavedPlaces, savePlace, type PlaceSlot } from "./lib/savedPlaces";
-import { distanceKm } from "./lib/locationSearch";
+import { distanceKm, placeDetails, fetchPlaceDetails, sameBusinessName, type PlaceDetails } from "./lib/locationSearch";
 import QuickDestinations from "./components/QuickDestinations";
 import FlagRounded from "@mui/icons-material/FlagRounded";
 import ReplayRounded from "@mui/icons-material/ReplayRounded";
@@ -61,6 +66,7 @@ function closestRouteIndex(
 interface ClickDestination {
 	coords: [number, number];
 	placeName: string;
+	details?: PlaceDetails;
 }
 
 type PendingNavAction = "destination" | "stop";
@@ -124,6 +130,7 @@ function destinationFromFeatures(
 
 async function reverseGeocodeDestination(
 	coords: [number, number],
+	name?: string,
 ): Promise<ClickDestination> {
 	const token = process.env.MAPBOX_TOKEN;
 	if (!token) {
@@ -132,19 +139,39 @@ async function reverseGeocodeDestination(
 
 	try {
 		const [lng, lat] = coords;
-		const url =
-			`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
-			`?types=poi,address,place,locality,neighborhood&limit=1&access_token=${token}`;
-		const res = await fetch(url);
+		const params = new URLSearchParams({ longitude: String(lng), latitude: String(lat), limit: "10", access_token: token });
+		const res = await fetch(`https://api.mapbox.com/search/searchbox/v1/reverse?${params}`, { signal: AbortSignal.timeout(8000) });
+		if (!res.ok) throw new Error("Lookup unavailable");
 		const data = await res.json();
-		const feature = data.features?.[0];
+		const feature = name ? data.features?.find((item: any) => item.properties?.feature_type === "poi" && typeof item.properties?.name === "string" && sameBusinessName(item.properties.name, name)) : data.features?.[0];
+		if (!feature) return { coords, placeName: name ?? "Dropped pin" };
+		let details = placeDetails(feature.properties);
+		if (feature.properties?.feature_type === "poi" && details.mapboxId) {
+			try { const rich = await fetchPlaceDetails(details.mapboxId, token, new AbortController().signal); details = { ...details, ...Object.fromEntries(Object.entries(rich).filter(([, value]) => value != null)) }; } catch { /* Keep the basic search data. */ }
+		}
 		return {
-			coords: feature?.center ?? coords,
-			placeName: feature?.place_name ?? "Dropped pin",
+			coords,
+			placeName: feature?.properties?.name ?? "Dropped pin",
+			details,
 		};
 	} catch {
-		return { coords, placeName: "Dropped pin" };
+		return { coords, placeName: name ?? "Dropped pin" };
 	}
+}
+
+/** How much longer the trip gets when a stop is added, versus what is left of the current route. */
+function detourLabel(next: NormalizedManeuver[], remaining: NormalizedManeuver[]) {
+	const total = (steps: NormalizedManeuver[], key: "time" | "length") => steps.reduce((sum, step) => sum + (step[key] ?? 0), 0);
+	const minutes = Math.round((total(next, "time") - total(remaining, "time")) / 60);
+	const km = total(next, "length") - total(remaining, "length");
+	if (minutes <= 0) return km < 0.3 ? "No detour" : `+${km.toFixed(1)} km`;
+	return `+${minutes} min detour`;
+}
+
+/** Seconds until you reach the place being previewed: the whole trip, or just up to a newly added stop. */
+function secondsToPlace(route: NormalizedRoute, action: PendingNavAction, stopCount: number): number | undefined {
+	if (action === "stop") return route.legSeconds ? route.legSeconds.slice(0, stopCount).reduce((sum, value) => sum + value, 0) : undefined;
+	return route.legSeconds ? route.legSeconds.reduce((sum, value) => sum + value, 0) : route.maneuvers.reduce((sum, step) => sum + (step.time ?? 0), 0);
 }
 
 function summarizeManeuvers(maneuvers: NormalizedManeuver[]) {
@@ -177,6 +204,8 @@ export default function App() {
 	const lastBearingRef = useRef<number>(0);
 	const lastSpeedRef = useRef<number>(0);
 	const navDestRef = useRef<[number, number] | null>(null);
+	const navBuildingRef = useRef<[number, number] | null>(null);
+	const bootComplete = useRef(false);
 	const navStopsRef = useRef<[number, number][]>([]);
 	const destinationClickInFlightRef = useRef(false);
 	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
@@ -196,29 +225,59 @@ export default function App() {
 	// True while the latest raw position is within 30 m of the end of the route.
 	const [nearRouteEnd, setNearRouteEnd] = useState(false);
 	const [routeBusy, setRouteBusy] = useState(false);
+	const [selectingBuilding, setSelectingBuilding] = useState<[number, number] | null>(null);
 	const routeRequest = useRef(0);
 	const [isRerouting, setIsRerouting] = useState(false);
 	const [vehicleSpeedMs, setVehicleSpeedMs] = useState(0);
+	const [activeRoute, setActiveRoute] = useState<NormalizedRoute | null>(null);
+	const [routePosition, setRoutePosition] = useState(0);
+	const [trafficStale, setTrafficStale] = useState(false);
+	const [routePreferences, setRoutePreferences] = useState<RoutePreference[]>(() => {
+		try { const saved = JSON.parse(localStorage.getItem("brava-route-preferences") ?? "[]"); return Array.isArray(saved) ? saved.filter(value => ["toll", "ferry", "unpaved"].includes(value)) : []; } catch { return []; }
+	});
+	useEffect(() => { try { localStorage.setItem("brava-route-preferences", JSON.stringify(routePreferences)); } catch { /* Keep preferences for this session. */ } }, [routePreferences]);
 	const [pendingDest, setPendingDest] = useState<{
 		coords: [number, number];
+		buildingCoords: [number, number];
 		placeName: string;
+		details?: PlaceDetails;
 		duration: string;
 		distance: string;
 		action: PendingNavAction;
 		route: NormalizedRoute;
+		routes: NormalizedRoute[];
 		stops: [number, number][];
 	} | null>(null);
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
+	const routeMeters = useMemo(() => routeLineMetrics(activeRoute?.coords ?? []).meters, [activeRoute?.coords]);
+	const routeAlerts = useMemo(() => activeRoute ? buildRouteAlerts({ incidents: activeRoute.incidents, closures: activeRoute.closures, trafficDelaySeconds: activeRoute.trafficDelaySeconds, meters: routeMeters, position: routePosition, stale: trafficStale }) : [], [activeRoute, routeMeters, routePosition, trafficStale]);
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded || !activeRoute) return;
+		const markers = (activeRoute.incidents ?? []).filter(item => item.index >= routePosition && activeRoute.coords[item.index]).map(item => {
+			const marker = new mapboxgl.Marker({ color: "#e65100" }).setLngLat(activeRoute.coords[item.index]).setPopup(new mapboxgl.Popup().setText(item.description)).addTo(map);
+			marker.getElement().setAttribute("aria-label", `Traffic incident: ${item.description}`);
+			return marker;
+		});
+		for (const closure of activeRoute.closures ?? []) {
+			if (closure.end < routePosition || !activeRoute.coords[closure.start]) continue;
+			const marker = new mapboxgl.Marker({ color: "#c62828" }).setLngLat(activeRoute.coords[closure.start]).setPopup(new mapboxgl.Popup().setText("Road closure on route")).addTo(map);
+			marker.getElement().setAttribute("aria-label", "Road closure on route");
+			markers.push(marker);
+		}
+		return () => markers.forEach(marker => marker.remove());
+	}, [mapLoaded, activeRoute, routePosition]);
+	useDestinationHighlight(mapRef, mapLoaded, selectingBuilding ?? pendingDest?.buildingCoords ?? (navActive || arrivedAt ? navBuildingRef.current : null));
 	const {
 		coordsRef,
 		maneuversRef,
 		maneuvers,
-		fetchRoute,
 		applyRoute,
+		refreshTimings,
 		drawRoute,
+		drawAlternatives,
 		clearRoute,
-		trimRoute,
 		trimRouteByDistance,
 	} = useRoute(mapRef);
 
@@ -257,23 +316,34 @@ export default function App() {
 	// ── Reroute ────────────────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
+		const request = ++routeRequest.current;
 		setIsRerouting(true);
 		try {
-			await fetchRoute(
+			const route = await getRoute(
 				lastPosRef.current,
 				navDestRef.current,
 				provider,
 				navStopsRef.current,
+				navBuildingRef.current ?? undefined,
+				{ avoid: routePreferences, speedMs: lastSpeedRef.current },
 			);
+			if (request !== routeRequest.current || !navDestRef.current) return;
+			if (route.coords.length < 2 || !route.maneuvers.length)
+				throw new Error("No drivable route was found.");
+			applyRoute(route);
+			setActiveRoute(route);
 			simIndexRef.current = 0;
 			resetNavigation();
+			resetCursor();
+			updatePuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
 			resumeFollowing();
 		} catch {
-			setRouteError("Could not update the route. Keeping your current route.");
+			if (request === routeRequest.current)
+				setRouteError("Could not update the route. Keeping your current route.");
 		} finally {
 			setIsRerouting(false);
 		}
-	}, [fetchRoute, isRerouting, provider]);
+	}, [applyRoute, isRerouting, provider, routePreferences]);
 
 	const {
 		currentStep,
@@ -305,6 +375,7 @@ export default function App() {
 			setVehicleSpeedMs(speed);
 			setDrivingState((previous) => nextDrivingState(previous, speed));
 			const routeEnd = coordsRef.current[coordsRef.current.length - 1];
+			if (coordsRef.current.length) setRoutePosition(closestRouteIndex(pos, coordsRef.current));
 			setNearRouteEnd(!!routeEnd && distanceKm(pos, routeEnd) < 0.03);
 			updatePuck(pos, bearing, speed);
 			await onPositionUpdate(pos, bearing, speed, prov);
@@ -329,7 +400,6 @@ export default function App() {
 					if (coordsRef.current.length > 0) {
 						const idx = closestRouteIndex(pos, coordsRef.current);
 						simIndexRef.current = idx;
-						trimRoute(idx);
 					}
 					trackedPositionUpdate(pos, bearing, speed, provider);
 				}
@@ -340,7 +410,6 @@ export default function App() {
 				updatePuck,
 				trackedPositionUpdate,
 				provider,
-				trimRoute,
 			],
 		),
 	);
@@ -352,8 +421,25 @@ export default function App() {
 		drivingState,
 	);
 	useEffect(() => {
+		if (!navActive || !activeRoute || provider !== "mapbox" || !navDestRef.current || pendingDest) return;
+		let cancelled = false;
+		const timer = window.setInterval(async () => {
+			try {
+				const routes = await getRoutes(activeRoute.coords[0], navDestRef.current!, provider, navStopsRef.current, navBuildingRef.current ?? undefined, { avoid: routePreferences });
+				const match = routes.find(route => route.coords.length === activeRoute.coords.length && route.coords.every((coord, index) => coord[0] === activeRoute.coords[index][0] && coord[1] === activeRoute.coords[index][1]));
+				if (cancelled) return;
+				if (!match || !refreshTimings(match)) { setTrafficStale(true); return; }
+				setTrafficStale(false);
+				setActiveRoute({ ...match, coords: activeRoute.coords });
+				drawRoute(activeRoute.coords, match.congestion);
+			} catch { if (!cancelled) setTrafficStale(true); }
+		}, 120000);
+		return () => { cancelled = true; window.clearInterval(timer); };
+	}, [navActive, activeRoute, provider, pendingDest, routePreferences]);
+	useEffect(() => {
 		if (isDriving && !navActive) {
 			routeRequest.current++;
+			setSelectingBuilding(null);
 			setRouteBusy(false);
 			setPendingDest(null);
 		}
@@ -391,41 +477,48 @@ export default function App() {
 	}, [mapLoaded]);
 
 	const handleSearchSelect = useCallback(
-		async (coords: [number, number], placeName: string) => {
+		async (coords: [number, number], placeName: string, buildingCoords = coords, details?: PlaceDetails) => {
 			// A new destination needs the car parked; a stop can be added on the move.
 			if (isDriving && !navActive)
 				throw new Error("Choose a destination when parked.");
 			const request = ++routeRequest.current;
+			setSelectingBuilding(buildingCoords);
 			setRouteBusy(true);
 			setRouteError(null);
 			try {
 				const stops = navActive ? [...navStopsRef.current, coords] : [];
 				const destination =
 					navActive && navDestRef.current ? navDestRef.current : coords;
-				const route = await getRoute(
+				const routes = await getRoutes(
 					lastPosRef.current,
 					destination,
 					provider,
 					stops,
+					navActive ? navBuildingRef.current ?? undefined : buildingCoords,
+					{ avoid: routePreferences },
 				);
+				const route = routes[0];
 				if (request !== routeRequest.current) return;
 				if (!route.maneuvers.length)
 					throw new Error("No drivable route was found.");
-				if (!navActive) drawRoute(route.coords);
+				drawRoute(route.coords, route.congestion);
 				const summary = summarizeManeuvers(route.maneuvers);
 				setPendingDest({
 					coords,
+					buildingCoords,
 					placeName,
+					details,
 					...summary,
 					action: navActive ? "stop" : "destination",
 					route,
+					routes,
 					stops,
 				});
 			} finally {
-				if (request === routeRequest.current) setRouteBusy(false);
+				if (request === routeRequest.current) { setRouteBusy(false); setSelectingBuilding(null); }
 			}
 		},
-		[isDriving, navActive, provider, drawRoute, showOverview],
+		[isDriving, navActive, provider, drawRoute, showOverview, routePreferences],
 	);
 
 	useEffect(() => {
@@ -442,10 +535,12 @@ export default function App() {
 					[point.x - 18, point.y - 18],
 					[point.x + 18, point.y + 18],
 				]);
-				const destination =
-					destinationFromFeatures(features, coords) ??
-					(await reverseGeocodeDestination(coords));
-				await handleSearchSelect(destination.coords, destination.placeName);
+				const poi = map.queryRenderedFeatures([[point.x - 18, point.y - 18], [point.x + 18, point.y + 18]], { target: { featuresetId: "poi", importId: "basemap" } }).find(feature => typeof feature.properties?.name === "string" && feature.geometry.type === "Point");
+				const selected = poi && poi.geometry.type === "Point" ? { coords: poi.geometry.coordinates as [number, number], placeName: String(poi.properties.name) } : destinationFromFeatures(features, coords);
+				const lookup = await reverseGeocodeDestination(selected?.coords ?? coords, selected?.placeName);
+				const samePlace = !selected || sameBusinessName(lookup.placeName, selected.placeName);
+				const destination = selected ? { ...selected, placeName: samePlace ? lookup.placeName : selected.placeName } : lookup;
+				await handleSearchSelect(destination.coords, destination.placeName, coords, samePlace ? lookup.details : undefined);
 			} catch (cause) {
 				setRouteError(
 					cause instanceof Error ? cause.message : "Could not calculate route.",
@@ -508,10 +603,15 @@ export default function App() {
 
 	// Fit the route preview once the confirmation card is on screen, so the
 	// route fills the space actually left between the cards and the dock.
-	const previewCoords = pendingDest && !navActive ? pendingDest.route.coords : null;
+	const previewCoords = pendingDest ? pendingDest.routes : null;
+	useEffect(() => {
+		const routes = pendingDest ? pendingDest.routes.filter(route => route !== pendingDest.route).map(route => route.coords) : [];
+		drawAlternatives(routes);
+		return () => drawAlternatives([]);
+	}, [pendingDest, mapLoaded]);
 	useEffect(() => {
 		if (!previewCoords) return;
-		const frame = requestAnimationFrame(() => showOverview(previewCoords));
+		const frame = requestAnimationFrame(() => showOverview(previewCoords.flatMap(route => route.coords)));
 		return () => cancelAnimationFrame(frame);
 	}, [previewCoords]);
 
@@ -528,9 +628,9 @@ export default function App() {
 			.slice(0, 2);
 		// Re-read when a trip starts or ends, since that changes the ranking.
 	}, [savedPlaces, navActive]);
-	function handleQuickDestination(coords: [number, number], placeName: string) {
+	function handleQuickDestination(coords: [number, number], placeName: string, buildingCoords?: [number, number]) {
 		setOpenPanel(null);
-		handleSearchSelect(coords, placeName).catch((cause) =>
+		handleSearchSelect(coords, placeName, buildingCoords).catch((cause) =>
 			setRouteError(
 				cause instanceof Error ? cause.message : "Could not calculate route.",
 			),
@@ -543,11 +643,14 @@ export default function App() {
 
 	async function handleConfirmNav() {
 		if (!pendingDest || (isDriving && pendingDest.action !== "stop")) return;
-		recordFrequentPlace(pendingDest.placeName, pendingDest.coords);
+		recordFrequentPlace(pendingDest.placeName, pendingDest.coords, pendingDest.buildingCoords);
 		stopSimulation();
 		applyRoute(pendingDest.route);
+		setActiveRoute(pendingDest.route);
+		setRoutePosition(0);
 		if (pendingDest.action === "destination") {
 			navDestRef.current = pendingDest.coords;
+			navBuildingRef.current = pendingDest.buildingCoords;
 			navDestNameRef.current = pendingDest.placeName;
 		}
 		setArrivedAt(null);
@@ -566,6 +669,7 @@ export default function App() {
 
 	function handleCancelSearch() {
 		routeRequest.current++;
+		setSelectingBuilding(null);
 		setPendingDest(null);
 		setRouteBusy(false);
 		if (navActive) {
@@ -578,6 +682,9 @@ export default function App() {
 	}
 
 	const handleEndNavigation = useCallback(() => {
+		setSelectingBuilding(null);
+		setActiveRoute(null);
+		routeRequest.current++;
 		stopSimulation();
 		resetNavigation();
 		resetCursor();
@@ -640,27 +747,16 @@ export default function App() {
 	}
 
 	useEffect(() => {
-		if (!mapLoaded || !previewMode) return;
-		async function snapInitialPosition() {
-			const snapped = await snapToRoad([DEV_ORIGIN, DEV_ORIGIN], provider);
-			lastPosRef.current = snapped;
-			lastBearingRef.current = 0;
-			lastSpeedRef.current = 0;
-			syncPuck(snapped, 0, 0);
-			mapRef.current?.easeTo({
-				center: snapped,
-				zoom: ZOOM_LEVEL,
-				pitch: 45,
-				bearing: 0,
-				offset: [0, (mapRef.current?.getContainer().clientHeight ?? 0) * 0.2],
-				duration: 800,
-				essential: true,
-			});
-		}
-		snapInitialPosition().catch(() =>
-			setRouteError("Preview position could not be matched to the road."),
-		);
-	}, [mapLoaded]);
+		const map = mapRef.current;
+		if (!mapLoaded || !map || bootComplete.current || (!previewMode && gpsStatus !== "fix")) return;
+		bootComplete.current = true;
+		cameraTransitionRef.current = true;
+		map.flyTo({ center: lastPosRef.current, zoom: ZOOM_LEVEL, pitch: 45, bearing: lastBearingRef.current,
+			offset: [0, map.getContainer().clientHeight * 0.2], duration: 8000 });
+		const finish = () => { cameraTransitionRef.current = false; };
+		map.once("moveend", finish);
+		return () => { map.off("moveend", finish); cameraTransitionRef.current = false; };
+	}, [mapLoaded, gpsStatus === "fix", previewMode]);
 
 	return (
 		<Box
@@ -719,6 +815,11 @@ export default function App() {
 								</>
 							)}
 						</Typography>
+						{navActive && <Typography sx={{ ...statusChipSx(theme), fontSize: 20 }} aria-label="Speed limit">{(() => {
+							const point = activeRoute?.coords[routePosition];
+							const limit = (gpsStatus === "fix" || previewMode) && point && distanceKm(lastPosRef.current, point) < 0.03 ? activeRoute?.speedLimits?.[Math.min(routePosition, (activeRoute?.speedLimits?.length ?? 1) - 1)] : null;
+							return limit?.speed != null && limit.unit ? `Limit ${limit.speed} ${limit.unit}` : limit?.none ? "No limit" : "Limit —";
+						})()}</Typography>}
 					</Box>
 					{navActive && (
 						<NavigationCard
@@ -731,6 +832,9 @@ export default function App() {
 					)}
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: "var(--car-target, 112px)", bgcolor: "background.paper", boxShadow: 2, borderRadius: 3, "&:hover": { bgcolor: "surface.main" } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
+					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
+					routePreferences={routePreferences}
+					onRoutePreferencesChange={setRoutePreferences}
                     panel={openPanel === "search" || openPanel === "settings" ? openPanel : null}
                     setPanel={setOpenPanel}
 					cameraMode={cameraMode}
@@ -745,8 +849,8 @@ export default function App() {
 					}
 					onSearchSelect={
 						placeSlot
-							? async (coords, placeName) => {
-									setSavedPlaces(savePlace(placeSlot, placeName, coords));
+							? async (coords, placeName, buildingCoords) => {
+									setSavedPlaces(savePlace(placeSlot, placeName, coords, buildingCoords));
 								}
 							: handleSearchSelect
 					}
@@ -755,6 +859,7 @@ export default function App() {
 					voiceStatus={voiceStatus}
 					onCancelRouting={() => {
 						routeRequest.current++;
+						setSelectingBuilding(null);
 						setRouteBusy(false);
 					}}
 					onLocate={handleLocate}
@@ -789,6 +894,7 @@ export default function App() {
 							Calculating route...
 						</Alert>
 					)}
+					{navActive && !pendingDest && openPanel !== "search" && routeAlerts.length > 0 && <Box sx={{ order: 2 }}><RouteAlerts alerts={routeAlerts} /></Box>}
 					{routeError && (
 						<Alert
 							severity="error"
@@ -807,7 +913,20 @@ export default function App() {
 				>
 					{pendingDest ? (
 						<ConfirmNavDialog
+							position={pendingDest.buildingCoords}
 							placeName={pendingDest.placeName}
+							details={pendingDest.details}
+							isDriving={isDriving}
+							choices={pendingDest.routes.map(r => summarizeManeuvers(r.maneuvers))}
+							selected={pendingDest.routes.indexOf(pendingDest.route)}
+							onChoose={(index) => {
+								const route = pendingDest.routes[index];
+								if (!route || isDriving) return;
+								setPendingDest({ ...pendingDest, route, ...summarizeManeuvers(route.maneuvers) });
+								drawRoute(route.coords, route.congestion);
+							}}
+							detour={pendingDest.action === "stop" ? detourLabel(pendingDest.route.maneuvers, maneuvers.slice(currentStep)) : undefined}
+							etaSeconds={secondsToPlace(pendingDest.route, pendingDest.action, pendingDest.stops.length)}
 							duration={pendingDest.duration}
 							distance={pendingDest.distance}
 							confirmLabel={

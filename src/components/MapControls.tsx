@@ -17,6 +17,8 @@ import { useKeyboard } from "../contexts/KeyboardContext";
 import DriveButton from "./DriveButton";
 import DestinationSearch, { topSheetSx } from "./DestinationSearch";
 import type { PlaceSlot } from "../lib/savedPlaces";
+import type { RoutePreference } from "../lib/routing";
+import type { PlaceDetails } from "../lib/locationSearch";
 interface Props {
 	panel: "search" | "settings" | null;
 	setPanel: (panel: "search" | "settings" | null) => void;
@@ -31,6 +33,8 @@ interface Props {
 	onSearchSelect: (
 		coords: [number, number],
 		placeName: string,
+		buildingCoords?: [number, number],
+		details?: PlaceDetails,
 	) => Promise<void>;
 	onCancelRouting: () => void;
 	isNavActive: boolean;
@@ -46,6 +50,9 @@ interface Props {
 	onSetPlace?: (slot: PlaceSlot) => void;
 	/** One-line description of which guidance voice is in use. */
 	voiceStatus?: string;
+	routePreferences?: RoutePreference[];
+	onRoutePreferencesChange?: (values: RoutePreference[]) => void;
+	route?: [number, number][];
 }
 export default function MapControls({
 	panel, setPanel,
@@ -67,6 +74,8 @@ export default function MapControls({
 	searchTitle,
 	onSetPlace,
 	voiceStatus,
+	routePreferences = [], onRoutePreferencesChange,
+	route,
 }: Props) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const { hideKeyboard } = useKeyboard();
@@ -136,6 +145,7 @@ export default function MapControls({
 					position={currentPosition}
 					token={mapboxToken}
 					isNavActive={isNavActive}
+					route={route}
 					onSelect={onSearchSelect}
 					onClose={close}
 					onCancelRouting={onCancelRouting}
@@ -165,6 +175,7 @@ export default function MapControls({
 						<Box role="group" aria-label="Map weather" sx={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 1 }}>
 							{(["auto", "clear", "rain", "snow"] as const).map((value) => <DriveButton className="settings-option" key={value} variant={weatherAppearance === value ? "contained" : "outlined"} aria-pressed={weatherAppearance === value} onClick={() => setWeatherAppearance(value)}>{value[0].toUpperCase() + value.slice(1)}</DriveButton>)}
 						</Box>
+						{onRoutePreferencesChange && <><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Avoid on routes</Typography><Typography sx={{ fontSize: 20, color: "text.secondary" }}>Applies to new Mapbox routes.</Typography><Box role="group" aria-label="Route preferences" sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1 }}>{([ ["toll", "Tolls"], ["ferry", "Ferries"], ["unpaved", "Unpaved"] ] as const).map(([value, label]) => <DriveButton key={value} className="settings-option" disabled={isDriving || provider !== "mapbox"} aria-pressed={routePreferences.includes(value)} variant={routePreferences.includes(value) ? "contained" : "outlined"} onClick={() => onRoutePreferencesChange(routePreferences.includes(value) ? routePreferences.filter(item => item !== value) : [...routePreferences, value])}>{label}</DriveButton>)}</Box></>}
 						{onSetPlace && <>
 							<Typography sx={{ fontSize: 25, fontWeight: 700, pt: 1 }}>Saved places</Typography>
 							<Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1 }}>

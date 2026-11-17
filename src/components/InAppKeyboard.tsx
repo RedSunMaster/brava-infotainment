@@ -383,6 +383,12 @@ export default function InAppKeyboard({
 						{...kp}
 					/>
 					<Key
+						id="slash"
+						label="/"
+						onPress={() => insertAtCursor("/", targetRef)}
+						{...kp}
+					/>
+					<Key
 						id="space"
 						label="space"
 						onPress={() => insertAtCursor(" ", targetRef)}

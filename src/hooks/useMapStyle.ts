@@ -16,11 +16,13 @@ export function useMapStyle(
  useEffect(() => {
   const map = mapRef.current;
   if (!map || !mapLoaded) return;
-  const apply = () => applyMapAppearance(map, period, weather, Date.now(), appearance);
-  const restore = () => { apply(); callback.current?.(); };
+  let pending = true;
+  const apply = () => { if (pending && map.isStyleLoaded()) { pending = false; applyMapAppearance(map, period, weather, Date.now(), appearance); } };
+  const restore = () => { pending = true; apply(); callback.current?.(); };
   map.on("style.load", restore);
+  map.on("sourcedata", apply);
   apply();
-  return () => { map.off("style.load", restore); };
+  return () => { map.off("style.load", restore); map.off("sourcedata", apply); };
  }, [mapRef, mapLoaded, period, weather, appearance]);
  return { period };
 }

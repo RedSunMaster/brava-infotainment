@@ -7,7 +7,7 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const [orientation, setOrientation] = useState<Orientation>("heading");
 	const followingRef = useRef<CameraMode>("following");
 	const orientationRef = useRef<Orientation>("heading");
-	const cameraTransitionRef = useRef<boolean>(false);
+	const cameraTransitionRef = useRef<boolean>(true);
 	const recenterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const transitionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

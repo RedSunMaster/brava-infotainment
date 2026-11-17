@@ -14,6 +14,8 @@ import LocationOnRounded from "@mui/icons-material/LocationOnRounded";
 import KeyboardHideRounded from "@mui/icons-material/KeyboardHideRounded";
 import KeyboardRounded from "@mui/icons-material/KeyboardRounded";
 import DriveButton from "./DriveButton";
+import { searchAlongRoute } from "../lib/routeSearch";
+import { formatDetour, rankByDetour } from "../lib/stopDetours";
 import { readFrequentPlaces } from "../lib/frequentPlaces";
 import { readSavedPlaces } from "../lib/savedPlaces";
 import HomeRounded from "@mui/icons-material/HomeRounded";
@@ -25,17 +27,19 @@ import {
 	searchLocations,
 	type Coordinates,
 	type LocationResult,
+	type PlaceDetails,
 } from "../lib/locationSearch";
 
 interface Props {
 	position: Coordinates;
 	token: string;
 	isNavActive: boolean;
-	onSelect: (coords: Coordinates, name: string) => Promise<void>;
+	onSelect: (coords: Coordinates, name: string, buildingCoords?: Coordinates, details?: PlaceDetails) => Promise<void>;
 	onClose: () => void;
 	onCancelRouting: () => void;
 	/** Overrides the heading, e.g. when choosing the Home or Work address. */
 	title?: string;
+	route?: Coordinates[];
 }
 
 function formatDistance(item: LocationResult, position: Coordinates): string {
@@ -87,9 +91,11 @@ export default function DestinationSearch({
 	onClose,
 	onCancelRouting,
 	title,
+	route,
 }: Props) {
 	const { showKeyboard, hideKeyboard, isVisible } = useKeyboard();
 	const [query, setQuery] = useState("");
+	const [category, setCategory] = useState<string | null>(null);
 	const [results, setResults] = useState<LocationResult[]>([]);
 	const [recents, setRecents] = useState(readRecentSearches);
 	const [frequent] = useState(readFrequentPlaces);
@@ -122,7 +128,7 @@ export default function DestinationSearch({
 		setResults([]);
 		setError(null);
 		setWarning(null);
-		if (cleanQuery.length < 3) {
+		if (!category && cleanQuery.length < 3) {
 			setStatus("idle");
 			return;
 		}
@@ -130,6 +136,13 @@ export default function DestinationSearch({
 		const controller = new AbortController();
 		const timer = window.setTimeout(async () => {
 			try {
+				if (category) {
+					const found = await searchAlongRoute(category, route ?? [], origin.current, token, controller.signal);
+					const destination = route?.[route.length - 1];
+					const results = destination ? await rankByDetour(found, origin.current, destination, token, controller.signal) : found;
+					if (!controller.signal.aborted) { setResults(results); setStatus("ready"); }
+					return;
+				}
 				const response = await searchLocations(
 					cleanQuery,
 					origin.current,
@@ -153,23 +166,23 @@ export default function DestinationSearch({
 			window.clearTimeout(timer);
 			controller.abort();
 		};
-	}, [cleanQuery, token, retry]);
+	}, [cleanQuery, category, token, retry]);
 	async function select(item: LocationResult) {
-		if ((status !== "ready" && (status !== "idle" || cleanQuery)) || routing.current) return;
+		if ((status !== "ready" && (status !== "idle" || cleanQuery || category)) || routing.current) return;
 		routing.current = true;
 		hideKeyboard();
 		setStatus("routing");
 		setError(null);
 		try {
 			retrieval.current = new AbortController();
-			const coords = await resolveLocation(
+			const { coords, buildingCoords, details } = await resolveLocation(
 				item,
 				token,
 				retrieval.current.signal,
 			);
 			if (!mounted.current || retrieval.current.signal.aborted) return;
 			if (item.source === "searchbox") session.current = crypto.randomUUID();
-			await onSelect(coords, item.address ? `${item.name}, ${item.address}` : item.name);
+			await onSelect(coords, item.address ? `${item.name}, ${item.address}` : item.name, buildingCoords, details ?? { address: item.address, category: item.kind === "Business" ? undefined : item.kind });
 			if (!mounted.current) return;
 			const next = [
 				cleanQuery,
@@ -245,7 +258,7 @@ export default function DestinationSearch({
 					placeholder="Place, business or street address"
 					value={query}
 					disabled={status === "routing"}
-					onChange={(event) => setQuery(event.target.value)}
+					onChange={(event) => { setCategory(null); setQuery(event.target.value); }}
 					onFocus={() => showKeyboard(hideKeyboard)}
 					onClick={() => showKeyboard(hideKeyboard)}
 					onKeyDown={(event) => {
@@ -296,6 +309,7 @@ export default function DestinationSearch({
 					{isVisible ? <KeyboardHideRounded /> : <KeyboardRounded />}
 				</DriveButton>
 			</Box>
+			{isNavActive && route && <Box role="group" aria-label="Find stops along route" sx={{ display: "flex", gap: 1, overflowX: "auto", flexShrink: 0 }}>{([ ["gas_station", "Fuel"], ["charging_station", "Charging"], ["food_and_drink", "Food"], ["parking", "Parking"] ] as const).map(([id, label]) => <DriveButton key={id} disabled={status === "routing"} aria-pressed={category === id} variant={category === id ? "contained" : "outlined"} onClick={() => { hideKeyboard(); setQuery(""); setCategory(id); }}>{label}</DriveButton>)}</Box>}
 			<Box
 				role="status"
 				aria-live="polite"
@@ -313,7 +327,7 @@ export default function DestinationSearch({
 						? "Calculating route…"
 						: status === "searching"
 							? "Searching…"
-							: cleanQuery.length >= 3 && status === "ready"
+							: (category || cleanQuery.length >= 3) && status === "ready"
 								? `${results.length} results`
 								: cleanQuery
 									? "Type at least 3 characters"
@@ -382,28 +396,29 @@ export default function DestinationSearch({
 									{item.kind}
 								</Typography>
 							</Box>
-							<Typography sx={{ fontSize: 24, whiteSpace: "nowrap" }}>
-								{formatDistance(item, origin.current)}
-							</Typography>
+							<Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
+								{item.detourSeconds != null && <Typography sx={{ fontSize: 28, fontWeight: 800, color: item.detourSeconds < 45 ? "success.main" : "text.primary" }}>{formatDetour(item.detourSeconds)}</Typography>}
+								<Typography sx={{ fontSize: item.detourSeconds != null ? 20 : 24, color: item.detourSeconds != null ? "text.secondary" : "inherit" }}>{formatDistance(item, origin.current)}</Typography>
+							</Box>
 						</ListItemButton>
 					))}
-					{!cleanQuery && ([["home", "Home", HomeRounded], ["work", "Work", WorkRounded]] as const).map(([slot, label, Icon]) => {
+					{!cleanQuery && !category && ([["home", "Home", HomeRounded], ["work", "Work", WorkRounded]] as const).map(([slot, label, Icon]) => {
 						const place = saved[slot];
 						return place ? (
-							<ListItemButton key={slot} disabled={busy} onClick={() => void select({ id: slot, name: place.name, address: "", coords: place.coords, kind: label, source: "mapbox" })} sx={{ minHeight: "var(--car-target)", gap: 2 }}>
+							<ListItemButton key={slot} disabled={busy} onClick={() => void select({ id: slot, name: place.name, address: "", coords: place.coords, buildingCoords: place.buildingCoords, kind: label, source: "mapbox" })} sx={{ minHeight: "var(--car-target)", gap: 2 }}>
 								<Icon sx={{ fontSize: 36 }} />
 								<Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>{label}</Typography><Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{place.name.split(",").slice(0, 2).join(",")}</Typography></Box>
 							</ListItemButton>
 						) : null;
 					})}
-					{!cleanQuery && frequent.map((place) => (
-						<ListItemButton key={place.name + place.coords.join(",")} disabled={busy} onClick={() => void select({ id: place.name, name: place.name, address: "", coords: place.coords, kind: "Frequent destination", source: "mapbox" })} sx={{ minHeight: "var(--car-target)", gap: 2 }}>
+					{!cleanQuery && !category && frequent.map((place) => (
+						<ListItemButton key={place.name + place.coords.join(",")} disabled={busy} onClick={() => void select({ id: place.name, name: place.name, address: "", coords: place.coords, buildingCoords: place.buildingCoords, kind: "Frequent destination", source: "mapbox" })} sx={{ minHeight: "var(--car-target)", gap: 2 }}>
 							<LocationOnRounded sx={{ fontSize: 36 }} />
 							<Box sx={{ minWidth: 0 }}><Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>{place.name.split(",")[0]}</Typography><Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{[place.name.split(",")[1]?.trim(), `${place.visits} ${place.visits === 1 ? "trip" : "trips"}`].filter(Boolean).join(" · ")}</Typography></Box>
 						</ListItemButton>
 					))}
-					{!cleanQuery && recents.length > 0 && <Typography sx={{ px: 2, pt: 2, fontSize: 22, color: "text.secondary" }}>Recent searches</Typography>}
-					{!cleanQuery &&
+					{!cleanQuery && !category && recents.length > 0 && <Typography sx={{ px: 2, pt: 2, fontSize: 22, color: "text.secondary" }}>Recent searches</Typography>}
+					{!cleanQuery && !category &&
 						recents.map((value) => (
 							<ListItemButton
 								key={value}
@@ -418,7 +433,7 @@ export default function DestinationSearch({
 							</ListItemButton>
 						))}
 				</List>
-				{!cleanQuery && !recents.length && !frequent.length && (
+				{!cleanQuery && !category && !recents.length && !frequent.length && (
 					<Typography sx={{ p: 2, fontSize: 26 }}>
 						Enter a place name or an address with its town.
 					</Typography>

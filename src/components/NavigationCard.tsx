@@ -33,6 +33,7 @@ export default function NavigationCard({
 	const [expanded, setExpanded] = useState(false);
 	const theme = useTheme();
 	const current = maneuvers[currentStep + 1];
+	const junction = distanceToNextM == null ? undefined : maneuvers[currentStep]?.junctions?.filter(item => distanceToNextM <= item.distance).sort((a, b) => a.distance - b.distance)[0];
 	const upcoming = maneuvers.slice(
 		currentStep + 2,
 		currentStep + (isDriving ? 3 : 4),
@@ -130,6 +131,9 @@ export default function NavigationCard({
 					>
 						{label}
 					</Typography>
+					{current.lanes?.length && <Typography aria-label={`Lanes: ${current.lanes.map(lane => `${lane.indications.join(" or ")} ${lane.valid ? "use" : "do not use"}`).join(", ")}`} sx={{ fontSize: 24, mt: 1 }}>
+						{current.lanes.map((lane, index) => <Box component="span" key={index} sx={{ display: "inline-block", px: 1, mr: 0.5, borderRadius: 1, bgcolor: lane.valid ? "primary.main" : "action.disabledBackground", color: lane.valid ? "primary.contrastText" : "text.secondary" }}>{lane.indications.map(direction => ({ left: "↰", right: "↱", straight: "↑", "slight left": "↖", "slight right": "↗", "sharp left": "↰", "sharp right": "↱", uturn: "↶" }[direction] ?? direction)).join("/")}</Box>)}
+					</Typography>}
 					{label !== current.instruction && (
 						<Box component="span" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>
 							{current.instruction}
@@ -149,6 +153,7 @@ export default function NavigationCard({
 					<ExpandMoreRounded sx={{ fontSize: 40 }} />
 				</Box>
 			</Box>
+			{junction && <Box component="img" src={junction.url} alt="Upcoming junction illustration" onError={(event: React.SyntheticEvent<HTMLImageElement>) => { event.currentTarget.style.display = "none"; }} sx={{ display: "block", maxWidth: "100%", maxHeight: 240, mx: "auto", borderRadius: 2 }} />}
 
 			{/* Drops down beneath the trip card as an overlay: it neither pushes the
 			    trip card (End stays put) nor covers the ETA and End button. */}

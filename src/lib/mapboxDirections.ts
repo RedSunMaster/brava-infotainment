@@ -1,6 +1,6 @@
 import * as https from "https";
 import polyline from "@mapbox/polyline";
-import type { NormalizedRoute } from "./routing";
+import type { NormalizedRoute, RouteOptions } from "./routing";
 
 function httpsGet(url: string): Promise<any> {
 	return new Promise((resolve, reject) => {
@@ -29,26 +29,42 @@ export async function getMapboxRoute(
 	origin: [number, number],
 	dest: [number, number],
 	stops: [number, number][] = [],
+	target?: [number, number],
+	options?: RouteOptions,
 ): Promise<NormalizedRoute> {
+	return (await getMapboxRoutes(origin, dest, stops, false, target, options))[0];
+}
+
+export async function getMapboxRoutes(origin: [number, number], dest: [number, number], stops: [number, number][] = [], alternatives = true, target?: [number, number], options?: RouteOptions): Promise<NormalizedRoute[]> {
 	const waypoints = [origin, ...stops, dest];
 	const coords = waypoints.map(([lng, lat]) => `${lng},${lat}`).join(";");
 	const url =
-		`https://api.mapbox.com/directions/v5/mapbox/driving/${coords}` +
-		`?steps=true&geometries=polyline6&overview=full&access_token=${process.env.MAPBOX_TOKEN}`;
+		`https://api.mapbox.com/directions/v5/mapbox/driving-traffic/${coords}` +
+		`?steps=true&geometries=polyline6&overview=full&annotations=congestion,maxspeed,closure&banner_instructions=true&alternatives=${alternatives}` +
+		(options?.avoid?.length ? `&exclude=${options.avoid.join(",")}` : "") +
+		(Number.isFinite(options?.speedMs) && options!.speedMs! > 1 ? `&avoid_maneuver_radius=${Math.min(250, Math.max(30, Math.round(options!.speedMs! * 8)))}` : "") +
+		(target ? `&waypoint_targets=${";".repeat(stops.length + 1)}${target.join(",")}` : "") +
+		`&access_token=${process.env.MAPBOX_TOKEN}`;
 
 	const data = await httpsGet(url);
 	if (!data.routes?.length)
 		throw new Error("No drivable route was found for this location.");
+	return data.routes.map((route: any) => {
 	let allCoords: [number, number][] = [];
 	const maneuvers: NormalizedRoute["maneuvers"] = [];
+	const congestion: string[] = [];
+	const speedLimits: NonNullable<NormalizedRoute["speedLimits"]> = [];
+	const incidents: NonNullable<NormalizedRoute["incidents"]> = [];
+	const closures: NonNullable<NormalizedRoute["closures"]> = [];
 
-	for (const leg of data.routes[0].legs) {
+	for (const leg of route.legs) {
+		const legStart = Math.max(0, allCoords.length - 1);
 		for (const step of leg.steps) {
 			const stepCoords: [number, number][] = polyline
 				.decode(step.geometry, 6)
 				.map(([lat, lon]: [number, number]) => [lon, lat]);
 
-			const beginIdx = allCoords.length;
+			const beginIdx = Math.max(0, allCoords.length - 1);
 			allCoords =
 				allCoords.length > 0
 					? [...allCoords, ...stepCoords.slice(1)]
@@ -61,11 +77,32 @@ export async function getMapboxRoute(
 				begin_shape_index: beginIdx,
 				type: step.maneuver.type,
 				modifier: step.maneuver.modifier,
+				lanes: step.intersections?.[0]?.lanes,
+				junctions: (step.bannerInstructions ?? []).flatMap((banner: any) => {
+					const components = [banner.view, banner.quaternary].flatMap(view => view?.components ?? []);
+					return components.filter(component => component.type === "guidance-view" && typeof component.imageUrl === "string" && /^https:\/\//.test(component.imageUrl) && Number.isFinite(banner.distanceAlongGeometry)).map(component => ({ distance: banner.distanceAlongGeometry, url: component.imageUrl }));
+				}),
 			});
+		}
+		const segmentCount = allCoords.length - 1 - legStart;
+		for (let i = 0; i < segmentCount; i++) {
+			congestion.push(leg.annotation?.congestion?.[i] ?? "unknown");
+			speedLimits.push(leg.annotation?.maxspeed?.[i] ?? null);
+		}
+		for (const incident of leg.incidents ?? []) {
+			if (Number.isInteger(incident.geometry_index_start) && incident.geometry_index_start >= 0 && incident.geometry_index_start <= segmentCount)
+				incidents.push({ id: String(incident.id), description: incident.description || incident.type || "Traffic incident", index: legStart + incident.geometry_index_start });
+		}
+		for (const closure of leg.closures ?? []) {
+			if (Number.isInteger(closure.geometry_index_start) && Number.isInteger(closure.geometry_index_end) && closure.geometry_index_start >= 0 && closure.geometry_index_end <= segmentCount && closure.geometry_index_end > closure.geometry_index_start)
+				closures.push({ start: legStart + closure.geometry_index_start, end: legStart + closure.geometry_index_end });
 		}
 	}
 
-	return { coords: allCoords, maneuvers };
+	const trafficDelaySeconds = Number.isFinite(route.duration) && Number.isFinite(route.duration_typical) ? Math.max(0, route.duration - route.duration_typical) : undefined;
+	const legSeconds: number[] = route.legs.map((leg: any) => leg.duration).filter((value: unknown) => Number.isFinite(value));
+		return { coords: allCoords, maneuvers, congestion, speedLimits, incidents, closures, trafficDelaySeconds, legSeconds: legSeconds.length === route.legs.length ? legSeconds : undefined };
+	});
 }
 
 export async function snapToRoadMapbox(

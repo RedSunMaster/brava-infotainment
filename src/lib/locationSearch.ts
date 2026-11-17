@@ -1,14 +1,48 @@
 export type Coordinates = [number, number];
+export interface PlaceDetails { address?: string; category?: string; phone?: string; website?: string; hours?: string; accessibility?: string; photo?: string; mapboxId?: string }
+export function placeDetails(properties: any): PlaceDetails {
+	const metadata = properties?.metadata ?? {};
+	const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : undefined;
+	const periods = Array.isArray(metadata.open_hours?.periods) ? metadata.open_hours.periods : [];
+	const days = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+	const time = (value: unknown) => typeof value === "string" && /^\d{4}$/.test(value) ? `${value.slice(0, 2)}:${value.slice(2)}` : null;
+	const hours = periods.flatMap((period: any) => {
+		const start = time(period.open?.time), end = time(period.close?.time);
+		const day = days[period.open?.day];
+		const endDay = days[period.close?.day];
+		return day && start && end && endDay ? [`${day} ${start}-${end}`] : [];
+	}).join("; ");
+	const photos = Array.isArray(properties?.photos) ? properties.photos : [];
+	const photo = photos.find((item: any) => typeof item?.url === "string" && /^https:\/\//i.test(item.url))?.url;
+	const attributes = properties?.attributes ?? {};
+	return { address: text(properties?.full_address) ?? text(properties?.place_formatted) ?? text(properties?.address), category: text(properties?.primary_category) ?? (Array.isArray(properties?.poi_category) ? text(properties.poi_category[0]) : undefined), phone: text(properties?.phone) ?? text(metadata.phone), website: text(properties?.website) ?? text(metadata.website), hours: text(properties?.opening_hours) ?? (hours || undefined), accessibility: attributes.accommodation_wheelchair_accessible_entrance === true ? "Wheelchair accessible entrance" : metadata.wheelchair_accessible === true ? "Wheelchair accessible" : undefined, photo, mapboxId: text(properties?.mapbox_id) };
+}
 
+/** Map labels are often shorter than search names ("New World" vs "New World Northwood"). */
+export function sameBusinessName(a: string, b: string): boolean {
+	const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+	const [x, y] = [normalize(a), normalize(b)];
+	return x.length >= 3 && y.length >= 3 && (x === y || x.includes(y) || y.includes(x));
+}
+
+export async function fetchPlaceDetails(id: string, token: string, signal: AbortSignal): Promise<PlaceDetails> {
+	const response = await fetch(`https://api.mapbox.com/places/v1/details/retrieve/${encodeURIComponent(id)}?${new URLSearchParams({ access_token: token })}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) });
+	if (!response.ok) throw new Error("Business details unavailable.");
+	return placeDetails(await response.json());
+}
 export interface LocationResult {
 	id: string;
 	name: string;
 	address: string;
 	coords: Coordinates | null;
+	buildingCoords?: Coordinates;
 	kind: string;
 	source: "mapbox" | "photon" | "searchbox";
 	distanceMeters?: number;
+	/** Extra driving time to visit this place on the way to the destination. */
+	detourSeconds?: number | null;
 	sessionToken?: string;
+	details?: PlaceDetails;
 }
 
 export interface BusinessSuggestion {
@@ -43,6 +77,47 @@ export function broadenBusinessQuery(query: string): string | null {
 		: null;
 }
 
+const squash = (text: string) =>
+	text
+		.toLowerCase()
+		.normalize("NFD")
+		.replace(/[̀-ͯ]/g, "")
+		.replace(/[^a-z0-9]/g, "");
+
+export function uniqueSuggestions(items: BusinessSuggestion[]): BusinessSuggestion[] {
+	const seen = new Set<string>();
+	return items.filter((item) => !seen.has(item.mapbox_id) && !!seen.add(item.mapbox_id));
+}
+
+/**
+ * Other spellings of a business the query almost certainly means, taken from
+ * Photon results whose name matches once spaces and punctuation are ignored
+ * ("pbtech" → "PB Tech"). Never returns the query's own spelling.
+ */
+export async function spellingVariants(
+	query: string,
+	photon: Promise<PhotonResponse>,
+	max = 2,
+): Promise<string[]> {
+	const key = squash(query);
+	if (key.length < 4) return [];
+	const typed = query.trim().toLowerCase();
+	const names = new Map<string, string>();
+	// Letter/digit joins are a common typo: "mitre10" → "mitre 10".
+	const split = query.trim().replace(/([a-z])(\d)/gi, "$1 $2").replace(/(\d)([a-z])/gi, "$1 $2");
+	if (split.toLowerCase() !== typed) names.set(`${squash(split)}#split`, split);
+	try {
+		for (const item of photonResults(await photon)) {
+			const itemKey = squash(item.name);
+			if (itemKey.length >= 3 && itemKey.includes(key) && item.name.toLowerCase() !== typed && !names.has(itemKey))
+				names.set(itemKey, item.name);
+		}
+	} catch {
+		return [];
+	}
+	return [...names.values()].slice(0, max);
+}
+
 export function resultDistanceKm(
 	item: LocationResult,
 	origin: Coordinates,
@@ -58,8 +133,15 @@ export async function resolveLocation(
 	item: LocationResult,
 	token: string,
 	signal: AbortSignal,
-): Promise<Coordinates> {
-	if (item.coords) return item.coords;
+): Promise<{ coords: Coordinates; buildingCoords: Coordinates; details?: PlaceDetails }> {
+	if (item.coords) {
+		let details = item.details;
+		if (details?.mapboxId) {
+			try { const rich = await fetchPlaceDetails(details.mapboxId, token, signal); details = { ...details, ...Object.fromEntries(Object.entries(rich).filter(([, value]) => value != null)) }; }
+			catch { if (signal.aborted) throw new DOMException("Aborted", "AbortError"); }
+		}
+		return { coords: item.coords, buildingCoords: item.buildingCoords && validCoordinates(item.buildingCoords) ? item.buildingCoords : item.coords, ...(details ? { details } : {}) };
+	}
 	if (item.source !== "searchbox" || !item.sessionToken)
 		throw new Error("This destination has no usable location.");
 	const params = new URLSearchParams({
@@ -78,6 +160,10 @@ export async function resolveLocation(
 		features?: {
 			geometry: { coordinates: Coordinates };
 			properties?: {
+				metadata?: any;
+				full_address?: string;
+				place_formatted?: string;
+				poi_category?: string[];
 				coordinates?: {
 					routable_points?: {
 						name: string;
@@ -97,7 +183,14 @@ export async function resolveLocation(
 		: feature?.geometry.coordinates;
 	if (!coords || !validCoordinates(coords))
 		throw new Error("This business has no usable location.");
-	return coords;
+	const center = feature?.geometry.coordinates;
+	const basic = placeDetails(feature?.properties);
+	let details = basic;
+	try {
+		const rich = await fetchPlaceDetails(item.id, token, signal);
+		details = Object.fromEntries(Object.entries({ ...basic, ...Object.fromEntries(Object.entries(rich).filter(([, value]) => value != null)) }).filter(([, value]) => value != null));
+	} catch { if (signal.aborted) throw new DOMException("Aborted", "AbortError"); }
+	return { coords, buildingCoords: center && validCoordinates(center) ? center : coords, details };
 }
 
 export interface GeocodingResponse {
@@ -176,6 +269,7 @@ export function mapboxResults(data: GeocodingResponse): LocationResult[] {
 				name: p.name,
 				address: p.place_formatted ?? p.full_address ?? "New Zealand",
 				coords,
+				buildingCoords: validCoordinates(geometry.coordinates) ? geometry.coordinates : coords,
 				kind:
 					p.feature_type === "address"
 						? "Address"
@@ -237,7 +331,7 @@ export function mergeResults(
 			.replace(/\brd\b/g, "road")
 			.replace(/\bst\b/g, "street")
 			.replace(/[^a-z0-9]/g, "");
-	const words = query
+	const words = query.replace(/\b(\d+)\/(\d+)\b/g, "$1 $2")
 		.split(/\s+/)
 		.filter((word) => word.length > 1 || /^\d+$/.test(word))
 		.map(normalize);
@@ -372,8 +466,8 @@ export async function searchLocations(
 ): Promise<{ results: LocationResult[]; warning: string | null }> {
 	const urls = searchUrls(query, position, token);
 	const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(8000)]);
-	async function request<T>(url: string): Promise<T> {
-		const response = await fetch(url, { signal: requestSignal });
+	async function request<T>(url: string, signal = requestSignal): Promise<T> {
+		const response = await fetch(url, { signal });
 		if (!response.ok) throw new Error("Search service unavailable.");
 		return response.json();
 	}
@@ -417,6 +511,24 @@ export async function searchLocations(
 					.length < 2
 					? await suggest(broad, true).catch((): BusinessSuggestion[] => [])
 					: [];
+			// Mapbox matches whole words, so "pbtech", "newworld" or "jbhifi" miss
+			// the stores called "PB Tech", "New World" and "JB Hi-Fi". Photon
+			// tolerates the missing spaces, so use it only to learn the spelling
+			// and then search Mapbox again to get real, nearby, detailed results.
+			const nearbyCount = [...full, ...extra].filter(
+				(item) => item.distance != null && item.distance < 50000,
+			).length;
+			const respelled =
+				nearbyCount < 2
+					? await spellingVariants(query, request<PhotonResponse>(urls.places, AbortSignal.any([requestSignal, AbortSignal.timeout(2500)])))
+					: [];
+			const respelledResults = (
+				await Promise.all(
+					respelled.map((name) =>
+						suggest(name).catch((): BusinessSuggestion[] => []),
+					),
+				)
+			).flat();
 			const categories = new Set(
 				full.flatMap((item) => item.poi_category?.slice(0, 1) ?? []),
 			);
@@ -430,7 +542,10 @@ export async function searchLocations(
 			// to push the place a query names (a mall, an airport) below every
 			// nearer shop that merely contains its name; mergeResults still
 			// favours nearby results over distant ones.
-			return businessResults([...full, ...related], sessionToken);
+			return businessResults(
+				uniqueSuggestions([...full, ...respelledResults, ...related]),
+				sessionToken,
+			);
 		} catch {
 			return photonResults(await request<PhotonResponse>(urls.places));
 		}

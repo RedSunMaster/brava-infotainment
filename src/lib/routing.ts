@@ -1,5 +1,5 @@
 import { getValhallaRoute, snapToRoadValhalla } from "./valhalla";
-import { getMapboxRoute, snapToRoadMapbox } from "./mapboxDirections";
+import { getMapboxRoute, getMapboxRoutes, snapToRoadMapbox } from "./mapboxDirections";
 import type { RoutingProvider } from "../constants";
 
 export interface NormalizedManeuver {
@@ -9,11 +9,28 @@ export interface NormalizedManeuver {
 	begin_shape_index: number;
 	type: number | string;
 	modifier?: string;
+	lanes?: { indications: string[]; valid: boolean }[];
+	junctions?: { distance: number; url: string }[];
 }
 
 export interface NormalizedRoute {
 	coords: [number, number][];
 	maneuvers: NormalizedManeuver[];
+	congestion?: string[];
+	speedLimits?: ({ speed?: number; unit?: string; unknown?: boolean; none?: boolean } | null)[];
+	incidents?: { id: string; description: string; index: number }[];
+	trafficDelaySeconds?: number;
+	/** Travel time of each leg (one per waypoint), when the provider reports it. */
+	legSeconds?: number[];
+	closures?: { start: number; end: number }[];
+}
+
+export type RoutePreference = "toll" | "ferry" | "unpaved";
+export interface RouteOptions { avoid?: RoutePreference[]; speedMs?: number }
+
+export async function getRoutes(origin: [number, number], dest: [number, number], provider: RoutingProvider, stops: [number, number][] = [], target?: [number, number], options?: RouteOptions): Promise<NormalizedRoute[]> {
+	if (provider !== "mapbox" && options?.avoid?.length) throw new Error("Route preferences require Mapbox routing.");
+	return provider === "mapbox" ? getMapboxRoutes(origin, dest, stops, true, target, options) : [await getValhallaRoute(origin, dest, stops)];
 }
 
 export async function getRoute(
@@ -21,9 +38,12 @@ export async function getRoute(
 	dest: [number, number],
 	provider: RoutingProvider,
 	stops: [number, number][] = [],
+	target?: [number, number],
+	options?: RouteOptions,
 ): Promise<NormalizedRoute> {
+	if (provider !== "mapbox" && options?.avoid?.length) throw new Error("Route preferences require Mapbox routing.");
 	return provider === "mapbox"
-		? getMapboxRoute(origin, dest, stops)
+		? getMapboxRoute(origin, dest, stops, target, options)
 		: getValhallaRoute(origin, dest, stops);
 }
 

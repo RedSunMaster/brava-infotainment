@@ -4,6 +4,7 @@ export type PlaceSlot = "home" | "work";
 export interface SavedPlace {
 	name: string;
 	coords: Coordinates;
+	buildingCoords?: Coordinates;
 }
 export type SavedPlaces = Partial<Record<PlaceSlot, SavedPlace>>;
 
@@ -24,7 +25,8 @@ export function readSavedPlaces(): SavedPlaces {
 				Array.isArray(item.coords) &&
 				validCoordinates(item.coords)
 			)
-				places[slot] = { name: item.name.trim(), coords: item.coords };
+				places[slot] = { name: item.name.trim(), coords: item.coords,
+					...(Array.isArray(item.buildingCoords) && validCoordinates(item.buildingCoords) ? { buildingCoords: item.buildingCoords } : {}) };
 		}
 		return places;
 	} catch {
@@ -36,10 +38,11 @@ export function savePlace(
 	slot: PlaceSlot,
 	name: string,
 	coords: Coordinates,
+	buildingCoords?: Coordinates,
 ): SavedPlaces {
 	const places = readSavedPlaces();
 	if (!name.trim() || !validCoordinates(coords)) return places;
-	places[slot] = { name: name.trim(), coords: [...coords] };
+	places[slot] = { name: name.trim(), coords: [...coords], ...(buildingCoords && validCoordinates(buildingCoords) ? { buildingCoords } : {}) };
 	try {
 		localStorage.setItem(KEY, JSON.stringify(places));
 	} catch {

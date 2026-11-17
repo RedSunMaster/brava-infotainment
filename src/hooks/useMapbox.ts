@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import { DEV_ORIGIN, ZOOM_LEVEL } from "../constants";
-import { MAP_STYLE } from "../lib/mapStyle";
+import { DEV_ORIGIN } from "../constants";
+import { MAP_STYLE, applyTerrain, applyTraffic } from "../lib/mapStyle";
 import { useThemeMode } from "../ThemeContext";
 // In useMapbox.ts — expose a loaded state
 
@@ -18,12 +18,14 @@ export function useMapbox(container: React.RefObject<HTMLDivElement | null>) {
 		mapRef.current = new mapboxgl.Map({
 			container: container.current,
 			style: MAP_STYLE,
-			config: { basemap: { lightPreset: initialPeriod.current, showPointOfInterestLabels: false, show3dObjects: true } },
+			config: { basemap: { lightPreset: initialPeriod.current, showPointOfInterestLabels: true, show3dObjects: true } },
 			center: DEV_ORIGIN,
-			zoom: ZOOM_LEVEL,
-            pitch: 45,
+			zoom: 1.5,
+			pitch: 0,
+			projection: "globe",
 		});
 
+		mapRef.current.on("style.load", () => { applyTerrain(mapRef.current!); applyTraffic(mapRef.current!); });
 		mapRef.current.on("load", () => setMapLoaded(true));
 
 		const resize = new ResizeObserver(() => mapRef.current?.resize());

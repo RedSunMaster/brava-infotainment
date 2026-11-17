@@ -5,6 +5,32 @@ export type WeatherAppearance = "auto" | "clear" | "rain" | "snow";
 export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
 export const MAP_STYLE = "mapbox://styles/mapbox/standard";
 
+export function applyTerrain(map: Pick<Map, "getSource" | "addSource" | "setTerrain">) {
+ if (!map.getSource("brava-terrain")) map.addSource("brava-terrain", {
+  type: "raster-dem", url: "mapbox://mapbox.mapbox-terrain-dem-v1", tileSize: 512, maxzoom: 14,
+ });
+ map.setTerrain({ source: "brava-terrain", exaggeration: 1 });
+}
+
+export const TRAFFIC_COLORS = { moderate: "#f59e0b", heavy: "#ef4444", severe: "#991b1b" } as const;
+
+/** Live congestion drawn on the roads themselves: orange = slow, red = heavy, dark red = stopped. */
+export function applyTraffic(map: Pick<Map, "getSource" | "getLayer" | "addSource" | "addLayer">) {
+ if (!map.getSource("brava-traffic")) map.addSource("brava-traffic", { type: "vector", url: "mapbox://mapbox.mapbox-traffic-v1" });
+ if (map.getLayer("brava-traffic")) return;
+ map.addLayer({
+  id: "brava-traffic", type: "line", source: "brava-traffic", "source-layer": "traffic", slot: "middle", minzoom: 8,
+  filter: ["in", ["get", "congestion"], ["literal", Object.keys(TRAFFIC_COLORS)]],
+  layout: { "line-cap": "round", "line-join": "round" },
+  paint: {
+   "line-color": ["match", ["get", "congestion"], "moderate", TRAFFIC_COLORS.moderate, "heavy", TRAFFIC_COLORS.heavy, "severe", TRAFFIC_COLORS.severe, "rgba(0,0,0,0)"],
+   "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 12, 3, 16, 6, 19, 10],
+   "line-opacity": 0.9,
+   "line-emissive-strength": 1,
+  },
+ });
+}
+
 export function applyMapAppearance(
  map: Pick<Map, "setConfigProperty" | "setRain" | "setSnow">,
  period: TimeOfDay,

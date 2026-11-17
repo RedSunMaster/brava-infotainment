@@ -26,14 +26,28 @@ function findClosestRoutePoint(
 ): { index: number; distanceM: number } {
 	let minDist = Infinity;
 	let minIndex = 0;
+	let routeDistance = Infinity;
 	for (let i = 0; i < coords.length; i++) {
 		const d = haversineMeters(pos, coords[i]);
 		if (d < minDist) {
 			minDist = d;
 			minIndex = i;
 		}
+		const end = coords[i + 1];
+		if (!end) continue;
+		const start = coords[i];
+		const scale = Math.cos(pos[1] * Math.PI / 180);
+		const dx = (end[0] - start[0]) * scale;
+		const dy = end[1] - start[1];
+		const lengthSquared = dx * dx + dy * dy;
+		const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+			((pos[0] - start[0]) * scale * dx + (pos[1] - start[1]) * dy) / lengthSquared));
+		routeDistance = Math.min(routeDistance, haversineMeters(pos, [
+			start[0] + (end[0] - start[0]) * t,
+			start[1] + (end[1] - start[1]) * t,
+		]));
 	}
-	return { index: minIndex, distanceM: minDist };
+	return { index: minIndex, distanceM: coords.length > 1 ? routeDistance : minDist };
 }
 
 function calcRemainingToStep(
@@ -94,18 +108,29 @@ export function useNavigation(
 		const now = Date.now();
 		lastUpdateTime.current = now;
 
+		// Check raw GPS against segments before network matching can delay or hide a deviation.
+		const route = coordsRef.current;
+		if (!route.length) return;
+		if (speedMs > 1 && findClosestRoutePoint(rawPos, route).distanceM > OFF_ROUTE_THRESHOLD_M) {
+			if (now - lastOffRouteTime.current > OFF_ROUTE_COOLDOWN_MS) {
+				lastOffRouteTime.current = now;
+				onOffRouteRef.current?.();
+			}
+			return;
+		}
+
 		gpsTrail.current.push(smoothPosition(rawPos));
 		if (gpsTrail.current.length > 8) gpsTrail.current.shift();
 
 		const snapped = await snapToRoad(gpsTrail.current, provider);
 		const coords = coordsRef.current;
-		if (coords.length === 0) return;
+		if (coords.length === 0 || coords !== route || lastUpdateTime.current !== now) return;
 
 		// Find the closest point on the planned route to the current position.
 		// This replaces the old simIndexRef-based check and works for both real
 		// GPS and simulation (sim positions are on the route so distanceM ≈ 0,
 		// meaning off-route never fires during simulation).
-		const { index: closestIndex, distanceM } = findClosestRoutePoint(
+		const { index: closestIndex } = findClosestRoutePoint(
 			snapped,
 			coords,
 		);
@@ -119,9 +144,7 @@ export function useNavigation(
 		setDistanceToNextM(remainingM);
 
 		// Time estimate: use live speed when moving, fall back to step's avg pace
-		if (speedMs > 0.5) {
-			setTimeToNextS(remainingM / speedMs);
-		} else if (currentManeuver?.length && currentManeuver?.time) {
+		if (currentManeuver?.length && currentManeuver?.time) {
 			const avgSpeedMs = (currentManeuver.length * 1000) / currentManeuver.time;
 			setTimeToNextS(remainingM / Math.max(avgSpeedMs, 1));
 		} else {
@@ -130,17 +153,6 @@ export function useNavigation(
 
 		// Keep simIndexRef in sync so trimRoute always trims the right segment.
 		simIndexRef.current = closestIndex;
-
-		// Off-route — only fire when the vehicle is actually moving.
-		if (
-			speedMs > 1 &&
-			distanceM > OFF_ROUTE_THRESHOLD_M &&
-			now - lastOffRouteTime.current > OFF_ROUTE_COOLDOWN_MS
-		) {
-			lastOffRouteTime.current = now;
-			onOffRouteRef.current?.();
-			return; // Pause step advancement until the new route arrives
-		}
 
 		// Advance to the next maneuver step when the closest route index
 		// reaches or passes the next step's start shape index.

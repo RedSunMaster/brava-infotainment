@@ -154,6 +154,7 @@ test("settings offers independent time and map-weather choices", () => {
  for (const hidden of ["Routing:", "Exit app"]) assert.ok(!html.includes(hidden), hidden);
 });
 
+
 test("guidance prioritizes distance while preserving full turn instructions", () => {
  const Card = load("src/components/NavigationCard.tsx").default;
  const { ThemeProvider } = require("@mui/material/styles");
@@ -206,6 +207,8 @@ test("home and work shortcuts persist and reject invalid data", () => {
  savePlace("home", " 1 Example Street ", [172.6, -43.5]);
  savePlace("work", "Office", [200, 0]);
  assert.deepEqual(readSavedPlaces(), { home: { name: "1 Example Street", coords: [172.6, -43.5] } });
+ savePlace("work", "Office", [172.7,-43.5], [172.701,-43.501]);
+ assert.deepEqual(readSavedPlaces().work.buildingCoords, [172.701,-43.501]);
  saved.set("brava-saved-places", "broken"); assert.deepEqual(readSavedPlaces(), {});
  delete globalThis.localStorage;
 });

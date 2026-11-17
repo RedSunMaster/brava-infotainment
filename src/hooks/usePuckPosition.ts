@@ -269,7 +269,7 @@ export function usePositionPuck(
 			const brg = renderBearingRef.current;
 			const mercator = mapboxgl.MercatorCoordinate.fromLngLat(
 				{ lng: pos[0], lat: pos[1] },
-				0,
+				map.queryTerrainElevation(pos) ?? 0,
 			);
 			const scale = mercator.meterInMercatorCoordinateUnits();
 			const bearingRad = ((brg + 180) * Math.PI) / 180;
@@ -436,6 +436,7 @@ export function usePositionPuck(
 
 		addLayer();
 		map.on("styledata", addLayer);
+		map.on("sourcedata", addLayer);
 		map.on("style.load", onStyleLoad);
 
 		const onResize = () => {
@@ -448,6 +449,7 @@ export function usePositionPuck(
 		return () => {
 			map.off("resize", onResize);
 			map.off("styledata", addLayer);
+			map.off("sourcedata", addLayer);
 			map.off("style.load", onStyleLoad);
 			if (map.getLayer("puck-layer")) map.removeLayer("puck-layer");
 			overlayCanvas.remove();
