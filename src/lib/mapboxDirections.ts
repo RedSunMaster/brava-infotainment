@@ -25,6 +25,16 @@ function httpsGet(url: string): Promise<any> {
 	});
 }
 
+/**
+ * Mapbox gives a guidance-view as `imageBaseURL` (no size or extension); the picture itself
+ * is that address plus a density, a format and the access token.
+ */
+export function junctionImageUrl(component: { imageUrl?: unknown; imageBaseURL?: unknown }, token = process.env.MAPBOX_TOKEN): string | null {
+	if (typeof component.imageUrl === "string" && /^https:\/\//.test(component.imageUrl)) return component.imageUrl;
+	if (typeof component.imageBaseURL === "string" && /^https:\/\//.test(component.imageBaseURL) && token) return `${component.imageBaseURL}@2x.png?access_token=${encodeURIComponent(token)}`;
+	return null;
+}
+
 export async function getMapboxRoute(
 	origin: [number, number],
 	dest: [number, number],
@@ -80,7 +90,7 @@ export async function getMapboxRoutes(origin: [number, number], dest: [number, n
 				lanes: step.intersections?.[0]?.lanes,
 				junctions: (step.bannerInstructions ?? []).flatMap((banner: any) => {
 					const components = [banner.view, banner.quaternary].flatMap(view => view?.components ?? []);
-					return components.filter(component => component.type === "guidance-view" && typeof component.imageUrl === "string" && /^https:\/\//.test(component.imageUrl) && Number.isFinite(banner.distanceAlongGeometry)).map(component => ({ distance: banner.distanceAlongGeometry, url: component.imageUrl }));
+					return components.filter(component => component.type === "guidance-view" && Number.isFinite(banner.distanceAlongGeometry)).flatMap(component => { const url = junctionImageUrl(component); return url ? [{ distance: banner.distanceAlongGeometry, url }] : []; });
 				}),
 			});
 		}

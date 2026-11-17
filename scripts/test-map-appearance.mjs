@@ -3,12 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
 const compiled = ts.transpileModule(await readFile(new URL("../src/lib/mapStyle.ts", import.meta.url), "utf8"), { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-const { applyMapAppearance, applyTerrain, applyTraffic, MAP_STYLE } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+const { applyMapAppearance, applyTerrain, applyTraffic, setTrafficAppearance, fogFor, MAP_STYLE } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
 const now = Date.now();
 const weather = { temp: 10, code: 63, cloudCover: 90, precipitation: 2, observedAt: now };
 function fixture() {
  const state = {};
- const map = { setConfigProperty: (...args) => { state.light = args; }, setRain: value => { state.rain = value; }, setSnow: value => { state.snow = value; } };
+ const map = { setConfigProperty: (...args) => { state.light = args; }, setRain: value => { state.rain = value; }, setSnow: value => { state.snow = value; }, setFog: value => { state.fog = value; } };
  return { state, map };
 }
 test("terrain is restored without duplicating its source and uses realistic elevation", () => {
@@ -70,4 +70,31 @@ test("live traffic is drawn on roads once, only for slow traffic, with orange an
  assert.ok(JSON.stringify(layer.paint["line-color"]).includes("#f59e0b") && JSON.stringify(layer.paint["line-color"]).includes("#ef4444"));
  sources.clear(); layers.clear(); applyTraffic(map);
  assert.equal(layers.size, 1);
+});
+test("fog follows the lighting preset and thickens in precipitation", () => {
+ const day = fogFor("day"), night = fogFor("night"), rain = fogFor("day", true);
+ assert.notEqual(day.color, night.color);
+ assert.equal(day["star-intensity"], 0);
+ assert.ok(night["star-intensity"] > 0.5);
+ assert.ok(rain.range[1] < day.range[1] && rain["horizon-blend"] > day["horizon-blend"]);
+ const { state, map } = fixture();
+ applyMapAppearance(map, "dusk", { ...weather, code: 0, precipitation: 0 }, now);
+ assert.deepEqual(state.fog, fogFor("dusk", false));
+ applyMapAppearance(map, "dusk", weather, now);
+ assert.deepEqual(state.fog, fogFor("dusk", true));
+});
+test("traffic is wider on main roads, can be hidden, and fades while a route is shown", () => {
+ const layers = new Map(), sources = new Map();
+ const map = { getSource: id => sources.get(id), getLayer: id => layers.get(id), addSource: (id, s) => sources.set(id, s), addLayer: l => layers.set(l.id, l),
+  setLayoutProperty: (id, name, value) => { layers.get(id).layout[name] = value; }, setPaintProperty: (id, name, value) => { layers.get(id).paint[name] = value; } };
+ setTrafficAppearance(map, { visible: true, dimmed: false }); // no layer yet: nothing happens
+ applyTraffic(map);
+ const width = JSON.stringify(layers.get("brava-traffic").paint["line-width"]);
+ assert.ok(width.includes('"class"') && width.includes("motorway"));
+ setTrafficAppearance(map, { visible: true, dimmed: true });
+ assert.equal(layers.get("brava-traffic").layout.visibility, "visible");
+ assert.ok(layers.get("brava-traffic").paint["line-opacity"] < 0.5);
+ setTrafficAppearance(map, { visible: false, dimmed: false });
+ assert.equal(layers.get("brava-traffic").layout.visibility, "none");
+ assert.equal(layers.get("brava-traffic").paint["line-opacity"], 0.9);
 });

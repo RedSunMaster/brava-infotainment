@@ -1,8 +1,19 @@
 import { useEffect, useRef } from "react";
 import type mapboxgl from "mapbox-gl";
 
-export function offsetForPanels(height: number, tops: number[]): number {
- return tops.length && height > 0 ? Math.max(0.1, Math.min(...tops) / height / 2) - 0.5 : 0.2;
+/** Puck position, as a share of the map's height below its centre, when nothing covers the map. */
+export const CLOSED_OFFSET = 0.2;
+/** The puck never goes higher than this when a panel opens (a tenth of the way down). */
+const HIGHEST_OFFSET = -0.4;
+
+/**
+ * Camera offset that keeps the puck the same distance above an open panel as it normally is above
+ * the dock, instead of centring it in whatever space is left. `gap` is that distance in pixels.
+ */
+export function offsetForPanels(height: number, tops: number[], gap = height * 0.15): number {
+ if (!tops.length || height <= 0) return CLOSED_OFFSET;
+ const puckY = Math.min(...tops) - gap;
+ return Math.min(CLOSED_OFFSET, Math.max(HIGHEST_OFFSET, puckY / height - 0.5));
 }
 
 const GLIDE_MS = 450;
@@ -15,7 +26,9 @@ const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t 
  * camera, so the map slides smoothly whether the car is parked or moving.
  */
 export function useMapOcclusion(mapRef: React.RefObject<mapboxgl.Map | null>, loaded: boolean) {
- const offset = useRef(0.2);
+ const offset = useRef(CLOSED_OFFSET);
+ // How far the puck sits above the dock when nothing is open, measured so an open panel can keep the same distance.
+ const closedGap = useRef<number | null>(null);
  useEffect(() => {
   const map = mapRef.current;
   if (!map || !loaded) return;
@@ -49,7 +62,11 @@ export function useMapOcclusion(mapRef: React.RefObject<mapboxgl.Map | null>, lo
    const bounds = map.getContainer().getBoundingClientRect();
    if (!bounds.height) return;
    const tops = panels.map(panel => panel.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom).map(rect => Math.max(0, rect.top - bounds.top));
-   const next = offsetForPanels(bounds.height, tops);
+   if (!panels.length) {
+    const dock = document.querySelector("[data-dock]")?.getBoundingClientRect();
+    if (dock && dock.height > 0) closedGap.current = Math.max(0, dock.top - bounds.top - (0.5 + CLOSED_OFFSET) * bounds.height);
+   }
+   const next = offsetForPanels(bounds.height, tops, closedGap.current ?? undefined);
    if (Math.abs(next - target) >= 0.01) glideTo(next);
   }
   function schedule() { if (!frame) frame = requestAnimationFrame(update); }

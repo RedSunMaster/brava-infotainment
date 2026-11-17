@@ -14,9 +14,10 @@ const compiled = ts.transpileModule(
 		},
 	},
 ).outputText;
-const { solarElevation, ambientAppearance } = await import(
+const ambient = await import(
 	`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
 );
+const { solarElevation, ambientAppearance } = ambient;
 const chch = [172.60685, -43.45389];
 const noon = new Date("2026-10-08T00:00:00Z");
 const midnight = new Date("2026-10-08T12:00:00Z");
@@ -91,4 +92,16 @@ test("civil twilight distinguishes dawn from dusk and retains mode in daylight d
 		}
 	}
 	assert.ok(foundDawn && foundDusk && foundDeadband);
+});
+
+test("manual dawn, day, dusk and night choices, and older saved values", () => {
+	const { parsePreference, paletteFor, THEME_PREFERENCES } = ambient;
+	assert.deepEqual(THEME_PREFERENCES, ["auto", "dawn", "day", "dusk", "night"]);
+	assert.equal(parsePreference("light"), "day");
+	assert.equal(parsePreference("dark"), "night");
+	assert.equal(parsePreference("dusk"), "dusk");
+	assert.equal(parsePreference("nonsense"), "auto");
+	assert.equal(parsePreference(null), "auto");
+	assert.equal(paletteFor("day"), "light");
+	for (const period of ["dawn", "dusk", "night"]) assert.equal(paletteFor(period), "dark");
 });

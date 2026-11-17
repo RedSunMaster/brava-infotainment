@@ -22,12 +22,23 @@ import { useTheme } from "@mui/material/styles";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
 import RouteAlerts from "./components/RouteAlerts";
+import QuickStops from "./components/QuickStops";
+import FasterRouteOffer from "./components/FasterRouteOffer";
+import { describeSaving, findFasterRoute, remainingSeconds, routeSeconds, type FasterRoute } from "./lib/fasterRoute";
+import { useTrafficLayer } from "./hooks/useTrafficLayer";
+import { isSignificantTurn } from "./lib/cameraLookAhead";
 import { buildRouteAlerts } from "./lib/routeAlerts";
 import { routeLineMetrics } from "./lib/routeLine";
 import { usePositionPuck } from "./hooks/usePuckPosition";
 import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
 import { useGps } from "./hooks/useGps";
+import { useKeyboard } from "./contexts/KeyboardContext";
+import { locateOnRoute, routeCache } from "./lib/routeLocate";
+import { useDeadReckoning } from "./hooks/useDeadReckoning";
+import type { LastFix } from "./lib/deadReckoning";
+import SpeedSigns from "./components/SpeedSigns";
+import { limitAt, speedSignState } from "./lib/speedSigns";
 import ClockWeatherChip, { statusChipSx } from "./components/ClockWeatherChip";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
@@ -37,31 +48,13 @@ import { distanceKm, placeDetails, fetchPlaceDetails, sameBusinessName, type Pla
 import QuickDestinations from "./components/QuickDestinations";
 import FlagRounded from "@mui/icons-material/FlagRounded";
 import ReplayRounded from "@mui/icons-material/ReplayRounded";
-import { useSpokenNavigation } from "./hooks/useSpokenNavigation";
+import { useSpokenNavigation, type GuidanceStep } from "./hooks/useSpokenNavigation";
 import { kokoroVoice } from "./lib/kokoroVoice";
 import {
 	nextDrivingState,
 	interactionLocked,
 	type DrivingState,
 } from "./lib/drivingState";
-
-function closestRouteIndex(
-	pos: [number, number],
-	coords: [number, number][],
-): number {
-	let best = 0;
-	let bestDist = Infinity;
-	for (let i = 0; i < coords.length; i++) {
-		const dx = pos[0] - coords[i][0];
-		const dy = pos[1] - coords[i][1];
-		const d = dx * dx + dy * dy;
-		if (d < bestDist) {
-			bestDist = d;
-			best = i;
-		}
-	}
-	return best;
-}
 
 interface ClickDestination {
 	coords: [number, number];
@@ -192,17 +185,22 @@ export default function App() {
 	const { period, weather, weatherAppearance, updatePosition } = useThemeMode();
 	const theme = useTheme();
 	const kokoroStatus = useSyncExternalStore(kokoroVoice.subscribe, () => kokoroVoice.status);
-	const voiceStatus =
-		kokoroStatus === "ready"
-			? "Kokoro (natural voice) ready"
-			: kokoroStatus === "failed"
-				? `system voice — Kokoro failed: ${kokoroVoice.error ?? "unknown error"}`
-				: "system voice — Kokoro is loading (first use downloads about 90 MB)";
 	const mapContainer = useRef<HTMLDivElement>(null);
 	const simIndexRef = useRef(0);
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
 	const lastBearingRef = useRef<number>(0);
 	const lastSpeedRef = useRef<number>(0);
+	// Nearest route vertex to a position, searched near the last known place first so a route that
+	// passes the same spot twice cannot make progress (or the speed limit) jump to the other pass.
+	const routeDistances = useRef(routeCache()).current;
+	const routeHintRef = useRef(0);
+	const closestRouteIndex = useCallback((pos: [number, number], coords: [number, number][]): number => {
+		const located = locateOnRoute(coords, routeDistances(coords), pos, routeHintRef.current);
+		routeHintRef.current = located.segment;
+		return located.t >= 0.5 ? Math.min(coords.length - 1, located.segment + 1) : located.segment;
+	}, [routeDistances]);
+	// The last position that really came from the GPS receiver (not simulated or estimated).
+	const lastFixRef = useRef<LastFix | null>(null);
 	const navDestRef = useRef<[number, number] | null>(null);
 	const navBuildingRef = useRef<[number, number] | null>(null);
 	const bootComplete = useRef(false);
@@ -210,8 +208,14 @@ export default function App() {
 	const destinationClickInFlightRef = useRef(false);
 	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
 	const [openPanel, setOpenPanel] = useState<"search" | "settings" | "media" | "climate" | null>(null);
+	const [stopCategory, setStopCategory] = useState<string | null>(null);
+	useEffect(() => { if (openPanel !== "search") setStopCategory(null); }, [openPanel]);
 	const [navActive, setNavActive] = useState(false);
 	const [navToolsOpen, setNavToolsOpen] = useState(false);
+	const { hideKeyboard } = useKeyboard();
+	// Whether any menu is open, and how to close them all: read by the map's tap handler.
+	const menuRef = useRef({ open: false, close: () => {} });
+	menuRef.current = { open: openPanel !== null || navToolsOpen, close: () => { setOpenPanel(null); setNavToolsOpen(false); hideKeyboard(); } };
 	const previewMode =
 		new URLSearchParams(window.location.search).get("preview") ===
 		"car-portrait";
@@ -231,6 +235,8 @@ export default function App() {
 	const [vehicleSpeedMs, setVehicleSpeedMs] = useState(0);
 	const [activeRoute, setActiveRoute] = useState<NormalizedRoute | null>(null);
 	const [routePosition, setRoutePosition] = useState(0);
+	const activeRouteRef = useRef<NormalizedRoute | null>(null);
+	activeRouteRef.current = activeRoute;
 	const [trafficStale, setTrafficStale] = useState(false);
 	const [routePreferences, setRoutePreferences] = useState<RoutePreference[]>(() => {
 		try { const saved = JSON.parse(localStorage.getItem("brava-route-preferences") ?? "[]"); return Array.isArray(saved) ? saved.filter(value => ["toll", "ferry", "unpaved"].includes(value)) : []; } catch { return []; }
@@ -250,6 +256,9 @@ export default function App() {
 	} | null>(null);
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
+	const [showTraffic, setShowTraffic] = useState(() => { try { return localStorage.getItem("brava-show-traffic") !== "off"; } catch { return true; } });
+	useEffect(() => { try { localStorage.setItem("brava-show-traffic", showTraffic ? "on" : "off"); } catch { /* Keep the choice for this session. */ } }, [showTraffic]);
+	useTrafficLayer(mapRef, mapLoaded, showTraffic, navActive || !!pendingDest);
 	const routeMeters = useMemo(() => routeLineMetrics(activeRoute?.coords ?? []).meters, [activeRoute?.coords]);
 	const routeAlerts = useMemo(() => activeRoute ? buildRouteAlerts({ incidents: activeRoute.incidents, closures: activeRoute.closures, trafficDelaySeconds: activeRoute.trafficDelaySeconds, meters: routeMeters, position: routePosition, stale: trafficStale }) : [], [activeRoute, routeMeters, routePosition, trafficStale]);
 	useEffect(() => {
@@ -297,6 +306,7 @@ export default function App() {
 
 	// ── Puck — render loop drives both model and camera ────────────────────────
 	// smoothLocate is destructured here alongside updatePuck and resetCursor.
+	const lookAheadRef = useRef<{ enabled: boolean; distanceToNextM: number | null; significantTurn?: boolean }>({ enabled: false, distanceToNextM: null });
 	const { updatePuck, resetCursor, smoothLocate, syncPuck } = usePositionPuck(
 		mapRef,
 		mapLoaded,
@@ -307,6 +317,7 @@ export default function App() {
 		cameraTransitionRef,
 		trimRouteByDistance,
 		mapOffset,
+		lookAheadRef,
 	);
 
 	useMapStyle(mapRef, mapLoaded, period, weather, weatherAppearance, () => {
@@ -359,6 +370,7 @@ export default function App() {
 		simIndexRef,
 		handleOffRoute,
 	);
+	lookAheadRef.current = { enabled: navActive, distanceToNextM: navActive ? distanceToNextM : null, significantTurn: isSignificantTurn(maneuvers[currentStep + 1]) };
 
 	// ── Position update ────────────────────────────────────────────────────────
 	const trackedPositionUpdate = useCallback(
@@ -367,6 +379,7 @@ export default function App() {
 			bearing: number,
 			speed: number,
 			prov: RoutingProvider,
+			trusted = false,
 		) => {
 			lastPosRef.current = pos;
 			updatePosition(pos);
@@ -378,15 +391,16 @@ export default function App() {
 			if (coordsRef.current.length) setRoutePosition(closestRouteIndex(pos, coordsRef.current));
 			setNearRouteEnd(!!routeEnd && distanceKm(pos, routeEnd) < 0.03);
 			updatePuck(pos, bearing, speed);
-			await onPositionUpdate(pos, bearing, speed, prov);
+			await onPositionUpdate(pos, bearing, speed, prov, trusted);
 		},
-		[updatePuck, onPositionUpdate, updatePosition],
+		[updatePuck, onPositionUpdate, updatePosition, closestRouteIndex],
 	);
 
 	// ── GPS ────────────────────────────────────────────────────────────────────
 	const { status: gpsStatus } = useGps(
 		useCallback(
 			(pos: [number, number], bearing: number, speed: number) => {
+				lastFixRef.current = { pos, time: Date.now(), speed };
 				lastPosRef.current = pos;
 				updatePosition(pos);
 				lastBearingRef.current = bearing;
@@ -420,6 +434,13 @@ export default function App() {
 		gpsStatus === "fix",
 		drivingState,
 	);
+	// Keep moving along the route through tunnels and other GPS dropouts.
+	const estimating = useDeadReckoning(
+		navActive && !isRerouting && !pendingDest,
+		coordsRef,
+		lastFixRef,
+		useCallback((pos: [number, number], bearing: number, speed: number) => { void trackedPositionUpdate(pos, bearing, speed, provider, true); }, [trackedPositionUpdate, provider]),
+	);
 	useEffect(() => {
 		if (!navActive || !activeRoute || provider !== "mapbox" || !navDestRef.current || pendingDest) return;
 		let cancelled = false;
@@ -444,14 +465,99 @@ export default function App() {
 			setPendingDest(null);
 		}
 	}, [isDriving, navActive]);
-	const guidance = useSpokenNavigation(
-		maneuvers[currentStep + 1]?.instruction ?? "",
-		distanceToNextM,
-		navActive,
-	);
+	// The manoeuvre ahead and the ones after it, with what the voice needs to word them well.
+	const guidanceSteps = useMemo<GuidanceStep[]>(() => maneuvers.slice(currentStep + 1, currentStep + 8).map((step, offset) => ({
+		id: step.begin_shape_index,
+		instruction: step.instruction,
+		type: step.type,
+		modifier: step.modifier,
+		lengthM: (step.length ?? 0) * 1000,
+		lanes: step.lanes,
+		final: currentStep + 1 + offset === maneuvers.length - 1,
+	})), [maneuvers, currentStep]);
+	const guidance = useSpokenNavigation(guidanceSteps, distanceToNextM, navActive, vehicleSpeedMs);
+	// Spoken notices about the road ahead, each said once: a rerouting, then closures and incidents as they come within range.
+	const announcedAlerts = useRef(new Set<string>());
+	useEffect(() => { if (isRerouting) guidance.announce("Rerouting."); }, [isRerouting]); // eslint-disable-line
+	useEffect(() => {
+		if (!navActive) { announcedAlerts.current.clear(); return; }
+		const alert = routeAlerts.find(item => (item.kind === "closure" || item.kind === "incident") && !announcedAlerts.current.has(item.id) && (item.aheadM ?? 0) <= 3000);
+		if (!alert) return;
+		announcedAlerts.current.add(alert.id);
+		guidance.announce(alert.kind === "closure" ? "There is a road closure on your route." : "There is a traffic incident ahead.");
+	}, [routeAlerts, navActive]); // eslint-disable-line
+	// Developer aid: braveSay("Turn left onto Papanui Rd") in the console speaks it the way guidance would.
+	useEffect(() => { (window as unknown as { braveSay?: (text: string) => void }).braveSay = guidance.sample; }, [guidance.sample]);
+	const voiceStatus =
+		guidance.engine === "system"
+			? "system voice (chosen in Settings)"
+			: kokoroStatus === "ready"
+				? kokoroVoice.device === "webgpu" ? "natural voice ready (GPU)" : "natural voice ready (CPU, slower: phrases are prepared ahead)"
+				: kokoroStatus === "failed"
+					? `system voice — natural voice failed: ${kokoroVoice.error ?? "unknown error"}`
+					: "system voice until the natural voice has loaded (first use downloads the model)";
+	// ── Faster-route suggestions ───────────────────────────────────────────────
+	// Every 90 s, ask for routes from where you are now; offer one only if it is a
+	// different road that saves real time. Trips with added stops are skipped.
+	const [fasterOffer, setFasterOffer] = useState<FasterRoute | null>(null);
+	const dismissedFaster = useRef(new Set<string>());
+	const announcedFaster = useRef<string | null>(null);
+	const fasterCheck = useRef({ maneuvers, currentStep, timeToNextS, distanceToNextM, announce: guidance.announce, routePosition });
+	fasterCheck.current = { maneuvers, currentStep, timeToNextS, distanceToNextM, announce: guidance.announce, routePosition };
+	useEffect(() => {
+		if (!navActive) { setFasterOffer(null); dismissedFaster.current.clear(); announcedFaster.current = null; }
+	}, [navActive]);
+	useEffect(() => {
+		if (!navActive || provider !== "mapbox" || pendingDest || isRerouting) return;
+		let cancelled = false;
+		const check = async () => {
+			const destination = navDestRef.current;
+			if (!destination || navStopsRef.current.length || !coordsRef.current.length) return;
+			try {
+				const routes = await getRoutes(lastPosRef.current, destination, provider, [], navBuildingRef.current ?? undefined, { avoid: routePreferences, speedMs: lastSpeedRef.current });
+				if (cancelled) return;
+				const now = fasterCheck.current;
+				const remaining = remainingSeconds(now.maneuvers, now.currentStep, now.timeToNextS);
+				const offer = findFasterRoute(remaining, coordsRef.current.slice(Math.max(0, now.routePosition - 1)), routes);
+				if (!offer || dismissedFaster.current.has(offer.key)) { setFasterOffer(null); return; }
+				setFasterOffer(offer);
+				if (announcedFaster.current !== offer.key && (now.distanceToNextM ?? Infinity) > 300) {
+					announcedFaster.current = offer.key;
+					now.announce(`A faster route is available. It is ${describeSaving(offer.savedSeconds)}.`);
+				}
+			} catch { /* Keep the current route; try again at the next check. */ }
+		};
+		const timer = window.setInterval(check, 90000);
+		return () => { cancelled = true; window.clearInterval(timer); };
+	}, [navActive, provider, pendingDest, isRerouting, routePreferences]);
+	function handleSwitchFaster() {
+		if (!fasterOffer) return;
+		const { route } = fasterOffer;
+		dismissedFaster.current.add(fasterOffer.key);
+		setFasterOffer(null);
+		applyRoute(route);
+		setActiveRoute(route);
+		setRoutePosition(0);
+		simIndexRef.current = 0;
+		resetNavigation();
+		resetCursor();
+		updatePuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
+		resumeFollowing();
+	}
+	// A quick-stop icon opens the Add stop panel already filtered; tapping the active one closes it again.
+	function handleQuickStop(category: string | null) {
+		if (!category) { setStopCategory(null); setOpenPanel(null); return; }
+		setNavToolsOpen(true);
+		setStopCategory(category);
+		setOpenPanel("search");
+	}
+	function handleKeepRoute() {
+		if (fasterOffer) dismissedFaster.current.add(fasterOffer.key);
+		setFasterOffer(null);
+	}
 	const { startSimulation, stopSimulation } = useSimulation(
 		coordsRef,
-		simIndexRef,
+		activeRouteRef,
 		trackedPositionUpdate,
 		setInstruction,
 	);
@@ -554,6 +660,8 @@ export default function App() {
 		// move does nothing.
 		let ignoreClickUntil = 0;
 		const handleMapClick = (event: mapboxgl.MapMouseEvent) => {
+			// With a menu open, a tap on the map just closes it and carries on; it never picks a place.
+			if (menuRef.current.open) { menuRef.current.close(); return; }
 			if (isDriving || Date.now() < ignoreClickUntil) return;
 			void pickLocation(event.lngLat, event.point);
 		};
@@ -569,6 +677,7 @@ export default function App() {
 		const startHold = (event: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
 			cancelHold();
 			if ("points" in event && event.points.length > 1) return;
+			if (menuRef.current.open) return;
 			if (isDriving && !navActive) return;
 			const { lngLat, point } = event;
 			holdStart = point;
@@ -732,6 +841,7 @@ export default function App() {
 				(nearRouteEnd || (distanceToNextM != null && distanceToNextM <= 25)));
 		if (!arrived) return;
 		const name = navDestNameRef.current;
+		guidance.finish(`You have arrived${name ? ` at ${name.split(",")[0]}` : ""}.`);
 		handleEndNavigation();
 		setArrivedAt(name ?? "your destination");
 	}, [currentStep, distanceToNextM, nearRouteEnd, maneuvers.length, navActive, handleEndNavigation]);
@@ -757,6 +867,14 @@ export default function App() {
 		map.once("moveend", finish);
 		return () => { map.off("moveend", finish); cameraTransitionRef.current = false; };
 	}, [mapLoaded, gpsStatus === "fix", previewMode]);
+
+	// ── Speed signs ────────────────────────────────────────────────────────────
+	// Show your speed whenever the position is real or being estimated along the route, and the
+	// posted limit only while you are on the route (a wrong limit is worse than none).
+	const showSpeed = gpsStatus === "fix" || estimating || (previewMode && navActive);
+	// Judged against the road itself, not the nearest vertex: vertices can be a hundred metres apart on a straight.
+	const onRouteNow = navActive && showSpeed && !!activeRoute && activeRoute.coords.length > 1 && locateOnRoute(activeRoute.coords, routeDistances(activeRoute.coords), lastPosRef.current, routeHintRef.current).offsetM < 30;
+	const signState = speedSignState(vehicleSpeedMs, limitAt(activeRoute?.speedLimits, routePosition, onRouteNow));
 
 	return (
 		<Box
@@ -797,29 +915,13 @@ export default function App() {
 						<ClockWeatherChip
 							position={lastPosRef.current}
 							gpsStatus={gpsStatus}
+								estimating={estimating}
 						/>
-						<Typography
-							role="status"
-							sx={{ ...statusChipSx(theme), fontSize: 24, fontWeight: 700 }}
-						>
-							{gpsStatus !== "fix" && !(previewMode && navActive) ? (
-								previewMode ? "Preview" : "Waiting for GPS"
-							) : (
-								<>
-									<Box component="span" aria-label="Current speed" sx={{ fontSize: 34, fontWeight: 800, fontVariantNumeric: "tabular-nums", minWidth: "2ch", textAlign: "right" }}>
-										{Math.round(vehicleSpeedMs * 3.6)}
-									</Box>
-									<Box component="span" sx={{ fontSize: 20, color: "text.secondary" }}>
-										km/h{gpsStatus !== "fix" ? " · simulated" : ""}
-									</Box>
-								</>
-							)}
-						</Typography>
-						{navActive && <Typography sx={{ ...statusChipSx(theme), fontSize: 20 }} aria-label="Speed limit">{(() => {
-							const point = activeRoute?.coords[routePosition];
-							const limit = (gpsStatus === "fix" || previewMode) && point && distanceKm(lastPosRef.current, point) < 0.03 ? activeRoute?.speedLimits?.[Math.min(routePosition, (activeRoute?.speedLimits?.length ?? 1) - 1)] : null;
-							return limit?.speed != null && limit.unit ? `Limit ${limit.speed} ${limit.unit}` : limit?.none ? "No limit" : "Limit —";
-						})()}</Typography>}
+						{!showSpeed && (
+							<Typography role="status" sx={{ ...statusChipSx(theme), fontSize: 24, fontWeight: 700 }}>
+								{previewMode ? "Preview" : "Waiting for GPS"}
+							</Typography>
+						)}
 					</Box>
 					{navActive && (
 						<NavigationCard
@@ -828,12 +930,17 @@ export default function App() {
 							distanceToNextM={distanceToNextM}
 							timeToNextS={timeToNextS}
 							isDriving={isDriving}
+							onRepeat={guidance.speak}
 						/>
 					)}
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: "var(--car-target, 112px)", bgcolor: "background.paper", boxShadow: 2, borderRadius: 3, "&:hover": { bgcolor: "surface.main" } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
+					stopCategory={stopCategory}
+					onStopCategoryChange={setStopCategory}
+					showTraffic={showTraffic}
+					onShowTrafficChange={setShowTraffic}
 					onRoutePreferencesChange={setRoutePreferences}
                     panel={openPanel === "search" || openPanel === "settings" ? openPanel : null}
                     setPanel={setOpenPanel}
@@ -857,6 +964,11 @@ export default function App() {
 					searchTitle={placeSlot ? (placeSlot === "home" ? "Set Home address" : "Set Work address") : undefined}
 					onSetPlace={navActive ? undefined : handleSetPlace}
 					voiceStatus={voiceStatus}
+					voiceEngine={guidance.engine}
+					onVoiceEngineChange={guidance.setEngine}
+					voiceVolume={guidance.volume}
+					onVoiceVolumeChange={guidance.setVolume}
+					onTestVoice={guidance.test}
 					onCancelRouting={() => {
 						routeRequest.current++;
 						setSelectingBuilding(null);
@@ -894,6 +1006,7 @@ export default function App() {
 							Calculating route...
 						</Alert>
 					)}
+					{navActive && !pendingDest && openPanel !== "search" && fasterOffer && <Box sx={{ order: 2 }}><FasterRouteOffer savedSeconds={fasterOffer.savedSeconds} arrival={new Date(Date.now() + routeSeconds(fasterOffer.route) * 1000).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })} onSwitch={handleSwitchFaster} onKeep={handleKeepRoute} disabled={isRerouting} /></Box>}
 					{navActive && !pendingDest && openPanel !== "search" && routeAlerts.length > 0 && <Box sx={{ order: 2 }}><RouteAlerts alerts={routeAlerts} /></Box>}
 					{routeError && (
 						<Alert
@@ -937,6 +1050,7 @@ export default function App() {
 							disabled={isDriving && pendingDest.action !== "stop"}
 						/>
 					) : navActive ? (
+						<Box sx={{ display: "grid", gap: 1 }}>
 						<TripInfoCard
 							maneuvers={maneuvers}
 							currentStep={currentStep}
@@ -956,6 +1070,8 @@ export default function App() {
 								toggleOrientation(lastBearingRef.current, lastPosRef.current)
 							}
 						/>
+						<QuickStops selected={openPanel === "search" ? stopCategory : null} onSelect={handleQuickStop} />
+						</Box>
 					) : arrivedAt ? (
 						<Box role="status" sx={{ bgcolor: "background.paper", borderRadius: 3, border: "1px solid", borderColor: "divider", p: 2, display: "flex", alignItems: "center", gap: 2 }}>
 							<FlagRounded color="primary" sx={{ fontSize: 56, flexShrink: 0 }} />
@@ -981,7 +1097,7 @@ export default function App() {
 				/>
 
 			</Box>
-			<CarControls isDriving={isDriving} panel={openPanel === "media" || openPanel === "climate" ? openPanel : null} setPanel={setOpenPanel} />
+			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" || openPanel === "climate" ? openPanel : null} setPanel={setOpenPanel} />
 		</Box>
 	);
 }

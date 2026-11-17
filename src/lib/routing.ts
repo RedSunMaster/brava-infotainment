@@ -9,7 +9,7 @@ export interface NormalizedManeuver {
 	begin_shape_index: number;
 	type: number | string;
 	modifier?: string;
-	lanes?: { indications: string[]; valid: boolean }[];
+	lanes?: { indications: string[]; valid: boolean; active?: boolean; valid_indication?: string }[];
 	junctions?: { distance: number; url: string }[];
 }
 

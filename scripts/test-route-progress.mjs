@@ -189,3 +189,65 @@ test("route sampling keeps ends and bounds the point count for URL-based searche
  assert.equal(sampleRoute(short, 150), short);
  assert.deepEqual(sampleRoute([[172, -43], [172, -43], [172, -43]], 2), [[172, -43], [172, -43]]);
 });
+
+test("look-ahead camera zooms out with speed, in for turns, and glides between values", () => {
+ const { lookAheadCamera, smoothToward, isSignificantTurn, turnProximity } = load(fileURLToPath(new URL("../src/lib/cameraLookAhead.ts", import.meta.url)));
+ const city = lookAheadCamera({ speedMs: 13.9, distanceToNextM: 1000 });
+ const motorway = lookAheadCamera({ speedMs: 28, distanceToNextM: 5000 });
+ const crawl = lookAheadCamera({ speedMs: 1, distanceToNextM: null });
+ assert.ok(Math.abs(city.zoom - 16.5) < 0.05, "50 km/h keeps the usual zoom");
+ assert.ok(motorway.zoom < city.zoom - 0.8, "motorway speed zooms out");
+ assert.ok(crawl.zoom > city.zoom, "slow traffic zooms in");
+ assert.ok(motorway.pitch > city.pitch, "tilts further at speed");
+ const turn = lookAheadCamera({ speedMs: 13.9, distanceToNextM: 60 });
+ assert.ok(turn.zoom > city.zoom + 0.3 && turn.zoom <= 17.6, "close turns zoom in, capped");
+ assert.equal(lookAheadCamera({ speedMs: 13.9, distanceToNextM: 60, significantTurn: false }).zoom, city.zoom, "straight-on steps do not zoom");
+ assert.equal(turnProximity(200, 13.9), 0, "at 50 km/h the camera waits until about 9 s before the turn");
+ assert.ok(turnProximity(200, 28) > 0, "and starts earlier at motorway speed");
+ assert.equal(isSignificantTurn({ type: "turn", modifier: "left" }), true);
+ assert.equal(isSignificantTurn({ type: "continue", modifier: "straight" }), false);
+ assert.equal(isSignificantTurn({ type: "new name", modifier: "straight" }), false);
+ assert.equal(isSignificantTurn({ type: "roundabout", modifier: "straight" }), true);
+ assert.equal(isSignificantTurn(undefined), false);
+ assert.ok(turn.pitch < city.pitch, "flattens for the junction");
+ assert.equal(lookAheadCamera({ speedMs: 13.9, distanceToNextM: 400 }).zoom, city.zoom);
+ assert.ok(lookAheadCamera({ speedMs: NaN, distanceToNextM: NaN }).zoom > 0);
+ assert.equal(smoothToward(10, 20, 0, 1000), 10);
+ assert.ok(smoothToward(10, 20, 1000, 1000) > 16 && smoothToward(10, 20, 1000, 1000) < 17);
+});
+
+test("the car keeps the same on-screen size at every zoom", () => {
+ const { puckModelScale } = load(fileURLToPath(new URL("../src/lib/cameraLookAhead.ts", import.meta.url)));
+ const pixels = zoom => puckModelScale(zoom) * Math.pow(2, zoom); // on-screen size is world size x 2^zoom
+ assert.equal(puckModelScale(16.5), 3.3, "base size at the normal follow zoom");
+ for (const zoom of [14, 15.3, 16, 16.5, 17.06, 17.4, 18]) assert.ok(Math.abs(pixels(zoom) / pixels(16.5) - 1) < 1e-9, "same size at zoom " + zoom);
+ assert.ok(pixels(1) < pixels(16.5) * 0.1 && pixels(25) > pixels(16.5) * 5, "stops compensating at extreme zooms");
+});
+
+test("reaching a maneuver publishes the next maneuver's distance, never 0 m next to the new instruction", async () => {
+ const log = []; let hooks = 0;
+ const names = ["step", "instruction", "distance", "time"];
+ const react = { useRef: current => ({ current }), useState: initial => { const name = names[hooks++ % names.length]; return [initial, value => log.push([name, value])]; }, useEffect() {}, useCallback: fn => fn };
+ const line = [0, 1, 2, 3, 4].map(i => [172 + i * 0.001, -43]);
+ const maneuvers = [
+  { begin_shape_index: 0, instruction: "Head east", length: 0.2, time: 20, type: "depart" },
+  { begin_shape_index: 2, instruction: "Turn left onto A Street", length: 0.2, time: 20, type: "turn" },
+  { begin_shape_index: 4, instruction: "Turn right onto B Street", length: 0.2, time: 20, type: "turn" },
+ ];
+ const { useNavigation } = load("useNavigation", { snapToRoad: async trail => trail.at(-1) }, { react });
+ const nav = useNavigation({ current: null }, { current: maneuvers }, { current: line }, { current: 0 });
+ await nav.onPositionUpdate(line[2], 90, 10, "mapbox");
+ const last = name => log.filter(([key]) => key === name).at(-1)?.[1];
+ assert.equal(last("step"), 1);
+ assert.equal(last("instruction"), "Turn left onto A Street");
+ const expected = 2 * 0.001 * 111320 * Math.cos(43 * Math.PI / 180);
+ assert.ok(Math.abs(last("distance") - expected) < 2, `distance ${last("distance")} should be about ${expected.toFixed(0)} m`);
+ assert.ok(log.filter(([key]) => key === "distance").every(([, value]) => value > 50), "no 0 m flash was published");
+ // Skipping past two maneuvers in one update lands on the last one, with its own distance.
+ const jump = [];
+ hooks = 0; log.length = 0;
+ const skipper = useNavigation({ current: null }, { current: maneuvers }, { current: line }, { current: 0 });
+ await skipper.onPositionUpdate(line[4], 90, 10, "mapbox");
+ assert.equal(last("step"), 2);
+ assert.equal(last("instruction"), "Turn right onto B Street");
+});

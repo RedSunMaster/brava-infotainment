@@ -94,3 +94,15 @@ test("each leg's travel time is kept so the time to a stop can be told apart fro
  ] }] });
  assert.deepEqual((await api.getMapboxRoute(a, c, [b])).legSeconds, [120, 300]);
 });
+
+test("junction images built from Mapbox's base address carry density, format and token", async () => {
+ process.env.MAPBOX_TOKEN = "pk.test";
+ const a = [172,-43], b = [172.001,-43];
+ const turn = step([a,b], 20);
+ turn.bannerInstructions = [{ distanceAlongGeometry: 300, view: { components: [{ type: "guidance-view", imageBaseURL: "https://api.mapbox.com/guidance-views/v1/123/jct" }] } }];
+ const { api } = fixture({ routes: [{ legs: [{ steps: [turn] }] }] });
+ const [route] = await api.getMapboxRoutes(a, b);
+ assert.equal(route.maneuvers[0].junctions.length, 1);
+ const { url } = route.maneuvers[0].junctions[0];
+ assert.match(url, /^https:\/\/api\.mapbox\.com\/guidance-views\/v1\/123\/jct@2x\.png\?access_token=pk.test$/);
+});

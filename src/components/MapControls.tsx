@@ -13,6 +13,9 @@ import RouteRounded from "@mui/icons-material/RouteRounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import SettingsRounded from "@mui/icons-material/SettingsRounded";
 import { useThemeMode } from "../ThemeContext";
+import { THEME_PREFERENCES } from "../lib/ambientTheme";
+import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
+import VolumeDownRounded from "@mui/icons-material/VolumeDownRounded";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import DriveButton from "./DriveButton";
 import DestinationSearch, { topSheetSx } from "./DestinationSearch";
@@ -50,7 +53,17 @@ interface Props {
 	onSetPlace?: (slot: PlaceSlot) => void;
 	/** One-line description of which guidance voice is in use. */
 	voiceStatus?: string;
+	voiceEngine?: "natural" | "system";
+	onVoiceEngineChange?: (engine: "natural" | "system") => void;
+	voiceVolume?: number;
+	onVoiceVolumeChange?: (volume: number) => void;
+	onTestVoice?: () => void;
 	routePreferences?: RoutePreference[];
+	showTraffic?: boolean;
+	/** Stop category chosen with the quick-stop icons. */
+	stopCategory?: string | null;
+	onStopCategoryChange?: (category: string | null) => void;
+	onShowTrafficChange?: (value: boolean) => void;
 	onRoutePreferencesChange?: (values: RoutePreference[]) => void;
 	route?: [number, number][];
 }
@@ -74,7 +87,11 @@ export default function MapControls({
 	searchTitle,
 	onSetPlace,
 	voiceStatus,
+	voiceEngine = "natural", onVoiceEngineChange,
+	voiceVolume = 1, onVoiceVolumeChange, onTestVoice,
 	routePreferences = [], onRoutePreferencesChange,
+	showTraffic = true, onShowTrafficChange,
+	stopCategory, onStopCategoryChange,
 	route,
 }: Props) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -146,6 +163,8 @@ export default function MapControls({
 					token={mapboxToken}
 					isNavActive={isNavActive}
 					route={route}
+					category={onStopCategoryChange ? stopCategory ?? null : undefined}
+					onCategoryChange={onStopCategoryChange}
 					onSelect={onSearchSelect}
 					onClose={close}
 					onCancelRouting={onCancelRouting}
@@ -168,13 +187,15 @@ export default function MapControls({
 					</Box>
 					<Box sx={{ display: "grid", gap: 1.5, "& .settings-option": { minHeight: "clamp(76px, 8vw, 88px)", minWidth: 0, px: 1, fontSize: "clamp(19px, 2.4vw, 26px)" } }}>
 						<Box><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Appearance</Typography><Typography sx={{ fontSize: 20, color: "text.secondary" }}>{reason}</Typography></Box>
-						<Box role="group" aria-label="Time of day" sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1 }}>
-							{(["auto", "light", "dark"] as const).map((value) => <DriveButton className="settings-option" key={value} variant={preference === value ? "contained" : "outlined"} aria-pressed={preference === value} onClick={() => setPreference(value)}>{value === "auto" ? "Auto" : value === "light" ? "Day" : "Night"}</DriveButton>)}
+						<Box role="group" aria-label="Time of day" sx={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 1 }}>
+							{THEME_PREFERENCES.map((value) => <DriveButton className="settings-option" key={value} variant={preference === value ? "contained" : "outlined"} aria-pressed={preference === value} onClick={() => setPreference(value)}>{value[0].toUpperCase() + value.slice(1)}</DriveButton>)}
 						</Box>
 						<Box><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Map weather</Typography><Typography sx={{ fontSize: 20, color: "text.secondary" }}>Auto follows local weather; other choices preview map effects.</Typography></Box>
 						<Box role="group" aria-label="Map weather" sx={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 1 }}>
 							{(["auto", "clear", "rain", "snow"] as const).map((value) => <DriveButton className="settings-option" key={value} variant={weatherAppearance === value ? "contained" : "outlined"} aria-pressed={weatherAppearance === value} onClick={() => setWeatherAppearance(value)}>{value[0].toUpperCase() + value.slice(1)}</DriveButton>)}
 						</Box>
+						{onVoiceEngineChange && <><Box><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Guidance voice</Typography>{voiceStatus && <Typography sx={{ fontSize: 20, color: "text.secondary" }}>{voiceStatus}</Typography>}</Box><Box role="group" aria-label="Guidance voice" sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1 }}>{([ ["natural", "Natural"], ["system", "System"] ] as const).map(([value, label]) => <DriveButton key={value} className="settings-option" variant={voiceEngine === value ? "contained" : "outlined"} aria-pressed={voiceEngine === value} onClick={() => onVoiceEngineChange(value)}>{label}</DriveButton>)}</Box>{onVoiceVolumeChange && <Box role="group" aria-label="Guidance volume" sx={{ display: "grid", gridTemplateColumns: "auto 1fr auto auto", alignItems: "center", gap: 1 }}><DriveButton className="settings-option" variant="outlined" aria-label="Volume down" disabled={voiceVolume <= 0.1} onClick={() => onVoiceVolumeChange(Math.max(0.1, Math.round((voiceVolume - 0.1) * 10) / 10))} sx={{ minWidth: 88 }}><VolumeDownRounded /></DriveButton><Typography aria-live="polite" sx={{ fontSize: 28, fontWeight: 800, textAlign: "center" }}>{Math.round(voiceVolume * 100)}%</Typography><DriveButton className="settings-option" variant="outlined" aria-label="Volume up" disabled={voiceVolume >= 1} onClick={() => onVoiceVolumeChange(Math.min(1, Math.round((voiceVolume + 0.1) * 10) / 10))} sx={{ minWidth: 88 }}><VolumeUpRounded /></DriveButton>{onTestVoice && <DriveButton className="settings-option" variant="contained" onClick={onTestVoice} sx={{ minWidth: 88 }}>Test</DriveButton>}</Box>}</>}
+						{onShowTrafficChange && <><Box><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Live traffic</Typography><Typography sx={{ fontSize: 20, color: "text.secondary" }}>Orange and red roads show slow and heavy traffic.</Typography></Box><Box role="group" aria-label="Live traffic" sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1 }}>{([ [true, "Show"], [false, "Hide"] ] as const).map(([value, label]) => <DriveButton key={label} className="settings-option" variant={showTraffic === value ? "contained" : "outlined"} aria-pressed={showTraffic === value} onClick={() => onShowTrafficChange(value)}>{label}</DriveButton>)}</Box></>}
 						{onRoutePreferencesChange && <><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Avoid on routes</Typography><Typography sx={{ fontSize: 20, color: "text.secondary" }}>Applies to new Mapbox routes.</Typography><Box role="group" aria-label="Route preferences" sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1 }}>{([ ["toll", "Tolls"], ["ferry", "Ferries"], ["unpaved", "Unpaved"] ] as const).map(([value, label]) => <DriveButton key={value} className="settings-option" disabled={isDriving || provider !== "mapbox"} aria-pressed={routePreferences.includes(value)} variant={routePreferences.includes(value) ? "contained" : "outlined"} onClick={() => onRoutePreferencesChange(routePreferences.includes(value) ? routePreferences.filter(item => item !== value) : [...routePreferences, value])}>{label}</DriveButton>)}</Box></>}
 						{onSetPlace && <>
 							<Typography sx={{ fontSize: 25, fontWeight: 700, pt: 1 }}>Saved places</Typography>
@@ -186,7 +207,6 @@ export default function MapControls({
 						{/* Rarely needed and easy to hit by mistake, so kept behind one extra tap. */}
 						<DriveButton className="settings-option" color="inherit" aria-expanded={advancedOpen} onClick={() => setAdvancedOpen((open) => !open)} sx={{ justifyContent: "space-between", px: 2 }}>Advanced<ExpandMoreRounded sx={{ transform: advancedOpen ? "rotate(180deg)" : "none" }} /></DriveButton>
 						{advancedOpen && <>
-							{voiceStatus && <Typography sx={{ fontSize: 20, color: "text.secondary" }}>Guidance voice: {voiceStatus}</Typography>}
 							<DriveButton className="settings-option" variant="outlined" onClick={onToggleProvider}>Routing: {provider === "mapbox" ? "Mapbox online" : "Valhalla local"}</DriveButton>
 							<Typography sx={{ fontSize: 20, color: "text.secondary" }}>Local routing requires Valhalla. Place search needs internet.</Typography>
 							<DriveButton className="settings-option" color="error" onClick={() => ipcRenderer.send("app-quit")}>Exit app</DriveButton>

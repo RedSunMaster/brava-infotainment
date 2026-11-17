@@ -6,6 +6,8 @@ import spaceShuttle from "../../public/models/space_shuttle.glb";
 import textureUrl from "../../public/models/texture.jpg";
 import type { CameraMode, Orientation } from "../constants";
 import { ZOOM_LEVEL } from "../constants";
+import { lookAheadCamera, puckModelScale, smoothToward } from "../lib/cameraLookAhead";
+import { locateOnRoute, pointAtDistance, routeCache, segmentAtDistance } from "../lib/routeLocate";
 
 // How quickly the rendered bearing chases the target bearing.
 const BEARING_LERP_SPEED = 2.5;
@@ -32,95 +34,6 @@ function haversineMeters(
 	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function positionAlongRoute(
-	coords: [number, number][],
-	distanceM: number,
-): [number, number] {
-	if (coords.length === 0) return [0, 0];
-	if (coords.length === 1) return coords[0];
-	let remaining = Math.max(0, distanceM);
-	for (let i = 0; i < coords.length - 1; i++) {
-		const segLen = haversineMeters(coords[i], coords[i + 1]);
-		if (remaining <= segLen) {
-			const t = segLen > 0 ? remaining / segLen : 0;
-			return [
-				coords[i][0] + (coords[i + 1][0] - coords[i][0]) * t,
-				coords[i][1] + (coords[i + 1][1] - coords[i][1]) * t,
-			];
-		}
-		remaining -= segLen;
-	}
-	return coords[coords.length - 1];
-}
-
-function bearingAlongRoute(
-	coords: [number, number][],
-	distanceM: number,
-): number {
-	if (coords.length < 2) return 0;
-	let remaining = Math.max(0, distanceM);
-	let segIdx = 0;
-	for (let i = 0; i < coords.length - 1; i++) {
-		const segLen = haversineMeters(coords[i], coords[i + 1]);
-		if (remaining <= segLen) {
-			segIdx = i;
-			break;
-		}
-		remaining -= segLen;
-		segIdx = i + 1;
-	}
-	const i = Math.min(segIdx, coords.length - 2);
-	const [lon1, lat1] = coords[i];
-	const [lon2, lat2] = coords[i + 1];
-	const dLon = ((lon2 - lon1) * Math.PI) / 180;
-	const lat1R = (lat1 * Math.PI) / 180;
-	const lat2R = (lat2 * Math.PI) / 180;
-	const y = Math.sin(dLon) * Math.cos(lat2R);
-	const x =
-		Math.cos(lat1R) * Math.sin(lat2R) -
-		Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLon);
-	return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-}
-
-function projectOntoSegment(
-	pos: [number, number],
-	a: [number, number],
-	b: [number, number],
-): number {
-	const ax = b[0] - a[0];
-	const ay = b[1] - a[1];
-	const bx = pos[0] - a[0];
-	const by = pos[1] - a[1];
-	const lenSq = ax * ax + ay * ay;
-	if (lenSq < 1e-12) return 0;
-	return Math.max(0, Math.min(1, (bx * ax + by * ay) / lenSq));
-}
-
-function distanceAlongRouteToPoint(
-	coords: [number, number][],
-	pos: [number, number],
-): number {
-	if (coords.length < 2) return 0;
-	let bestOffRoute = Infinity;
-	let bestRouteDistance = 0;
-	let cumulative = 0;
-	for (let i = 0; i < coords.length - 1; i++) {
-		const segLen = haversineMeters(coords[i], coords[i + 1]);
-		const t = projectOntoSegment(pos, coords[i], coords[i + 1]);
-		const projected: [number, number] = [
-			coords[i][0] + (coords[i + 1][0] - coords[i][0]) * t,
-			coords[i][1] + (coords[i + 1][1] - coords[i][1]) * t,
-		];
-		const offRoute = haversineMeters(pos, projected);
-		if (offRoute < bestOffRoute) {
-			bestOffRoute = offRoute;
-			bestRouteDistance = cumulative + t * segLen;
-		}
-		cumulative += segLen;
-	}
-	return bestRouteDistance;
-}
-
 function lerpBearing(current: number, target: number, alpha: number): number {
 	let delta = target - current;
 	if (delta > 180) delta -= 360;
@@ -138,8 +51,17 @@ export function usePositionPuck(
 	cameraTransitionRef: React.RefObject<boolean>,
 	trimRouteByDistance: (distanceM: number) => void,
 	mapOffset: React.RefObject<number>,
+	/** While `enabled`, the follow camera zooms and tilts with speed and the next turn. */
+	lookAheadRef?: React.RefObject<{ enabled: boolean; distanceToNextM: number | null; significantTurn?: boolean }>,
 ) {
 	const speedMsRef = useRef<number>(0);
+	const distancesFor = useRef(routeCache()).current;
+	// Metres along the route of a position, searched near where the puck already is so that a route passing the same spot twice cannot jump it to the other pass.
+	function distanceAlongRouteToPoint(coords: [number, number][], pos: [number, number]): number {
+		const cumulative = distancesFor(coords);
+		const hint = distanceCursorRef.current >= 0 ? segmentAtDistance(cumulative, distanceCursorRef.current) : 0;
+		return locateOnRoute(coords, cumulative, pos, hint).along;
+	}
 	const distanceCursorRef = useRef<number>(-1);
 
 	const gpsPosRef = useRef<[number, number]>(initialPos);
@@ -157,6 +79,10 @@ export function usePositionPuck(
 	const lastCameraPosRef = useRef<[number, number]>(initialPos);
 	const lastCameraBearingRef = useRef<number>(0);
 	const lastCameraOffsetRef = useRef<number>(mapOffset.current);
+	const cameraZoomRef = useRef<number>(ZOOM_LEVEL);
+	const cameraPitchRef = useRef<number>(45);
+	const lastCameraZoomRef = useRef<number>(ZOOM_LEVEL);
+	const lastCameraPitchRef = useRef<number>(45);
 
 	// ── Easing lock: suppresses jumpTo while smoothLocate's easeTo is running ─
 	const isEasingRef = useRef<boolean>(false);
@@ -274,8 +200,7 @@ export function usePositionPuck(
 			const scale = mercator.meterInMercatorCoordinateUnits();
 			const bearingRad = ((brg + 180) * Math.PI) / 180;
 			const zoom = map.getZoom();
-			const zoomFactor = Math.pow(2, Math.max(0, 16 - zoom));
-			const modelScale = 4 * Math.min(zoomFactor, 8);
+			const modelScale = puckModelScale(zoom);
 
 			rotY.makeRotationAxis(new THREE.Vector3(0, 1, 0), -bearingRad);
 			scaleVec.set(scale * modelScale, -scale * modelScale, scale * modelScale);
@@ -307,16 +232,11 @@ export function usePositionPuck(
 
 				if (hasRoute) {
 					distanceCursorRef.current += speedMsRef.current * dt;
-					renderPosRef.current = positionAlongRoute(
-						coords,
-						distanceCursorRef.current,
-					);
+					const here = pointAtDistance(coords, distancesFor(coords), distanceCursorRef.current);
+					renderPosRef.current = here.pos;
 					trimRouteByDistance(distanceCursorRef.current);
 					if (speedMsRef.current > 0.5) {
-						targetBearingRef.current = bearingAlongRoute(
-							coords,
-							distanceCursorRef.current,
-						);
+						targetBearingRef.current = here.bearing;
 					}
 				} else {
 					const posAlpha = 1 - Math.exp(-5 * dt);
@@ -365,7 +285,7 @@ export function usePositionPuck(
 							],
 							bearing: lerpBearing(recenter.bearing, goalBearing, e),
 							pitch: recenter.pitch + ((heading ? 45 : 0) - recenter.pitch) * e,
-							zoom: recenter.zoom + (ZOOM_LEVEL - recenter.zoom) * e,
+							zoom: recenter.zoom + (cameraZoomRef.current - recenter.zoom) * e,
 							offset: [0, map.getContainer().clientHeight * mapOffset.current],
 							duration: 0,
 							essential: true,
@@ -381,7 +301,15 @@ export function usePositionPuck(
 					) {
 					const targetBearing =
 						orientationRef.current === "heading" ? renderBearingRef.current : 0;
-					const targetPitch = orientationRef.current === "heading" ? 45 : 0;
+					const lookAhead = lookAheadRef?.current;
+					const desired = lookAhead?.enabled
+						? lookAheadCamera({ speedMs: speedMsRef.current, distanceToNextM: lookAhead.distanceToNextM, significantTurn: lookAhead.significantTurn })
+						: { zoom: ZOOM_LEVEL, pitch: 45 };
+					// Close in fairly quickly for a turn, but ease back out slowly so back-to-back turns do not make the map breathe.
+					cameraZoomRef.current = smoothToward(cameraZoomRef.current, desired.zoom, dt * 1000, desired.zoom > cameraZoomRef.current ? 1000 : 3500);
+					cameraPitchRef.current = smoothToward(cameraPitchRef.current, desired.pitch, dt * 1000, 1500);
+					const targetZoom = cameraZoomRef.current;
+					const targetPitch = orientationRef.current === "heading" ? cameraPitchRef.current : 0;
 					const targetCenter = renderPosRef.current;
 					const cameraOffsetY = map.getContainer().clientHeight * mapOffset.current;
 
@@ -398,17 +326,24 @@ export function usePositionPuck(
 					const offsetMoved =
 						Math.abs(mapOffset.current - lastCameraOffsetRef.current) > 0.0005;
 
+					const lensMoved =
+						Math.abs(targetZoom - lastCameraZoomRef.current) > 0.01 ||
+						Math.abs(targetPitch - lastCameraPitchRef.current) > 0.2;
+
 					if (
 						posDelta > CAMERA_POS_THRESHOLD_M ||
 						bearingDelta > CAMERA_BEARING_THRESHOLD_DEG ||
-						offsetMoved
+						offsetMoved ||
+						lensMoved
 					) {
+						lastCameraZoomRef.current = targetZoom;
+						lastCameraPitchRef.current = targetPitch;
 						lastCameraOffsetRef.current = mapOffset.current;
 						map.easeTo({
 							center: targetCenter,
 							bearing: targetBearing,
 							pitch: targetPitch,
-							zoom: ZOOM_LEVEL,
+							zoom: targetZoom,
 							offset: [0, cameraOffsetY],
 							duration: 0,
 							essential: true,

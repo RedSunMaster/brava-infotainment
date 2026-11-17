@@ -1,7 +1,21 @@
 import type { PaletteMode } from "@mui/material";
 import type { TimeOfDay } from "./mapStyle";
 
-export type ThemePreference = "auto" | "light" | "dark";
+/** "auto" follows the sun and weather; the others pin the map and interface to one time of day. */
+export type ThemePreference = "auto" | "dawn" | "day" | "dusk" | "night";
+export const THEME_PREFERENCES: ThemePreference[] = ["auto", "dawn", "day", "dusk", "night"];
+
+/** Reads a saved choice, including the older "light" and "dark" values. */
+export function parsePreference(value: unknown): ThemePreference {
+	if (value === "light") return "day";
+	if (value === "dark") return "night";
+	return THEME_PREFERENCES.includes(value as ThemePreference) ? (value as ThemePreference) : "auto";
+}
+
+/** Only full daylight uses the light interface; dawn, dusk and night are dark. */
+export function paletteFor(period: TimeOfDay): PaletteMode {
+	return period === "day" ? "light" : "dark";
+}
 export interface AmbientWeather {
 	temp: number;
 	code: number;

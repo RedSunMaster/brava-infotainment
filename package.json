@@ -12,6 +12,7 @@
 		"publish": "electron-forge publish",
 		"lint": "eslint --ext .ts,.tsx .",
 		"start:preview": "electron-forge start -- --preview",
+		"start:preview:debug": "electron-forge start -- --preview --remote-debugging-port=9333",
 		"start:day": "electron-forge start -- --tod=day",
 		"start:dawn": "electron-forge start -- --tod=dawn",
 		"start:dusk": "electron-forge start -- --tod=dusk",
@@ -65,7 +66,7 @@
 		"@mui/material": "^7.3.9",
 		"electron-squirrel-startup": "^1.0.1",
 		"kokoro-js": "^1.2.1",
-		"mapbox-gl": "^3.20.0",
+		"mapbox-gl": "^3.35.0",
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
 		"three": "^0.183.2"

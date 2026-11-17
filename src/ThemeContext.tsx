@@ -12,6 +12,8 @@ import { getTheme } from "./theme";
 import { DEV_ORIGIN } from "./constants";
 import {
 	ambientAppearance,
+	parsePreference,
+	paletteFor,
 	type AmbientWeather,
 	type ThemePreference,
 } from "./lib/ambientTheme";
@@ -36,8 +38,7 @@ export function useThemeMode(): ThemeContextValue {
 }
 function storedPreference(): ThemePreference {
 	try {
-		const value = localStorage.getItem("brava.theme");
-		return value === "light" || value === "dark" ? value : "auto";
+		return parsePreference(localStorage.getItem("brava.theme"));
 	} catch {
 		return "auto";
 	}
@@ -177,21 +178,15 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 					? "light"
 					: "dark"
 				: automatic.mode
-			: preference;
-	const period =
-		preference === "auto"
-			? (previewPeriod ?? automatic.period)
-			: preference === "light"
-				? "day"
-				: "night";
+			: paletteFor(preference);
+	const period: TimeOfDay =
+		preference === "auto" ? (previewPeriod ?? automatic.period) : preference;
 	const reason =
 		preference === "auto"
 			? previewPeriod
 				? `Preview: ${previewPeriod}`
 				: automatic.reason
-			: preference === "light"
-				? "Manual day"
-				: "Manual night";
+			: `Manual ${preference}`;
 	const freshWeather =
 		weather && now.getTime() - weather.observedAt < 30 * 60000 ? weather : null;
 	const theme = useMemo(() => getTheme(mode), [mode]);

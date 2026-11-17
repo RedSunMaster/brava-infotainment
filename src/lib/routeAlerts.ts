@@ -1,5 +1,5 @@
 export type AlertKind = "closure" | "incident" | "delay" | "stale";
-export interface RouteAlert { id: string; kind: AlertKind; severity: "error" | "warning" | "info"; title: string; detail?: string }
+export interface RouteAlert { id: string; kind: AlertKind; severity: "error" | "warning" | "info"; title: string; detail?: string; /** How far ahead the closure or incident is, in metres. */ aheadM?: number }
 
 interface Input {
 	incidents?: { id: string; description: string; index: number }[];
@@ -31,14 +31,14 @@ export function buildRouteAlerts({ incidents = [], closures = [], trafficDelaySe
 	const closure = closures.filter(item => item.end >= position).sort((a, b) => a.start - b.start)[0];
 	if (closure) alerts.push({
 		id: `closure:${closure.start}`, kind: "closure", severity: "error",
-		title: "Road closed", detail: closure.start <= position ? "on your route" : formatAhead(ahead(closure.start)),
+		title: "Road closed", detail: closure.start <= position ? "on your route" : formatAhead(ahead(closure.start)), aheadM: ahead(closure.start),
 	});
 
 	const upcoming = incidents.filter(item => item.index >= position).sort((a, b) => a.index - b.index);
 	if (upcoming.length) alerts.push({
 		id: `incident:${upcoming[0].id}`, kind: "incident", severity: "warning",
 		title: shorten(upcoming[0].description),
-		detail: `${formatAhead(ahead(upcoming[0].index))}${upcoming.length > 1 ? ` · +${upcoming.length - 1} more` : ""}`,
+		detail: `${formatAhead(ahead(upcoming[0].index))}${upcoming.length > 1 ? ` · +${upcoming.length - 1} more` : ""}`, aheadM: ahead(upcoming[0].index),
 	});
 
 	if (trafficDelaySeconds >= 120) {

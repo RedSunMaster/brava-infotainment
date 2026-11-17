@@ -54,9 +54,10 @@ export function statusChipSx(theme: Theme) {
 interface Props {
 	position: [number, number];
 	gpsStatus: GpsStatus; // ← add
+	estimating?: boolean;
 }
 
-export default function ClockWeatherChip({ gpsStatus }: Props) {
+export default function ClockWeatherChip({ gpsStatus, estimating }: Props) {
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
 	const { weather } = useThemeMode();
@@ -113,7 +114,7 @@ export default function ClockWeatherChip({ gpsStatus }: Props) {
 				</Box>
 			)}
 
-			<GpsIndicator status={gpsStatus} />
+			<GpsIndicator status={gpsStatus} estimating={estimating} />
 		</Box>
 	);
 }

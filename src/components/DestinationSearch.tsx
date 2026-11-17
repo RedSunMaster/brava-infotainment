@@ -14,6 +14,7 @@ import LocationOnRounded from "@mui/icons-material/LocationOnRounded";
 import KeyboardHideRounded from "@mui/icons-material/KeyboardHideRounded";
 import KeyboardRounded from "@mui/icons-material/KeyboardRounded";
 import DriveButton from "./DriveButton";
+import { stopCategoryLabel } from "../lib/stopCategories";
 import { searchAlongRoute } from "../lib/routeSearch";
 import { formatDetour, rankByDetour } from "../lib/stopDetours";
 import { readFrequentPlaces } from "../lib/frequentPlaces";
@@ -40,6 +41,9 @@ interface Props {
 	/** Overrides the heading, e.g. when choosing the Home or Work address. */
 	title?: string;
 	route?: Coordinates[];
+	/** When given, the stop category is controlled from outside (the quick-stop icons). */
+	category?: string | null;
+	onCategoryChange?: (category: string | null) => void;
 }
 
 function formatDistance(item: LocationResult, position: Coordinates): string {
@@ -92,10 +96,14 @@ export default function DestinationSearch({
 	onCancelRouting,
 	title,
 	route,
+	category: controlledCategory,
+	onCategoryChange,
 }: Props) {
 	const { showKeyboard, hideKeyboard, isVisible } = useKeyboard();
 	const [query, setQuery] = useState("");
-	const [category, setCategory] = useState<string | null>(null);
+	const [ownCategory, setOwnCategory] = useState<string | null>(null);
+	const category = controlledCategory !== undefined ? controlledCategory : ownCategory;
+	const setCategory = onCategoryChange ?? setOwnCategory;
 	const [results, setResults] = useState<LocationResult[]>([]);
 	const [recents, setRecents] = useState(readRecentSearches);
 	const [frequent] = useState(readFrequentPlaces);
@@ -309,7 +317,7 @@ export default function DestinationSearch({
 					{isVisible ? <KeyboardHideRounded /> : <KeyboardRounded />}
 				</DriveButton>
 			</Box>
-			{isNavActive && route && <Box role="group" aria-label="Find stops along route" sx={{ display: "flex", gap: 1, overflowX: "auto", flexShrink: 0 }}>{([ ["gas_station", "Fuel"], ["charging_station", "Charging"], ["food_and_drink", "Food"], ["parking", "Parking"] ] as const).map(([id, label]) => <DriveButton key={id} disabled={status === "routing"} aria-pressed={category === id} variant={category === id ? "contained" : "outlined"} onClick={() => { hideKeyboard(); setQuery(""); setCategory(id); }}>{label}</DriveButton>)}</Box>}
+			{category && <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Typography sx={{ fontSize: 26, fontWeight: 700, flex: 1 }}>{stopCategoryLabel(category)} along your route</Typography><DriveButton variant="outlined" aria-label="Clear stop category" onClick={() => setCategory(null)} sx={{ minWidth: 56, minHeight: 56, p: 0 }}><CloseRounded /></DriveButton></Box>}
 			<Box
 				role="status"
 				aria-live="polite"

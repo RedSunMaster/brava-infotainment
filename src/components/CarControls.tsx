@@ -15,11 +15,12 @@ import DriveButton from "./DriveButton";
 import SpotifyPopup from "./SpotifyPopup";
 import { useSpotify } from "../hooks/useSpotify";
 import { useKeyboard } from "../contexts/KeyboardContext";
+import { audioDucking, duckedVolume } from "../lib/audioDucking";
 import RearDefrostIcon from "../../public/icons/rearWindshieldDefrost.svg";
 
 // Flip when a real vehicle interface (CAN/serial) drives these controls.
 const VEHICLE_CONNECTED = false;
-interface Props { isDriving: boolean; panel: "media" | "climate" | null; setPanel: (panel: "media" | "climate" | null) => void }
+interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | "climate" | null; setPanel: (panel: "media" | "climate" | null) => void }
 interface StepControlProps { label: string; value: number; onChange: (value: number) => void; maximum: number; displayValue?: string }
 function StepControl({ label, value, onChange, maximum, displayValue }: StepControlProps) {
  return <Box sx={{ display: "flex", alignItems: "center", flex: "1 1 0", minWidth: 0 }}>
@@ -31,8 +32,25 @@ function StepControl({ label, value, onChange, maximum, displayValue }: StepCont
   <DriveButton color="inherit" aria-label={`Increase ${label.toLowerCase()}`} disabled={value === maximum} onClick={() => onChange(Math.min(maximum, value + 1))}><AddRounded /></DriveButton>
  </Box>;
 }
-export default function CarControls({ isDriving, panel: tab, setPanel: setTab }: Props) {
+export default function CarControls({ overlay, isDriving, panel: tab, setPanel: setTab }: Props) {
  const spotify = useSpotify();
+ const spotifyRef = useRef(spotify);
+ spotifyRef.current = spotify;
+ // The level the music was at before a spoken prompt lowered it; null when it is not lowered.
+ const duckedFrom = useRef<number | null>(null);
+ // Lower the music while navigation speaks, then put it back exactly where it was.
+ useEffect(() => audioDucking.subscribe((ducked: boolean): void => {
+  const music = spotifyRef.current;
+  if (ducked) {
+   if (duckedFrom.current !== null || !music.isConnected || !music.track?.isPlaying || music.volume <= 0) return;
+   duckedFrom.current = music.volume;
+   void music.setVolume(duckedVolume(music.volume)).catch(() => { duckedFrom.current = null; });
+  } else if (duckedFrom.current !== null) {
+   const restore = duckedFrom.current;
+   duckedFrom.current = null;
+   void music.setVolume(restore).catch((): void => { /* Keep playing at the lowered level. */ });
+  }
+ }), []);
  const { hideKeyboard } = useKeyboard();
  // The mini player only earns its row once an account is linked; until then
  // Spotify is reached through the Media button.
@@ -53,10 +71,13 @@ export default function CarControls({ isDriving, panel: tab, setPanel: setTab }:
   try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Playback unavailable. Try again."); }
  }
  const mute = () => mediaAction(async () => {
-  if (spotify.volume > 0) { previousVolume.current = spotify.volume; await spotify.setVolume(0); }
+  const current = duckedFrom.current ?? spotify.volume;
+  duckedFrom.current = null;
+  if (current > 0) { previousVolume.current = current; await spotify.setVolume(0); }
   else await spotify.setVolume(previousVolume.current || 50);
  });
  return <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 1, p: "0 16px 16px", pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+  {overlay && <Box sx={{ alignSelf: "flex-end", "&&": { pointerEvents: "none" } }}>{overlay}</Box>}
   {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
   {tab && <Box role="region" id="dashboard-panel" data-map-obstruction aria-label={`${tab} controls`} sx={{ maxHeight: "min(50vh, 760px)", overflowY: "auto", position: "relative", boxShadow: 8, bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 3, p: 2 }}>
    {tab === "media" && <SpotifyPopup spotify={spotify} isDriving={isDriving} />}

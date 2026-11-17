@@ -5,8 +5,13 @@ import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import { getManeuverIcon } from "../lib/maneuverIcon";
 import type { NormalizedManeuver } from "../lib/routing";
 import { glanceLabel } from "../lib/maneuverText";
+import { usefulLanes } from "../lib/laneGuidance";
+import LaneGuidance from "./LaneGuidance";
+import ReplayRounded from "@mui/icons-material/ReplayRounded";
 
 interface Props {
+	/** Says the current instruction again; works even when guidance is muted. */
+	onRepeat?: () => void;
 	maneuvers: NormalizedManeuver[];
 	currentStep: number;
 	distanceToNextM?: number | null;
@@ -29,11 +34,13 @@ export default function NavigationCard({
 	distanceToNextM,
 	isDriving,
 	onExpandedChange,
+	onRepeat,
 }: Props) {
 	const [expanded, setExpanded] = useState(false);
 	const theme = useTheme();
 	const current = maneuvers[currentStep + 1];
 	const junction = distanceToNextM == null ? undefined : maneuvers[currentStep]?.junctions?.filter(item => distanceToNextM <= item.distance).sort((a, b) => a.distance - b.distance)[0];
+	const lanes = usefulLanes(current?.lanes, distanceToNextM);
 	const upcoming = maneuvers.slice(
 		currentStep + 2,
 		currentStep + (isDriving ? 3 : 4),
@@ -131,9 +138,7 @@ export default function NavigationCard({
 					>
 						{label}
 					</Typography>
-					{current.lanes?.length && <Typography aria-label={`Lanes: ${current.lanes.map(lane => `${lane.indications.join(" or ")} ${lane.valid ? "use" : "do not use"}`).join(", ")}`} sx={{ fontSize: 24, mt: 1 }}>
-						{current.lanes.map((lane, index) => <Box component="span" key={index} sx={{ display: "inline-block", px: 1, mr: 0.5, borderRadius: 1, bgcolor: lane.valid ? "primary.main" : "action.disabledBackground", color: lane.valid ? "primary.contrastText" : "text.secondary" }}>{lane.indications.map(direction => ({ left: "↰", right: "↱", straight: "↑", "slight left": "↖", "slight right": "↗", "sharp left": "↰", "sharp right": "↱", uturn: "↶" }[direction] ?? direction)).join("/")}</Box>)}
-					</Typography>}
+						{lanes && <LaneGuidance lanes={lanes} modifier={current.modifier} />}
 					{label !== current.instruction && (
 						<Box component="span" sx={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>
 							{current.instruction}
@@ -141,6 +146,18 @@ export default function NavigationCard({
 					)}
 				</Box>
 
+					{onRepeat && (
+						<Box
+							component="button"
+							type="button"
+							aria-label="Repeat instruction"
+							onClick={(event: React.MouseEvent) => { event.stopPropagation(); onRepeat(); }}
+							onKeyDown={(event: React.KeyboardEvent) => event.stopPropagation()}
+							sx={{ width: 76, height: 76, flexShrink: 0, borderRadius: "50%", border: `2px solid ${alpha(theme.palette.text.primary, 0.25)}`, bgcolor: alpha(theme.palette.text.primary, 0.08), color: theme.palette.text.primary, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", p: 0, "&:active": { bgcolor: alpha(theme.palette.text.primary, 0.2) } }}
+						>
+							<ReplayRounded sx={{ fontSize: 44 }} />
+						</Box>
+					)}
 				<Box
 					sx={{
 						color: alpha(theme.palette.text.primary, 0.75),

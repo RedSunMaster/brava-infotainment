@@ -104,12 +104,19 @@ test("expanded music player presents artwork and playback controls", () => {
  for (const value of ["A song", "An artist", "An album", "art.jpg", "0:30", "3:00", 'aria-label="Pause music"', 'aria-label="Previous track"', 'aria-label="Next track"', 'aria-label="Shuffle"', 'aria-label="Repeat track"', 'aria-label="Spotify volume 50%"', 'aria-label="Browse library"']) assert.ok(html.includes(value), value);
 });
 
-test("camera offset makes room for panels and resets afterward", () => {
+test("camera offset keeps the puck the same distance above an open panel as above the dock", () => {
  const { offsetForPanels } = load("src/hooks/useMapOcclusion.ts");
+ const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} vs ${expected}`);
  assert.equal(offsetForPanels(1000, []), 0.2);
- assert.equal(offsetForPanels(1000, [600]), -0.2);
- assert.equal(offsetForPanels(1000, [100]), -0.4);
- assert.equal(offsetForPanels(1000, [800, 400]), -0.3);
+ // A panel whose top is at 600 px, with the puck 300 px above it: the puck sits at 300 px, a fifth above the middle.
+ near(offsetForPanels(1000, [600], 300), -0.2);
+ // The gap is the same whatever the panel height, so a taller panel moves the puck up by exactly the extra height.
+ near(offsetForPanels(1000, [500], 300) - offsetForPanels(1000, [600], 300), -0.1);
+ // A low panel never pushes the puck below its normal place; a very tall one never lifts it above a tenth of the way down.
+ assert.equal(offsetForPanels(1000, [1100], 300), 0.2);
+ assert.equal(offsetForPanels(1000, [100], 300), -0.4);
+ // With several panels the highest one decides.
+ near(offsetForPanels(1000, [800, 500], 300), -0.3);
 });
 test("frequent destinations persist, rank and ignore invalid stored data", () => {
  const saved = new Map();

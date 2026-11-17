@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import { snapToRoad, NormalizedManeuver } from "../lib/routing";
 import type { RoutingProvider } from "../constants";
+import { locateOnRoute, routeCache } from "../lib/routeLocate";
 
 const OFF_ROUTE_THRESHOLD_M = 50;
 const OFF_ROUTE_COOLDOWN_MS = 8_000;
@@ -50,19 +51,6 @@ function findClosestRoutePoint(
 	return { index: minIndex, distanceM: coords.length > 1 ? routeDistance : minDist };
 }
 
-function calcRemainingToStep(
-	fromIndex: number,
-	toIndex: number,
-	coords: [number, number][],
-): number {
-	let dist = 0;
-	const end = Math.min(toIndex, coords.length - 1);
-	for (let i = fromIndex; i < end; i++) {
-		dist += haversineMeters(coords[i], coords[i + 1]);
-	}
-	return dist;
-}
-
 export function useNavigation(
 	mapRef: React.RefObject<mapboxgl.Map | null>,
 	maneuversRef: React.RefObject<NormalizedManeuver[]>,
@@ -75,6 +63,9 @@ export function useNavigation(
 	const lastUpdateTime = useRef<number>(Date.now());
 	const currentStepRef = useRef(0);
 	const lastOffRouteTime = useRef<number>(0);
+	// Where on the route the car last was: later searches look near it first, so an out-and-back or looping route cannot jump ahead.
+	const lastSegmentRef = useRef(0);
+	const distancesFor = useRef(routeCache()).current;
 
 	// Always-fresh ref so the callback never goes stale inside onPositionUpdate
 	const onOffRouteRef = useRef(onOffRoute);
@@ -103,6 +94,8 @@ export function useNavigation(
 		_forwardBearing: number,
 		speedMs: number,
 		provider: RoutingProvider,
+		/** Already on the route (estimated while GPS is lost): skip the network map-match. */
+		trusted = false,
 	) {
 		// ✅ Stamp time before the async gap — reflects actual GPS interval
 		const now = Date.now();
@@ -119,10 +112,11 @@ export function useNavigation(
 			return;
 		}
 
-		gpsTrail.current.push(smoothPosition(rawPos));
+		// A trusted position is already exactly on the route, so averaging it with earlier ones would only make it lag.
+		gpsTrail.current.push(trusted ? rawPos : smoothPosition(rawPos));
 		if (gpsTrail.current.length > 8) gpsTrail.current.shift();
 
-		const snapped = await snapToRoad(gpsTrail.current, provider);
+		const snapped = trusted ? gpsTrail.current[gpsTrail.current.length - 1] : await snapToRoad(gpsTrail.current, provider);
 		const coords = coordsRef.current;
 		if (coords.length === 0 || coords !== route || lastUpdateTime.current !== now) return;
 
@@ -130,17 +124,27 @@ export function useNavigation(
 		// This replaces the old simIndexRef-based check and works for both real
 		// GPS and simulation (sim positions are on the route so distanceM ≈ 0,
 		// meaning off-route never fires during simulation).
-		const { index: closestIndex } = findClosestRoutePoint(
-			snapped,
-			coords,
-		);
+		const cumulative = distancesFor(coords);
+		const located = locateOnRoute(coords, cumulative, snapped, lastSegmentRef.current);
+		lastSegmentRef.current = located.segment;
+		const closestIndex = located.t >= 0.5 ? Math.min(coords.length - 1, located.segment + 1) : located.segment;
+
+		// Advance past every maneuver we have reached first, so the distance and time below
+		// describe the maneuver that is now ahead. Measuring first and advancing afterwards
+		// published the finished maneuver's 0 m against the next instruction for a moment,
+		// which flashed "0 m" on screen and made the voice announce it, then announce it again.
+		let step = currentStepRef.current;
+		while (maneuversRef.current[step + 1] && closestIndex >= maneuversRef.current[step + 1].begin_shape_index) step++;
+		const advanced = step !== currentStepRef.current;
+		currentStepRef.current = step;
 
 		// ── Remaining distance + time to next maneuver ────────────────────────────
-		const currentManeuver = maneuversRef.current[currentStepRef.current];
-		const nextManeuver = maneuversRef.current[currentStepRef.current + 1];
+		const currentManeuver = maneuversRef.current[step];
+		const nextManeuver = maneuversRef.current[step + 1];
 		const endIndex = nextManeuver?.begin_shape_index ?? coords.length - 1;
 
-		const remainingM = calcRemainingToStep(closestIndex, endIndex, coords);
+		// Measured from the exact spot on the road, not the nearest vertex, so the countdown runs smoothly.
+		const remainingM = Math.max(0, cumulative[Math.min(endIndex, coords.length - 1)] - located.along);
 		setDistanceToNextM(remainingM);
 
 		// Time estimate: use live speed when moving, fall back to step's avg pace
@@ -154,15 +158,9 @@ export function useNavigation(
 		// Keep simIndexRef in sync so trimRoute always trims the right segment.
 		simIndexRef.current = closestIndex;
 
-		// Advance to the next maneuver step when the closest route index
-		// reaches or passes the next step's start shape index.
-		const nextStep = maneuversRef.current[currentStepRef.current + 1];
-		if (nextStep && closestIndex >= nextStep.begin_shape_index) {
-			currentStepRef.current++;
-			setCurrentStep(currentStepRef.current);
-			setInstruction(
-				maneuversRef.current[currentStepRef.current]?.instruction ?? "Arrived!",
-			);
+		if (advanced) {
+			setCurrentStep(step);
+			setInstruction(maneuversRef.current[step]?.instruction ?? "Arrived!");
 		}
 	}
 
@@ -171,6 +169,7 @@ export function useNavigation(
 		posHistory.current = [];
 		gpsTrail.current = [];
 		lastOffRouteTime.current = 0;
+		lastSegmentRef.current = 0;
 		setCurrentStep(0);
 		setDistanceToNextM(null); // ← reset
 		setTimeToNextS(null); // ← reset
