@@ -65,7 +65,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   const data: GeoJSON.FeatureCollection<GeoJSON.LineString> = { type: "FeatureCollection", features: routes.filter(coords => coords.length >= 2).map(coords => ({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords } })) };
   if (!map.getSource("route-alternatives")) {
    map.addSource("route-alternatives", { type: "geojson", data });
-   map.addLayer({ id: "route-alternatives", type: "line", source: "route-alternatives", slot: "middle", minzoom: 5, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#747d87", "line-opacity": 0.85, "line-width": 7, "line-emissive-strength": 0.6 } }, map.getLayer("route") ? "route" : undefined);
+   map.addLayer({ id: "route-alternatives", type: "line", source: "route-alternatives", slot: "middle", minzoom: 5, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "#6b7480", "line-opacity": 0.95, "line-width": 9, "line-emissive-strength": 0.6 } }, map.getLayer("route-casing") ? "route-casing" : map.getLayer("route") ? "route" : undefined);
   } else (map.getSource("route-alternatives") as mapboxgl.GeoJSONSource).setData(data);
  }
  function drawRoute(coords: [number, number][], congestion?: string[]) {
@@ -81,16 +81,28 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   if (!map.getSource("route")) map.addSource("route", { type: "geojson", data, lineMetrics: true, tolerance: 0 });
   else (map.getSource("route") as mapboxgl.GeoJSONSource).setData(data);
   const total = metrics.current.meters[metrics.current.meters.length - 1];
+  // A bright core inside a thick white outline stands out on light and dark maps alike, in any weather.
+  const core = theme.palette.mode === "dark" ? "#3d8bff" : "#0b5ce6";
+  const width: mapboxgl.ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 9, 15, 14, 18, 22];
+  const casingWidth: mapboxgl.ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 8, 9, 12, 15, 15, 22, 18, 34];
+  const trim = { "line-trim-offset": [0, progress.current] as [number, number], "line-trim-fade-range": [0, total > 0 ? Math.min(0.02, 12 / total) : 0] as [number, number] };
   const paint: mapboxgl.LineLayerSpecification["paint"] = {
-   "line-color": theme.palette.primary.main,
-   "line-gradient": trafficGradient(metrics.current.projected, drawn.current.congestion, theme.palette.primary.main),
-   "line-width": 8,
+   "line-color": core,
+   "line-gradient": trafficGradient(metrics.current.projected, drawn.current.congestion, core),
+   "line-width": width,
    "line-emissive-strength": 1,
-   "line-trim-offset": [0, progress.current],
-   "line-trim-color": alpha(theme.palette.primary.main, 0.12),
-   "line-trim-fade-range": [0, total > 0 ? Math.min(0.02, 12 / total) : 0],
+   // The driven part stays visible as a faint trail instead of vanishing.
+   "line-trim-color": alpha(core, 0.4),
+   ...trim,
   };
-  if (!map.getLayer("route")) map.addLayer({ id: "route", type: "line", source: "route", slot: "middle", minzoom: 5, layout: { "line-cap": "round", "line-join": "round" }, paint });
+  const casing: mapboxgl.LineLayerSpecification["paint"] = {
+   "line-color": "#ffffff", "line-width": casingWidth, "line-emissive-strength": 1,
+   "line-trim-color": "rgba(0,0,0,0)", ...trim,
+  };
+  const layout = { "line-cap": "round", "line-join": "round" } as const;
+  if (!map.getLayer("route-casing")) map.addLayer({ id: "route-casing", type: "line", source: "route", slot: "middle", minzoom: 5, layout, paint: casing }, map.getLayer("route") ? "route" : undefined);
+  else for (const name of Object.keys(casing) as (keyof typeof casing)[]) map.setPaintProperty("route-casing", name, casing[name]);
+  if (!map.getLayer("route")) map.addLayer({ id: "route", type: "line", source: "route", slot: "middle", minzoom: 5, layout, paint });
   else for (const name of Object.keys(paint) as (keyof typeof paint)[]) map.setPaintProperty("route", name, paint[name]);
  }
  function clearRoute() {
@@ -104,6 +116,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   const map = mapRef.current;
   if (!map) return;
   if (map.getLayer("route")) map.removeLayer("route");
+  if (map.getLayer("route-casing")) map.removeLayer("route-casing");
   if (map.getSource("route")) map.removeSource("route");
  }
  function trimRouteByDistance(distanceM: number) {
@@ -112,6 +125,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   progress.current = next;
   const map = mapRef.current;
   if (map?.getLayer("route")) map.setPaintProperty("route", "line-trim-offset", [0, next]);
+  if (map?.getLayer("route-casing")) map.setPaintProperty("route-casing", "line-trim-offset", [0, next]);
  }
  return { coordsRef, maneuversRef, maneuvers, fetchRoute, applyRoute, refreshTimings, drawRoute, drawAlternatives, clearRoute, trimRouteByDistance };
 }

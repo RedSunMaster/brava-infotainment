@@ -661,6 +661,8 @@ export default function App() {
 		// move does nothing.
 		let ignoreClickUntil = 0;
 		const handleMapClick = (event: mapboxgl.MapMouseEvent) => {
+			// Only the primary button picks a place; right and middle clicks do nothing.
+			if (event.originalEvent.button !== 0) return;
 			// With a menu open, a tap on the map just closes it and carries on; it never picks a place.
 			if (menuRef.current.open) { menuRef.current.close(); return; }
 			if (isDriving || Date.now() < ignoreClickUntil) return;
@@ -678,6 +680,7 @@ export default function App() {
 		const startHold = (event: mapboxgl.MapMouseEvent | mapboxgl.MapTouchEvent) => {
 			cancelHold();
 			if ("points" in event && event.points.length > 1) return;
+			if (!("points" in event) && event.originalEvent.button !== 0) return;
 			if (menuRef.current.open) return;
 			if (isDriving && !navActive) return;
 			const { lngLat, point } = event;

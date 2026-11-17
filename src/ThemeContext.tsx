@@ -17,7 +17,7 @@ import {
 	type AmbientWeather,
 	type ThemePreference,
 } from "./lib/ambientTheme";
-import type { TimeOfDay, WeatherAppearance } from "./lib/mapStyle";
+import { WEATHER_APPEARANCES, type TimeOfDay, type WeatherAppearance } from "./lib/mapStyle";
 
 interface ThemeContextValue {
 	mode: PaletteMode;
@@ -56,7 +56,7 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 	const [preference, setPreferenceState] =
 		useState<ThemePreference>(storedPreference);
 	const [weatherAppearance, setWeatherAppearanceState] = useState<WeatherAppearance>(() => {
-		try { const value = localStorage.getItem("brava.weatherAppearance"); return value === "clear" || value === "rain" || value === "snow" ? value : "auto"; }
+		try { const value = localStorage.getItem("brava.weatherAppearance"); return WEATHER_APPEARANCES.includes(value as WeatherAppearance) ? (value as WeatherAppearance) : "auto"; }
 		catch { return "auto"; }
 	});
 	const setWeatherAppearance = useCallback((value: WeatherAppearance) => {
