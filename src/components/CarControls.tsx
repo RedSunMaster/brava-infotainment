@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { isBool, isNumberIn, usePersistentState } from "../lib/usePersistentState";
 import { Box, Typography } from "@mui/material";
 import { alpha, type Theme } from "@mui/material/styles";
+import { keyframes } from "@emotion/react";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
 import AirRounded from "@mui/icons-material/AirRounded";
 import DeviceThermostatRounded from "@mui/icons-material/DeviceThermostatRounded";
@@ -41,6 +42,22 @@ const AIRFLOW_MODES = [
 	{ name: "feet and windscreen", Icon: AirflowFeetScreenIcon },
 	{ name: "windscreen", Icon: AirflowScreenIcon },
 ] as const;
+
+// Hazard flashers blink about 75 times a minute; the screen edge, the banner and the dock button all share this one clock so they flash together.
+const HAZARD_PERIOD = "0.8s";
+const hazardPulse = keyframes`0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; }`;
+const hazardTint = keyframes`0%, 49% { background-color: rgba(211, 47, 47, 0.5); } 50%, 100% { background-color: rgba(211, 47, 47, 0.12); }`;
+/** Flashes red around the whole screen with a banner, so hazards are unmistakable from any seat. Never blocks touches. */
+function HazardOverlay() {
+ return <Box role="alert" aria-label="Hazards flashing" sx={{ position: "fixed", inset: 0, zIndex: 9990, pointerEvents: "none" }}>
+  <Box sx={{ position: "absolute", inset: 0, boxShadow: "inset 0 0 200px 30px rgba(255, 31, 31, 0.7)", animation: `${hazardPulse} ${HAZARD_PERIOD} step-end infinite` }} />
+  <Box sx={{ position: "absolute", top: 6, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 1.5, px: 3, py: 0.25, borderRadius: 8, bgcolor: "#d32f2f", color: "#fff", boxShadow: 6, animation: `${hazardPulse} ${HAZARD_PERIOD} step-end infinite` }}>
+   <WarningAmberRounded sx={{ fontSize: 34 }} />
+   <Typography sx={{ fontSize: 26, fontWeight: 800, letterSpacing: 1 }}>HAZARD</Typography>
+   <WarningAmberRounded sx={{ fontSize: 34 }} />
+  </Box>
+ </Box>;
+}
 
 interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | null; setPanel: (panel: "media" | null) => void }
 interface StepControlProps { label: string; /** Shown beside the value instead of the label, which stays as the accessible name. */ icon?: React.ElementType; value: number; onChange: (value: number) => void; maximum: number; step?: number; displayValue?: string; /** A picture of the value, shown under the number. */ meter?: React.ReactNode; /** Share of the row, relative to the other steppers. */ grow?: number; disabled?: boolean; className?: string }
@@ -87,9 +104,10 @@ function Switch({ label, pressed, onClick, children, width, className, tone = "p
   sx={{ flex: width ? `0 0 ${width}px` : 1, minWidth: 0, minHeight: 96, borderRadius: 0,
    color: on ? `${tone}.main` : tone === "error" ? "error.main" : "text.primary",
    bgcolor: background, "&:hover": { bgcolor: background },
+   ...(on && tone === "error" ? { animation: `${hazardTint} ${HAZARD_PERIOD} step-end infinite`, "& .MuiSvgIcon-root": { fontSize: 46 } } : {}),
    // A pseudo-element rather than a shadow, so no hover, focus or ripple state can paint over it.
    "&::after": on ? { content: '""', position: "absolute", left: 0, right: 0, bottom: 0, height: 6, zIndex: 1, bgcolor: (theme: Theme) => theme.palette[tone].main, pointerEvents: "none" } : undefined,
-   "& .MuiSvgIcon-root": { fontSize: 46 } }}>
+   ...(on && tone === "error" ? {} : { "& .MuiSvgIcon-root": { fontSize: 46 } }) }}>
   {children}
  </DriveButton>;
 }
@@ -136,6 +154,7 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
  // Until a real vehicle link exists these only change what the screen shows.
  const suffix = VEHICLE_CONNECTED ? "" : " (preview)";
  return <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 0, p: 0, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+  {hazards && <HazardOverlay />}
   {overlay && <Box sx={{ alignSelf: "flex-end", px: 2, pb: 1.5, "&&": { pointerEvents: "none" } }}>{overlay}</Box>}
   {error && <Box sx={{ mx: 2, mb: 1.5 }}><QuietNotice onClose={() => setError(null)}>{error}</QuietNotice></Box>}
   {tab && <Box role="region" id="dashboard-panel" data-map-obstruction aria-label="media controls" sx={{ maxHeight: "min(50vh, 760px)", overflowY: "auto", position: "relative", mx: 2, mb: 1.5, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 8, p: 1.5 }}>

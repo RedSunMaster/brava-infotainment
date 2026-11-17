@@ -232,6 +232,7 @@ export default function MapControls({
 			{panel === "settings" && (
 				<Box
 					role="region"
+					data-map-obstruction
 					aria-label="Settings"
 					sx={{
 						...topSheetSx,

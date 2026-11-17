@@ -388,7 +388,10 @@ export function mergeResults(
 					kindMatch -
 					Math.min(0.3, extraWords * 0.1) -
 					(incidental ? 0.25 : 0) +
-					(item.distanceMeters != null && item.distanceMeters < 50000 ? 1 : 0),
+					(item.distanceMeters != null && item.distanceMeters < 50000 ? 1 : 0) +
+					// Within that band the nearer place wins: up to half a point, so a much better name match can still
+					// lead, but two equally good matches are listed nearest first.
+					(item.distanceMeters != null && item.distanceMeters < 50000 ? 0.5 * (1 - item.distanceMeters / 50000) : 0),
 			};
 		})
 		.filter((item) => item.coverage >= 0.65)

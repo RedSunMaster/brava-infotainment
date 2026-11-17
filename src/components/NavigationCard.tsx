@@ -72,7 +72,9 @@ export default function NavigationCard({
 		current.type === "arrive" && currentStep + 1 < maneuvers.length - 1;
 	const label = isIntermediateStop
 		? "Your stop"
-		: glanceLabel(current.instruction);
+		: current.type === "arrive"
+			? "Destination ahead" // The service says "You have arrived" for the last step; it is still ahead until the car gets there.
+			: glanceLabel(current.instruction);
 
 	// Below the trip card and every banner, so opening it never covers a control and End stays put.
 	const turnsList = (

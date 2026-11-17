@@ -239,6 +239,7 @@ export default function App() {
 	const activeRouteRef = useRef<NormalizedRoute | null>(null);
 	activeRouteRef.current = activeRoute;
 	const [trafficStale, setTrafficStale] = useState(false);
+	const trafficMisses = useRef(0);
 	const [routePreferences, setRoutePreferences] = useState<RoutePreference[]>(() => {
 		try { const saved = JSON.parse(localStorage.getItem("brava-route-preferences") ?? "[]"); return Array.isArray(saved) ? saved.filter(value => ["toll", "ferry", "unpaved"].includes(value)) : []; } catch { return []; }
 	});
@@ -450,11 +451,14 @@ export default function App() {
 				const routes = await getRoutes(activeRoute.coords[0], navDestRef.current!, provider, navStopsRef.current, navBuildingRef.current ?? undefined, { avoid: routePreferences });
 				const match = routes.find(route => route.coords.length === activeRoute.coords.length && route.coords.every((coord, index) => coord[0] === activeRoute.coords[index][0] && coord[1] === activeRoute.coords[index][1]));
 				if (cancelled) return;
-				if (!match || !refreshTimings(match)) { setTrafficStale(true); return; }
+				// A different road for the same trip is not a failure: the service answered, it just chose another way.
+				if (!match) return;
+				if (!refreshTimings(match)) { trafficMisses.current++; if (trafficMisses.current >= 2) setTrafficStale(true); return; }
+				trafficMisses.current = 0;
 				setTrafficStale(false);
 				setActiveRoute({ ...match, coords: activeRoute.coords });
 				drawRoute(activeRoute.coords, match.congestion);
-			} catch { if (!cancelled) setTrafficStale(true); }
+			} catch { if (!cancelled) { trafficMisses.current++; if (trafficMisses.current >= 2) setTrafficStale(true); } }
 		}, 120000);
 		return () => { cancelled = true; window.clearInterval(timer); };
 	}, [navActive, activeRoute, provider, pendingDest, routePreferences]);
@@ -758,6 +762,8 @@ export default function App() {
 			navDestNameRef.current = pendingDest.placeName;
 		}
 		setArrivedAt(null);
+		setTrafficStale(false);
+		trafficMisses.current = 0;
 		setNearRouteEnd(false);
 		navStopsRef.current = pendingDest.stops;
 		setPendingDest(null);
@@ -805,6 +811,8 @@ export default function App() {
 		navDestRef.current = null;
 		navDestNameRef.current = null;
 		setNearRouteEnd(false);
+		setTrafficStale(false);
+		trafficMisses.current = 0;
 		navStopsRef.current = [];
 		clearRoute();
 		resumeFollowing();
@@ -858,9 +866,21 @@ export default function App() {
 		cameraTransitionRef.current = true;
 		map.flyTo({ center: lastPosRef.current, zoom: ZOOM_LEVEL, pitch: 45, bearing: lastBearingRef.current,
 			offset: [0, map.getContainer().clientHeight * 0.2], duration: 8000 });
-		const finish = () => { cameraTransitionRef.current = false; };
+		let finished = false;
+		const finish = () => {
+			if (finished) return;
+			finished = true;
+			window.clearTimeout(safety);
+			// The flight's own offset is not reliable (it can end with the car at the screen centre), and the follow loop
+			// only re-applies the offset when something changes, so set the resting camera explicitly: the car where the
+			// open or closed panels say it belongs.
+			map.easeTo({ center: lastPosRef.current, offset: [0, map.getContainer().clientHeight * mapOffset.current], duration: 0 });
+			cameraTransitionRef.current = false;
+		};
+		// If the flight is interrupted or never reports its end, do not leave the camera stuck in transition.
+		const safety = window.setTimeout(finish, 9000);
 		map.once("moveend", finish);
-		return () => { map.off("moveend", finish); cameraTransitionRef.current = false; };
+		return () => { window.clearTimeout(safety); map.off("moveend", finish); cameraTransitionRef.current = false; };
 	}, [mapLoaded, gpsStatus === "fix", previewMode]);
 
 	// ── Speed signs ────────────────────────────────────────────────────────────

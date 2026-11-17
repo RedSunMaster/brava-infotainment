@@ -16,6 +16,19 @@ export function offsetForPanels(height: number, tops: number[], gap = height * 0
  return Math.min(CLOSED_OFFSET, Math.max(HIGHEST_OFFSET, puckY / height - 0.5));
 }
 
+/**
+ * Offset that puts the puck in the middle of the free band between a sheet hanging from the top
+ * (search, settings) and whatever rises from the bottom (keyboard, player or dock).
+ */
+export function offsetForBand(height: number, sheetBottom: number, limitTop: number): number {
+ if (height <= 0) return CLOSED_OFFSET;
+ const puckY = (sheetBottom + Math.max(sheetBottom, limitTop)) / 2;
+ return Math.min(0.45, Math.max(HIGHEST_OFFSET, puckY / height - 0.5));
+}
+
+/** A panel counts as hanging from the top when it starts in the upper third of the map. */
+const TOP_SHEET_SHARE = 0.3;
+
 const GLIDE_MS = 450;
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -61,12 +74,21 @@ export function useMapOcclusion(mapRef: React.RefObject<mapboxgl.Map | null>, lo
    }
    const bounds = map.getContainer().getBoundingClientRect();
    if (!bounds.height) return;
-   const tops = panels.map(panel => panel.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom).map(rect => Math.max(0, rect.top - bounds.top));
+   const rects = panels.map(panel => panel.getBoundingClientRect()).filter(rect => rect.width > 0 && rect.height > 0 && rect.bottom > bounds.top && rect.top < bounds.bottom);
+   const isSheet = (rect: DOMRect) => rect.top - bounds.top < bounds.height * TOP_SHEET_SHARE;
+   const tops = rects.filter(rect => !isSheet(rect)).map(rect => Math.max(0, rect.top - bounds.top));
+   const sheetBottoms = rects.filter(isSheet).map(rect => Math.min(bounds.height, rect.bottom - bounds.top));
    if (!panels.length) {
     const dock = document.querySelector("[data-dock]")?.getBoundingClientRect();
     if (dock && dock.height > 0) closedGap.current = Math.max(0, dock.top - bounds.top - (0.5 + CLOSED_OFFSET) * bounds.height);
    }
-   const next = offsetForPanels(bounds.height, tops, closedGap.current ?? undefined);
+   let next: number;
+   if (sheetBottoms.length) {
+    // Free band: below the sheet, above the keyboard / player, or else above the dock and its music card.
+    const dockTop = document.querySelector("[data-dock]")?.getBoundingClientRect().top;
+    const limit = tops.length ? Math.min(...tops) : dockTop != null ? dockTop - bounds.top : bounds.height;
+    next = offsetForBand(bounds.height, Math.max(...sheetBottoms), limit);
+   } else next = offsetForPanels(bounds.height, tops, closedGap.current ?? undefined);
    if (Math.abs(next - target) >= 0.01) glideTo(next);
   }
   function schedule() { if (!frame) frame = requestAnimationFrame(update); }

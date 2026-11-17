@@ -133,6 +133,17 @@ test("the place a query names outranks businesses that merely contain its name",
 	assert.equal(local[0].name, "Riccarton Mall Carpark");
 });
 
+test("equally good matches are listed nearest first", () => {
+	const near = (name, metres, coords) => ({ ...result(name, "supermarket", coords), distanceMeters: metres });
+	const matches = mergeResults([], [
+		near("PAK'nSAVE Moorhouse", 9600, [172.61, -43.54]),
+		near("PAK'nSAVE Wainoni", 9300, [172.70, -43.52]),
+		near("PAK'nSAVE Riccarton", 8500, [172.58, -43.53]),
+		near("PAK'nSAVE Hub", 12000, [172.64, -43.57]),
+	], "paknsave");
+	assert.deepEqual(matches.map(item => item.name), ["PAK'nSAVE Riccarton", "PAK'nSAVE Wainoni", "PAK'nSAVE Moorhouse", "PAK'nSAVE Hub"]);
+});
+
 test("map labels match their fuller search names without matching unrelated places", () => {
 	assert.equal(sameBusinessName("New World", "New World Northwood"), true);
 	assert.equal(sameBusinessName("Pak'nSave", "PAK'N SAVE Hornby"), true);

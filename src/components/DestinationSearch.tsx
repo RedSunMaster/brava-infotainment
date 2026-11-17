@@ -234,10 +234,12 @@ export default function DestinationSearch({
 	return (
 		<Box
 			role="region"
+			data-map-obstruction
 			aria-label="Destination search"
 			sx={{
 				...topSheetSx,
-				height: isNavActive ? "min(620px, 40vh)" : "min(820px, 45vh)",
+				// With the keyboard away the sheet takes the room it freed, so more results show at once.
+				height: isVisible ? (isNavActive ? "min(620px, 40vh)" : "min(820px, 45vh)") : (isNavActive ? "min(900px, 56vh)" : "min(1100px, 62vh)"),
 				display: "flex",
 				flexDirection: "column",
 			}}

@@ -246,6 +246,7 @@ export default function InAppKeyboard({
 
 			{/* Keyboard panel */}
 			<Box
+				data-map-obstruction
 				onMouseDown={(e) => e.stopPropagation()}
 				onTouchStart={(e) => e.stopPropagation()}
 				onTouchEnd={(e) => e.stopPropagation()}
