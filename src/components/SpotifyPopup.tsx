@@ -74,9 +74,9 @@ export default function SpotifyPopup({ spotify, isDriving, onClose }: Props) {
      <DriveButton color={track?.repeat !== "off" && track ? "primary" : "inherit"} disabled={!track} aria-label={`Repeat ${track?.repeat ?? "off"}`} onClick={() => void run(spotify.cycleRepeat)} sx={{ ...STEP_BUTTON, flex: "0 0 72px", minHeight: 64, minWidth: 0 }}>{track?.repeat === "track" ? <RepeatOneRounded /> : <RepeatRounded />}</DriveButton>
      {/* Volume, small and at the end of the row, in the same form as the music card. */}
      <Box role="group" aria-label={`Spotify volume ${spotify.volume}%`} sx={{ display: "flex", alignItems: "center", ml: 1, pl: 1.5, borderLeft: "1px solid", borderColor: "divider" }}>
-      <DriveButton color="inherit" disabled={!track || spotify.volume <= 0} aria-label="Decrease Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.max(0, spotify.volume - 5)))} sx={{ minWidth: 0, flex: "0 0 52px", minHeight: 64 }}><ChevronLeftRounded /></DriveButton>
+      <DriveButton color="inherit" disabled={!track || spotify.volume <= 0} aria-label="Decrease Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.max(0, Math.ceil(spotify.volume / 10) * 10 - 10)))} sx={{ minWidth: 0, flex: "0 0 52px", minHeight: 64 }}><ChevronLeftRounded /></DriveButton>
       <Box aria-live="polite" sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, minWidth: 92 }}><VolumeUpRounded aria-hidden sx={{ fontSize: 30, color: "text.secondary" }} /><Typography sx={{ fontSize: 28, fontWeight: 500 }}>{spotify.volume}</Typography></Box>
-      <DriveButton color="inherit" disabled={!track || spotify.volume >= 100} aria-label="Increase Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.min(100, spotify.volume + 5)))} sx={{ minWidth: 0, flex: "0 0 52px", minHeight: 64 }}><ChevronRightRounded /></DriveButton>
+      <DriveButton color="inherit" disabled={!track || spotify.volume >= 100} aria-label="Increase Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.min(100, Math.floor(spotify.volume / 10) * 10 + 10)))} sx={{ minWidth: 0, flex: "0 0 52px", minHeight: 64 }}><ChevronRightRounded /></DriveButton>
      </Box>
     </Box>
    </>}

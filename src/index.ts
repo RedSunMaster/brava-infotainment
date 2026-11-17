@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage, session, screen } from "electron";
+import { app, BrowserWindow, components, ipcMain, safeStorage, session, screen } from "electron";
 import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { createConnection } from "net";
@@ -109,9 +109,11 @@ const createWindow = (): void => {
 				"Content-Security-Policy": [
 					"default-src 'self';" +
 						// cdn.jsdelivr.net serves the ONNX runtime used by the Kokoro voice.
-						"script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://cdn.jsdelivr.net;" +
+						"script-src 'self' 'unsafe-eval' 'unsafe-inline' blob: https://cdn.jsdelivr.net https://sdk.scdn.co;" +
 						"worker-src blob: 'self';" +
-						"connect-src 'self' blob: https://*.mapbox.com https://*.tiles.mapbox.com https://* http://localhost:8002;" +
+						"frame-src https://sdk.scdn.co;" +
+						"media-src 'self' blob: data: https://*;" +
+						"connect-src 'self' blob: https://*.mapbox.com https://*.tiles.mapbox.com https://* wss://*.spotify.com wss://*.scdn.co http://localhost:8002;" +
 						"img-src 'self' data: blob: https://*;" +
 						"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;" +
 						"font-src 'self' data: https://fonts.gstatic.com;",
@@ -263,6 +265,8 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.on("ready", async () => {
+	// Widevine (castlabs Electron) must be registered before the Spotify Web Playback SDK can play.
+	await components.whenReady().catch((e: unknown) => console.error("Widevine not ready:", e));
 	await loadDisplayPreview();
 	createWindow();
 });

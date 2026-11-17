@@ -12,12 +12,35 @@ const SCOPES = [
 	"user-read-currently-playing",
 	"playlist-read-private",
 	"playlist-read-collaborative",
+	"streaming", // the in-app player (Web Playback SDK)
+	"user-read-email",
+	"user-read-private",
 ].join(" ");
 
 const TOKEN_KEY = "spotify_access_token";
 const EXPIRY_KEY = "spotify_token_expiry";
 const VERIFIER_KEY = "spotify_code_verifier";
 const REFRESH_KEY = "spotify_refresh_token"; // web fallback only
+
+// ─── Web Playback SDK typings (minimal) ───────────────────────────────────────
+interface SpotifyPlayer {
+	addListener(event: string, cb: (state: any) => void): void;
+	getCurrentState(): Promise<any | null>;
+	getVolume(): Promise<number>;
+	setVolume(volume: number): Promise<void>;
+	resume(): Promise<void>;
+	pause(): Promise<void>;
+	nextTrack(): Promise<void>;
+	previousTrack(): Promise<void>;
+	connect(): Promise<boolean>;
+	disconnect(): void;
+}
+declare global {
+	interface Window {
+		Spotify?: { Player: new (opts: { name: string; getOAuthToken: (cb: (token: string) => void) => void; volume?: number }) => SpotifyPlayer };
+		onSpotifyWebPlaybackSDKReady?: () => void;
+	}
+}
 
 // ─── PKCE helpers ─────────────────────────────────────────────────────────────
 
@@ -157,6 +180,24 @@ export interface UseSpotifyReturn {
 	setVolume: (pct: number) => Promise<void>; // ← new
 }
 
+/** Turns the Web Playback SDK's state (local, instant) into the same shape the Web API polling produces. */
+function trackFromSdkState(state: any): SpotifyTrack | null {
+	const item = state?.track_window?.current_track;
+	if (!item) return null;
+	return {
+		id: item.id ?? item.uri,
+		name: item.name,
+		artists: (item.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+		albumName: item.album?.name ?? "",
+		albumArt: item.album?.images?.[0]?.url ?? "",
+		durationMs: state.duration ?? item.duration_ms ?? 0,
+		progressMs: state.position ?? 0,
+		isPlaying: !state.paused,
+		shuffle: !!state.shuffle,
+		repeat: state.repeat_mode === 2 ? "track" : state.repeat_mode === 1 ? "context" : "off",
+	};
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSpotify(): UseSpotifyReturn {
@@ -173,6 +214,8 @@ export function useSpotify(): UseSpotifyReturn {
 	const [searchResults, setSearchResults] = useState<SpotifyQueueItem[]>([]);
 	const [isLibraryLoading, setIsLibraryLoading] = useState(false);
 	const [volume, setVolumeState] = useState(50);
+	/** Bumped after each fresh sign-in so the in-app player restarts with the new permissions. */
+	const [playerEpoch, setPlayerEpoch] = useState(0);
 	const volumeSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// ── Shared token exchange (used by both Electron IPC and web fallback) ───
@@ -195,6 +238,8 @@ export function useSpotify(): UseSpotifyReturn {
 					storeToken(data.access_token, data.expires_in);
 					if (data.refresh_token) void saveRefreshToken(data.refresh_token);
 					setToken(data.access_token);
+					setPlayerEpoch((n) => n + 1);
+					setError(null);
 				}
 			})
 			.catch((e) => console.error("Spotify token exchange failed:", e))
@@ -395,6 +440,13 @@ export function useSpotify(): UseSpotifyReturn {
 	// ── Polling: fetch current playback every 3 s ────────────────────────────
 
 	const fetchPlayback = useCallback(async () => {
+		// When this app is the active player, read it locally: no network round trip, so no lag or stale values.
+		const local = playerRef.current ? await playerRef.current.getCurrentState().catch((): null => null) : null;
+		if (local) {
+			setTrack(trackFromSdkState(local));
+			if (!volumeSettleRef.current) void playerRef.current!.getVolume().then((v) => { if (!volumeSettleRef.current && typeof v === "number") setVolumeState(Math.round(v * 100)); }).catch((): void => undefined);
+			return;
+		}
 		const data = await spotifyFetch("/me/player");
 		if (!data?.item) {
 			setTrack(null);
@@ -426,16 +478,68 @@ export function useSpotify(): UseSpotifyReturn {
 		}
 		const poll = () => fetchPlayback().catch(() => setTrack(null));
 		poll();
-		pollRef.current = setInterval(poll, 3000);
+		pollRef.current = setInterval(poll, 1000);
 		return () => {
 			if (pollRef.current) clearInterval(pollRef.current);
 		};
 	}, [token, fetchPlayback]);
 
+	// ── The app as its own Spotify player (Web Playback SDK) ──────────────────
+	// Registers a "Brava" device inside this window, so no spotifyd / desktop app is needed.
+	// Needs Widevine (castlabs Electron) and Premium. Other devices are still used if it can't start.
+	const ownDeviceRef = useRef<string | null>(null);
+	const playerRef = useRef<SpotifyPlayer | null>(null);
+	const tokenRef = useRef<string | null>(token);
+	tokenRef.current = token;
+	const hasToken = !!token;
+	useEffect(() => {
+		if (!hasToken) return;
+		let player: SpotifyPlayer | null = null;
+		let cancelled = false;
+		const start = () => {
+			if (cancelled || !window.Spotify) return;
+			player = new window.Spotify.Player({
+				name: process.env.SPOTIFY_DEVICE_NAME || "Brava",
+				getOAuthToken: (cb) => {
+					const current = tokenRef.current ?? getStoredToken();
+					if (current) cb(current);
+					else void renewAccessToken().then((t) => { if (t) cb(t); });
+				},
+				volume: 0.5,
+			});
+			player.addListener("ready", ({ device_id }) => { ownDeviceRef.current = device_id; });
+			player.addListener("not_ready", () => { ownDeviceRef.current = null; });
+			for (const kind of ["initialization_error", "authentication_error", "account_error", "playback_error"] as const) {
+				player.addListener(kind, ({ message }) => {
+					console.error(`Spotify player ${kind}:`, message);
+					if (kind === "authentication_error") setError("Spotify needs new permissions. Tap Reconnect.");
+					if (kind === "account_error") setError("Spotify Premium is needed to play in the app.");
+					if (kind === "initialization_error") setError("This build cannot play Spotify audio (Widevine missing).");
+				});
+			}
+			playerRef.current = player;
+			void player.connect();
+		};
+		if (window.Spotify) start();
+		else {
+			window.onSpotifyWebPlaybackSDKReady = start;
+			if (!document.getElementById("spotify-sdk")) {
+				const script = document.createElement("script");
+				script.id = "spotify-sdk";
+				script.src = "https://sdk.scdn.co/spotify-player.js";
+				script.async = true;
+				document.body.appendChild(script);
+			}
+		}
+		return () => { cancelled = true; ownDeviceRef.current = null; playerRef.current = null; player?.disconnect(); };
+	}, [hasToken, playerEpoch]);
+
 	// ── The car's own player ─────────────────────────────────────────────────
 	// Nothing is "active" on a fresh start, and Spotify then refuses every command. So when nothing is
 	// playing, start on the car's player by name instead of asking the user to open Spotify somewhere.
 	const findCarDevice = useCallback(async (): Promise<string | null> => {
+		// The app's own in-window player wins when it is registered.
+		if (ownDeviceRef.current) return ownDeviceRef.current;
 		const data = await spotifyFetch("/me/player/devices");
 		const devices: { name: string; id: string | null; type: string; is_active: boolean; is_restricted: boolean }[] = (data?.devices ?? []).filter((item: { id: string | null; is_restricted: boolean }) => item.id && !item.is_restricted);
 		// The car's own player if it is there. Otherwise, so it also works on a development PC, whatever is
@@ -453,6 +557,9 @@ export function useSpotify(): UseSpotifyReturn {
 		return id ? `${path}${path.includes("?") ? "&" : "?"}device_id=${id}` : path;
 	}, [track, findCarDevice]);
 
+	/** True when this app is the active Spotify player, so controls can run locally and instantly. */
+	const localPlayer = useCallback(async (): Promise<boolean> => !!playerRef.current && !!(await playerRef.current.getCurrentState().catch((): null => null)), []);
+
 	// ── Playback controls ────────────────────────────────────────────────────
 
 	const play = useCallback(async () => {
@@ -465,16 +572,19 @@ export function useSpotify(): UseSpotifyReturn {
 				return;
 			}
 		}
+		if (await localPlayer()) { await playerRef.current!.resume(); setTrack((t) => t && { ...t, isPlaying: true }); return; }
 		await spotifyFetch("/me/player/play", "PUT");
 		setTrack((t) => t && { ...t, isPlaying: true });
 	}, [spotifyFetch, track, findCarDevice, fetchPlayback]);
 
 	const pause = useCallback(async () => {
-		await spotifyFetch("/me/player/pause", "PUT");
 		setTrack((t) => t && { ...t, isPlaying: false });
+		if (await localPlayer()) { await playerRef.current!.pause(); return; }
+		await spotifyFetch("/me/player/pause", "PUT");
 	}, [spotifyFetch]);
 
 	const next = useCallback(async () => {
+		if (await localPlayer()) { await playerRef.current!.nextTrack(); setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 250); return; }
 		await spotifyFetch("/me/player/next", "POST");
 		setTimeout(() => {
 			void fetchPlayback().catch(() => setTrack(null));
@@ -482,6 +592,7 @@ export function useSpotify(): UseSpotifyReturn {
 	}, [spotifyFetch, fetchPlayback]);
 
 	const previous = useCallback(async () => {
+		if (await localPlayer()) { await playerRef.current!.previousTrack(); setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 250); return; }
 		await spotifyFetch("/me/player/previous", "POST");
 		setTimeout(() => {
 			void fetchPlayback().catch(() => setTrack(null));
@@ -507,8 +618,9 @@ export function useSpotify(): UseSpotifyReturn {
 
 	const setVolume = useCallback(
 		async (pct: number) => {
-			await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
 			setVolumeState(pct);
+			if (await localPlayer()) await playerRef.current!.setVolume(pct / 100);
+			else await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
 			// Block fetchPlayback from overwriting this for 2s
 			if (volumeSettleRef.current) clearTimeout(volumeSettleRef.current);
 			volumeSettleRef.current = setTimeout(() => {
