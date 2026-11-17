@@ -198,6 +198,12 @@ function trackFromSdkState(state: any): SpotifyTrack | null {
 	};
 }
 
+/** The last volume set in the app, so the player starts at it instead of a fixed 50. */
+function savedVolume(): number {
+	try { const v = Number(localStorage.getItem("brava-spotify-volume")); if (localStorage.getItem("brava-spotify-volume") !== null && Number.isFinite(v)) return Math.min(100, Math.max(0, Math.round(v))); } catch { /* Use the default. */ }
+	return 50;
+}
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSpotify(): UseSpotifyReturn {
@@ -213,7 +219,7 @@ export function useSpotify(): UseSpotifyReturn {
 	const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
 	const [searchResults, setSearchResults] = useState<SpotifyQueueItem[]>([]);
 	const [isLibraryLoading, setIsLibraryLoading] = useState(false);
-	const [volume, setVolumeState] = useState(50);
+	const [volume, setVolumeState] = useState(savedVolume);
 	/** Bumped after each fresh sign-in so the in-app player restarts with the new permissions. */
 	const [playerEpoch, setPlayerEpoch] = useState(0);
 	const volumeSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -505,7 +511,7 @@ export function useSpotify(): UseSpotifyReturn {
 					if (current) cb(current);
 					else void renewAccessToken().then((t) => { if (t) cb(t); });
 				},
-				volume: 0.5,
+				volume: savedVolume() / 100,
 			});
 			player.addListener("ready", ({ device_id }) => { ownDeviceRef.current = device_id; });
 			player.addListener("not_ready", () => { ownDeviceRef.current = null; });
@@ -619,6 +625,7 @@ export function useSpotify(): UseSpotifyReturn {
 	const setVolume = useCallback(
 		async (pct: number) => {
 			setVolumeState(pct);
+			try { localStorage.setItem("brava-spotify-volume", String(pct)); } catch { /* Keep it for this session. */ }
 			if (await localPlayer()) await playerRef.current!.setVolume(pct / 100);
 			else await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
 			// Block fetchPlayback from overwriting this for 2s

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { isBool, isNumberIn, usePersistentState } from "../lib/usePersistentState";
 import { Box, Typography } from "@mui/material";
 import { alpha, type Theme } from "@mui/material/styles";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
@@ -113,13 +114,14 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
   }
  }), []);
  const { hideKeyboard } = useKeyboard();
- const [temp, setTemp] = useState(5);
- const [fan, setFan] = useState(3);
+ // Climate settings are remembered between drives (hazards deliberately are not).
+ const [temp, setTemp] = usePersistentState("brava-climate-temp", 5, isNumberIn(0, 100));
+ const [fan, setFan] = usePersistentState("brava-climate-fan", 3, isNumberIn(0, 20));
  const [hazards, setHazards] = useState(false);
- const [ac, setAc] = useState(false);
- const [recirculate, setRecirculate] = useState(false);
- const [airflow, setAirflow] = useState(0);
- const [rearDemist, setRearDemist] = useState(false);
+ const [ac, setAc] = usePersistentState("brava-climate-ac", false, isBool);
+ const [recirculate, setRecirculate] = usePersistentState("brava-climate-recirculate", false, isBool);
+ const [airflow, setAirflow] = usePersistentState("brava-climate-airflow", 0, isNumberIn(0, 20));
+ const [rearDemist, setRearDemist] = usePersistentState("brava-climate-rear-demist", false, isBool);
  const [error, setError] = useState<string | null>(null);
  // Which way the air blows, named for a moment after each change: the icon alone does not say.
  const [airflowNote, setAirflowNote] = useState<string | null>(null);
