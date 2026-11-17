@@ -176,8 +176,9 @@ const SpotifyLibrary = ({
 	const { showKeyboard, hideKeyboard } = useKeyboard();
 	const [tab, setTab] = useState<LibraryTab>("queue");
 	const [actionError, setActionError] = useState<string | null>(null);
-	async function playItem(action: () => Promise<void>) {
+	async function playItem(action: () => Promise<void>, thenGoBack = false) {
 		setActionError(null);
+		if (thenGoBack) { hideKeyboard(); onBack(); } // Back to the player at once; its own banner reports a failure.
 		try { await action(); } catch (error) { setActionError(error instanceof Error ? error.message : "Playback unavailable. Try again."); }
 	}
 	const [searchQuery, setSearchQuery] = useState("");
@@ -342,7 +343,7 @@ const SpotifyLibrary = ({
 							<PlaylistRow
 								key={pl.id}
 								playlist={pl}
-								onPlay={() => void playItem(() => playContext(pl.uri))}
+								onPlay={() => void playItem(() => playContext(pl.uri), true)}
 							/>
 						))}</Box>
 					)

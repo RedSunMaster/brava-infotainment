@@ -204,6 +204,14 @@ function savedVolume(): number {
 	return 50;
 }
 
+/** Setting key: resume the last music shortly after the app starts. Off unless switched on in Settings. */
+export const RESUME_KEY = "brava-resume-music";
+/** Setting key: play inside the app ("true", the default) or control the Spotify app on this device ("false"). */
+export const INAPP_PLAYER_KEY = "brava-inapp-player";
+export const INAPP_PLAYER_EVENT = "brava-inapp-player-changed";
+const inAppPlayerWanted = (): boolean => { try { return localStorage.getItem(INAPP_PLAYER_KEY) !== "false"; } catch { return true; } };
+let resumedThisLaunch = false;
+
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useSpotify(): UseSpotifyReturn {
@@ -495,11 +503,18 @@ export function useSpotify(): UseSpotifyReturn {
 	// Needs Widevine (castlabs Electron) and Premium. Other devices are still used if it can't start.
 	const ownDeviceRef = useRef<string | null>(null);
 	const playerRef = useRef<SpotifyPlayer | null>(null);
+	const [ownReady, setOwnReady] = useState(false);
 	const tokenRef = useRef<string | null>(token);
 	tokenRef.current = token;
 	const hasToken = !!token;
+	const [inApp, setInApp] = useState(inAppPlayerWanted);
 	useEffect(() => {
-		if (!hasToken) return;
+		const update = () => setInApp(inAppPlayerWanted());
+		window.addEventListener(INAPP_PLAYER_EVENT, update);
+		return () => window.removeEventListener(INAPP_PLAYER_EVENT, update);
+	}, []);
+	useEffect(() => {
+		if (!hasToken || !inApp) return;
 		let player: SpotifyPlayer | null = null;
 		let cancelled = false;
 		const start = () => {
@@ -513,11 +528,20 @@ export function useSpotify(): UseSpotifyReturn {
 				},
 				volume: savedVolume() / 100,
 			});
-			player.addListener("ready", ({ device_id }) => { ownDeviceRef.current = device_id; });
-			player.addListener("not_ready", () => { ownDeviceRef.current = null; });
+			player.addListener("ready", ({ device_id }) => { ownDeviceRef.current = device_id; setOwnReady(true); });
+			player.addListener("not_ready", () => { ownDeviceRef.current = null; setOwnReady(false); });
+			// Spotify skips to the next song on every playback error. If they keep coming (for example the audio licence is
+			// refused), stop instead of racing through the whole playlist.
+			const errorTimes: number[] = [];
 			for (const kind of ["initialization_error", "authentication_error", "account_error", "playback_error"] as const) {
 				player.addListener(kind, ({ message }) => {
 					console.error(`Spotify player ${kind}:`, message);
+					if (kind === "playback_error") {
+						const now = Date.now();
+						errorTimes.push(now);
+						while (errorTimes.length && now - errorTimes[0] > 8000) errorTimes.shift();
+						if (errorTimes.length >= 3) { errorTimes.length = 0; void player?.pause(); setError("Spotify could not play these songs in the app (audio licence refused). Playback stopped."); }
+					}
 					if (kind === "authentication_error") setError("Spotify needs new permissions. Tap Reconnect.");
 					if (kind === "account_error") setError("Spotify Premium is needed to play in the app.");
 					if (kind === "initialization_error") setError("This build cannot play Spotify audio (Widevine missing).");
@@ -538,7 +562,26 @@ export function useSpotify(): UseSpotifyReturn {
 			}
 		}
 		return () => { cancelled = true; ownDeviceRef.current = null; playerRef.current = null; player?.disconnect(); };
-	}, [hasToken, playerEpoch]);
+	}, [hasToken, playerEpoch, inApp]);
+
+	// ── Optional: carry on with the last music a few seconds after start-up (Settings > Music on start) ──
+	// Once per launch, and never takes over a phone or other device that is already playing.
+	useEffect(() => {
+		if (!ownReady || resumedThisLaunch) return;
+		let wanted = false;
+		try { wanted = localStorage.getItem(RESUME_KEY) === "true"; } catch { /* Off. */ }
+		if (!wanted) return;
+		const timer = setTimeout(() => {
+			resumedThisLaunch = true;
+			void (async () => {
+				const current = await spotifyFetch("/me/player");
+				if (current?.is_playing) return;
+				const id = ownDeviceRef.current;
+				if (id) await spotifyFetch("/me/player", "PUT", { device_ids: [id], play: true }).catch((): void => undefined);
+			})();
+		}, 3000);
+		return () => clearTimeout(timer);
+	}, [ownReady, spotifyFetch]);
 
 	// ── The car's own player ─────────────────────────────────────────────────
 	// Nothing is "active" on a fresh start, and Spotify then refuses every command. So when nothing is

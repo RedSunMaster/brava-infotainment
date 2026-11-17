@@ -96,6 +96,8 @@ const createWindow = (): void => {
 			preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
 			nodeIntegration: true,
 			contextIsolation: false,
+			// Music must be able to start with no tap first (resuming after boot, or started from a phone).
+			autoplayPolicy: "no-user-gesture-required",
 		},
 	});
 
