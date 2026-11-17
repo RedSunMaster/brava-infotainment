@@ -1,0 +1,15 @@
+# Copy to ~/.config/systemd/user/spotifyd.service, then:
+#   systemctl --user daemon-reload && systemctl --user enable --now spotifyd
+#   loginctl enable-linger "$USER"      # starts it at boot, before anyone logs in
+[Unit]
+Description=Brava Spotify player
+Wants=network-online.target sound.target
+After=network-online.target sound.target
+
+[Service]
+ExecStart=/usr/bin/spotifyd --no-daemon --config-path %h/.config/spotifyd/spotifyd.conf
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

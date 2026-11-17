@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Box, Collapse, Typography } from "@mui/material";
 import { alpha, useTheme } from "@mui/material/styles";
 import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
@@ -18,6 +19,8 @@ interface Props {
 	timeToNextS?: number | null;
 	isDriving: boolean;
 	onExpandedChange?: (expanded: boolean) => void;
+	/** Where the upcoming turns list goes: an element in the overlay stack, so it takes its own place below everything else instead of floating over it. */
+	listContainer?: HTMLElement | null;
 }
 
 function distanceLabel(meters: number | null | undefined, fallbackKm?: number) {
@@ -35,6 +38,7 @@ export default function NavigationCard({
 	isDriving,
 	onExpandedChange,
 	onRepeat,
+	listContainer,
 }: Props) {
 	const [expanded, setExpanded] = useState(false);
 	const theme = useTheme();
@@ -70,6 +74,86 @@ export default function NavigationCard({
 		? "Your stop"
 		: glanceLabel(current.instruction);
 
+	// Below the trip card and every banner, so opening it never covers a control and End stays put.
+	const turnsList = (
+	<Collapse in={expanded} sx={listContainer ? { order: 3 } : { position: "absolute", top: "calc(100% + var(--car-target, 112px) + 30px)", left: 0, right: 0 }}>
+		<Box
+			sx={(theme) => ({
+				background: alpha(theme.palette.background.paper, 0.92),
+				backdropFilter: "blur(12px)",
+				borderRadius: "12px",
+				border: `1px solid ${theme.palette.divider}`,
+										boxShadow: theme.shadows[6],
+			})}
+		>
+			{upcoming.length === 0 && (
+				<Typography
+					sx={{
+						color: theme.palette.text.secondary,
+						fontSize: 24,
+						p: "10px 16px",
+					}}
+				>
+					No further steps
+				</Typography>
+			)}
+			{upcoming.map((m, i) => {
+				const StepIcon = getManeuverIcon(m);
+				return (
+					<Box
+						key={`${m.begin_shape_index}-${i}`}
+						sx={(theme) => ({
+							display: "flex",
+							alignItems: "center",
+							gap: 1.5,
+							padding: "12px 16px",
+							borderTop:
+								i > 0
+									? `1px solid ${alpha(theme.palette.text.primary, 0.05)}`
+									: "none",
+						})}
+					>
+						<Box
+							sx={(theme) => ({
+								width: 42,
+								height: 42,
+								borderRadius: "8px",
+								background: alpha(theme.palette.primary.main, 0.2),
+								border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
+								display: "flex",
+								alignItems: "center",
+								justifyContent: "center",
+								flexShrink: 0,
+							})}
+						>
+							<StepIcon sx={{ fontSize: 24, color: theme.palette.primary.main }} />
+						</Box>
+						<Box sx={{ flex: 1, minWidth: 0 }}>
+							<Typography
+								sx={{
+									color: theme.palette.text.primary,
+									fontSize: 28,
+									fontWeight: 600,
+									lineHeight: 1.22,
+									overflow: "hidden",
+									display: "-webkit-box",
+									WebkitLineClamp: isDriving ? 2 : 1,
+									WebkitBoxOrient: "vertical",
+								}}
+							>
+								{m.instruction}
+							</Typography>
+							<Typography sx={{ color: "text.secondary", fontSize: 22, mt: 0.35 }}>
+								{distanceLabel(null, m.length)}
+							</Typography>
+						</Box>
+					</Box>
+				);
+			})}
+		</Box>
+	</Collapse>
+	);
+
 	return (
 		<Box
 			role="button" tabIndex={0} aria-label="Show upcoming turns" aria-expanded={expanded}
@@ -79,15 +163,15 @@ export default function NavigationCard({
 		>
 			<Box
 				sx={(theme) => ({
-					background: alpha(theme.palette.surface.main, 0.97),
-					backdropFilter: "blur(10px)",
-					borderRadius: "12px",
-					padding: "14px 18px",
+					background: alpha(theme.palette.background.paper, 0.92),
+					backdropFilter: "blur(12px)",
+					borderRadius: theme.spacing(3),
+					padding: "12px 16px",
 					display: "flex",
 					alignItems: "center",
 					gap: 1.5,
-					boxShadow: "0 5px 24px rgba(0,0,0,0.62)",
-					border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
+					boxShadow: theme.shadows[6],
+					border: `1px solid ${theme.palette.divider}`,
 					transition: "border-radius 0.2s",
 				})}
 			>
@@ -101,7 +185,7 @@ export default function NavigationCard({
 						alignItems: "center",
 						justifyContent: "center",
 						flexShrink: 0,
-						boxShadow: `0 4px 18px ${alpha(theme.palette.primary.main, 0.38)}`,
+						
 					})}
 				>
 					<CurrentIcon
@@ -172,84 +256,7 @@ export default function NavigationCard({
 			</Box>
 			{junction && <Box component="img" src={junction.url} alt="Upcoming junction illustration" onError={(event: React.SyntheticEvent<HTMLImageElement>) => { event.currentTarget.style.display = "none"; }} sx={{ display: "block", maxWidth: "100%", maxHeight: 240, mx: "auto", borderRadius: 2 }} />}
 
-			{/* Drops down beneath the trip card as an overlay: it neither pushes the
-			    trip card (End stays put) nor covers the ETA and End button. */}
-			<Collapse in={expanded} sx={{ position: "absolute", top: "calc(100% + var(--car-target, 112px) + 30px)", left: 0, right: 0 }}>
-				<Box
-					sx={(theme) => ({
-						background: alpha(theme.palette.surface.main, 0.97),
-						backdropFilter: "blur(10px)",
-						borderRadius: "12px",
-						border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`,
-												boxShadow: "0 8px 24px rgba(0,0,0,0.58)",
-					})}
-				>
-					{upcoming.length === 0 && (
-						<Typography
-							sx={{
-								color: theme.palette.text.secondary,
-								fontSize: 24,
-								p: "10px 16px",
-							}}
-						>
-							No further steps
-						</Typography>
-					)}
-					{upcoming.map((m, i) => {
-						const StepIcon = getManeuverIcon(m);
-						return (
-							<Box
-								key={`${m.begin_shape_index}-${i}`}
-								sx={(theme) => ({
-									display: "flex",
-									alignItems: "center",
-									gap: 1.5,
-									padding: "12px 16px",
-									borderTop:
-										i > 0
-											? `1px solid ${alpha(theme.palette.text.primary, 0.05)}`
-											: "none",
-								})}
-							>
-								<Box
-									sx={(theme) => ({
-										width: 42,
-										height: 42,
-										borderRadius: "8px",
-										background: alpha(theme.palette.primary.main, 0.2),
-										border: `1px solid ${alpha(theme.palette.primary.main, 0.3)}`,
-										display: "flex",
-										alignItems: "center",
-										justifyContent: "center",
-										flexShrink: 0,
-									})}
-								>
-									<StepIcon sx={{ fontSize: 24, color: theme.palette.primary.main }} />
-								</Box>
-								<Box sx={{ flex: 1, minWidth: 0 }}>
-									<Typography
-										sx={{
-											color: theme.palette.text.primary,
-											fontSize: 28,
-											fontWeight: 600,
-											lineHeight: 1.22,
-											overflow: "hidden",
-											display: "-webkit-box",
-											WebkitLineClamp: isDriving ? 2 : 1,
-											WebkitBoxOrient: "vertical",
-										}}
-									>
-										{m.instruction}
-									</Typography>
-									<Typography sx={{ color: "text.secondary", fontSize: 22, mt: 0.35 }}>
-										{distanceLabel(null, m.length)}
-									</Typography>
-								</Box>
-							</Box>
-						);
-					})}
-				</Box>
-			</Collapse>
+			{listContainer ? createPortal(turnsList, listContainer) : turnsList}
 		</Box>
 	);
 }

@@ -8,6 +8,7 @@ import {
 	ListItemButton,
 	Typography,
 } from "@mui/material";
+import { alpha, type Theme } from "@mui/material/styles";
 import CloseRounded from "@mui/icons-material/CloseRounded";
 import HistoryRounded from "@mui/icons-material/HistoryRounded";
 import LocationOnRounded from "@mui/icons-material/LocationOnRounded";
@@ -77,7 +78,8 @@ export const topSheetSx = {
 	top: "calc(100% + 12px)",
 	left: 0,
 	right: 0,
-	bgcolor: "background.paper",
+	bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.94),
+	backdropFilter: "blur(12px)",
 	borderRadius: 3,
 	border: "1px solid",
 	borderColor: "divider",
@@ -235,7 +237,7 @@ export default function DestinationSearch({
 			aria-label="Destination search"
 			sx={{
 				...topSheetSx,
-				height: "min(820px, 45vh)",
+				height: isNavActive ? "min(620px, 40vh)" : "min(820px, 45vh)",
 				display: "flex",
 				flexDirection: "column",
 			}}
@@ -252,9 +254,9 @@ export default function DestinationSearch({
 					<Typography sx={{ fontSize: 32, fontWeight: 800 }}>
 						{title ?? (isNavActive ? "Add a stop" : "Where to?")}
 					</Typography>
-					<Typography sx={{ fontSize: 22, color: "text.secondary" }}>
+					{!isNavActive && <Typography sx={{ fontSize: 22, color: "text.secondary" }}>
 						Search New Zealand
-					</Typography>
+					</Typography>}
 				</Box>
 				<DriveButton aria-label="Close destination search" onClick={close}>
 					<CloseRounded />
@@ -286,9 +288,9 @@ export default function DestinationSearch({
 						border: "1px solid",
 						borderColor: "divider",
 						borderRadius: 2,
-						p: 2,
-						fontSize: 30,
-						minHeight: 96,
+						p: isNavActive ? 1.5 : 2,
+						fontSize: isNavActive ? 26 : 30,
+						minHeight: isNavActive ? 72 : 96,
 					}}
 				/>
 				{query && (
@@ -317,13 +319,13 @@ export default function DestinationSearch({
 					{isVisible ? <KeyboardHideRounded /> : <KeyboardRounded />}
 				</DriveButton>
 			</Box>
-			{category && <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Typography sx={{ fontSize: 26, fontWeight: 700, flex: 1 }}>{stopCategoryLabel(category)} along your route</Typography><DriveButton variant="outlined" aria-label="Clear stop category" onClick={() => setCategory(null)} sx={{ minWidth: 56, minHeight: 56, p: 0 }}><CloseRounded /></DriveButton></Box>}
+			{category && <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Typography sx={{ fontSize: 26, fontWeight: 700, flex: 1 }}>{stopCategoryLabel(category)} along your route{status === "ready" ? ` · ${results.length}` : ""}</Typography><DriveButton variant="outlined" aria-label="Clear stop category" onClick={() => setCategory(null)} sx={{ minWidth: 56, minHeight: 56, p: 0 }}><CloseRounded /></DriveButton></Box>}
 			<Box
 				role="status"
 				aria-live="polite"
 				sx={{
 					minHeight: 42,
-					display: "flex",
+					display: category && status === "ready" ? "none" : "flex",
 					alignItems: "center",
 					gap: 2,
 					flexShrink: 0,
@@ -381,20 +383,20 @@ export default function DestinationSearch({
 							sx={{
 								minHeight: "var(--car-target)",
 								gap: 2,
-								py: 2,
+								py: 1,
 								borderBottom: "1px solid",
 								borderColor: "divider",
 							}}
 						>
 							<LocationOnRounded sx={{ fontSize: 36, flexShrink: 0 }} />
 							<Box sx={{ flex: 1, minWidth: 0 }}>
-								<Typography sx={{ fontSize: 28, fontWeight: 700 }}>
+								<Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>
 									{item.name}
 								</Typography>
-								<Typography sx={{ fontSize: 22, color: "text.secondary" }}>
-									{item.address}
+								<Typography noWrap sx={{ fontSize: 22, color: "text.secondary" }}>
+									{item.address.replace(/,? (\d{4},?)? ?New Zealand$/, "").replace(/ \d{4}$/, "")}
 								</Typography>
-								<Typography
+								{!category && <Typography
 									sx={{
 										fontSize: 20,
 										color: "text.secondary",
@@ -402,7 +404,7 @@ export default function DestinationSearch({
 									}}
 								>
 									{item.kind}
-								</Typography>
+								</Typography>}
 							</Box>
 							<Box sx={{ textAlign: "right", whiteSpace: "nowrap" }}>
 								{item.detourSeconds != null && <Typography sx={{ fontSize: 28, fontWeight: 800, color: item.detourSeconds < 45 ? "success.main" : "text.primary" }}>{formatDetour(item.detourSeconds)}</Typography>}

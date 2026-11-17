@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Box, Typography } from "@mui/material";
+import { alpha, type Theme } from "@mui/material/styles";
 
 import type { NormalizedManeuver } from "../lib/routing";
 import { remainingTrip } from "../lib/tripMetrics";
@@ -26,20 +27,22 @@ export default function TripInfoCard({ maneuvers, currentStep, distanceToNextM, 
  const { km, seconds } = remainingTrip(maneuvers, currentStep, distanceToNextM, timeToNextS);
  // Same format as the status-bar clock.
  const eta = new Date(now + seconds * 1000).toLocaleTimeString("en-NZ", { hour: "2-digit", minute: "2-digit" });
- const cardSx = { bgcolor: "background.paper", borderRadius: 3, border: "1px solid", borderColor: "divider", px: 2, display: "flex", alignItems: "center", gap: 1, minHeight: "calc(var(--car-target, 112px) + 2px)" };
+ // A slim bar: arrival time and distance on the left, a few big buttons on the right.
+ const cardSx = { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", boxShadow: 6, borderRadius: 3, border: "1px solid", borderColor: "divider", pl: 2, pr: 1, display: "flex", alignItems: "center", gap: 1, minHeight: 92, "& .MuiButton-root": { minHeight: 76 } };
  if (confirmEnd) return <Box role="alertdialog" aria-labelledby="end-navigation-title" sx={cardSx}>
   <Typography id="end-navigation-title" sx={{ flex: 1, fontSize: 34, fontWeight: 800 }}>End navigation?</Typography>
-  <DriveButton autoFocus variant="outlined" onClick={() => setConfirmEnd(false)} sx={{ px: 3 }}>Keep route</DriveButton>
+  <DriveButton autoFocus variant="outlined" onClick={() => setConfirmEnd(false)} sx={{ px: 3, borderRadius: 8 }}>Keep route</DriveButton>
   {/* Ignores the tail of a double-tap on End so one touch cannot end the route. */}
-  <DriveButton color="error" variant="contained" onClick={() => { if (Date.now() - confirmOpenedAt.current > 500) onEndNav(); }} sx={{ px: 3 }}>End route</DriveButton>
+  <DriveButton color="error" variant="contained" onClick={() => { if (Date.now() - confirmOpenedAt.current > 500) onEndNav(); }} sx={{ px: 3, borderRadius: 8 }}>End route</DriveButton>
  </Box>;
  return <Box sx={cardSx}>
-  <Box sx={{ flex: 1, minWidth: 0 }}><Typography sx={{ fontSize: 34, fontWeight: 800 }}>{eta}</Typography><Typography sx={{ fontSize: 26, color: "text.secondary" }}>{Math.ceil(seconds / 60)} min · {km >= 1 ? km.toFixed(1) + " km" : Math.round(km * 1000) + " m"}</Typography></Box>
-  {onToggleMute && <DriveButton color={muted ? "error" : "inherit"} aria-label={muted ? "Unmute navigation" : "Mute navigation"} aria-pressed={muted} disabled={!voiceSupported} onClick={onToggleMute}>{muted ? <VolumeOffRounded /> : <VolumeUpRounded />}</DriveButton>}
-  {/* Shows the current mode: an arrow for heading-up, a compass for north-up. */}
-  {onToggleOrientation && <DriveButton color="inherit" aria-label={orientation === "heading" ? "Switch to north up" : "Switch to heading up"} onClick={onToggleOrientation}>{orientation === "heading" ? <NavigationRounded /> : <ExploreRounded />}</DriveButton>}
-  {onLocate && <DriveButton color="inherit" aria-label="Centre on location" disabled={!canLocate} onClick={onLocate}><MyLocationRounded /></DriveButton>}
+  <Box sx={{ flex: 1, minWidth: 0 }}><Typography sx={{ fontSize: 34, fontWeight: 800, lineHeight: 1.1 }}>{eta}</Typography><Typography sx={{ fontSize: 24, color: "text.secondary", lineHeight: 1.2 }}>{Math.ceil(seconds / 60)} min · {km >= 1 ? km.toFixed(1) + " km" : Math.round(km * 1000) + " m"}</Typography></Box>
+  {onToggleMute && <DriveButton color="inherit" aria-label={muted ? "Unmute navigation" : "Mute navigation"} aria-pressed={muted} disabled={!voiceSupported} onClick={onToggleMute}>{muted ? <VolumeOffRounded /> : <VolumeUpRounded />}</DriveButton>}
+  {/* One view button, as on the idle screen: it recentres once the map has been moved away, and otherwise
+      switches between heading-up (arrow) and north-up (compass). */}
+  {onLocate && canLocate ? <DriveButton color="inherit" aria-label="Centre on location" onClick={onLocate}><MyLocationRounded /></DriveButton>
+   : onToggleOrientation && <DriveButton color="inherit" aria-label={orientation === "heading" ? "Switch to north up" : "Switch to heading up"} onClick={onToggleOrientation}>{orientation === "heading" ? <NavigationRounded /> : <ExploreRounded />}</DriveButton>}
   {onToggleTools && <DriveButton color="inherit" variant={toolsOpen ? "contained" : "text"} aria-label="Navigation options" aria-expanded={toolsOpen} aria-controls={toolsOpen ? "navigation-options" : undefined} onClick={onToggleTools}><MoreHorizRounded /></DriveButton>}
-  <DriveButton variant="outlined" aria-label="End navigation" onClick={() => { confirmOpenedAt.current = Date.now(); setConfirmEnd(true); }}>End</DriveButton>
+  <DriveButton variant="outlined" aria-label="End navigation" onClick={() => { confirmOpenedAt.current = Date.now(); setConfirmEnd(true); }} sx={{ borderRadius: 8, px: 3.5, minHeight: 64, fontSize: 24, fontWeight: 700 }}>End</DriveButton>
  </Box>;
 }

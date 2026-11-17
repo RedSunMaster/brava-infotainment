@@ -1,37 +1,98 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Box, Typography } from "@mui/material";
+import { Box, Typography } from "@mui/material";
+import { alpha, type Theme } from "@mui/material/styles";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
-import AddRounded from "@mui/icons-material/AddRounded";
-import RemoveRounded from "@mui/icons-material/RemoveRounded";
+import AirRounded from "@mui/icons-material/AirRounded";
+import DeviceThermostatRounded from "@mui/icons-material/DeviceThermostatRounded";
+import ChevronLeftRounded from "@mui/icons-material/ChevronLeftRounded";
+import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
+import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
 import PauseRounded from "@mui/icons-material/PauseRounded";
 import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
 import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
-import VolumeOffRounded from "@mui/icons-material/VolumeOffRounded";
-import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
 import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
-import ExpandMoreRounded from "@mui/icons-material/ExpandMoreRounded";
 import DriveButton from "./DriveButton";
 import SpotifyPopup from "./SpotifyPopup";
+import QuietNotice from "./QuietNotice";
 import { useSpotify } from "../hooks/useSpotify";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import { audioDucking, duckedVolume } from "../lib/audioDucking";
 import RearDefrostIcon from "../../public/icons/rearWindshieldDefrost.svg";
+import AirflowFaceIcon from "../../public/icons/airflowFace.svg";
+import AirflowFaceFeetIcon from "../../public/icons/airflowFaceFeet.svg";
+import AirflowFeetIcon from "../../public/icons/airflowFeet.svg";
+import AirflowFeetScreenIcon from "../../public/icons/airflowFeetScreen.svg";
+import AirflowScreenIcon from "../../public/icons/airflowScreen.svg";
+import RecirculateIcon from "../../public/icons/carFanOutIn.svg";
 
 // Flip when a real vehicle interface (CAN/serial) drives these controls.
 const VEHICLE_CONNECTED = false;
-interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | "climate" | null; setPanel: (panel: "media" | "climate" | null) => void }
-interface StepControlProps { label: string; value: number; onChange: (value: number) => void; maximum: number; displayValue?: string }
-function StepControl({ label, value, onChange, maximum, displayValue }: StepControlProps) {
- return <Box sx={{ display: "flex", alignItems: "center", flex: "1 1 0", minWidth: 0 }}>
-  <DriveButton color="inherit" aria-label={`Decrease ${label.toLowerCase()}`} disabled={value === 0} onClick={() => onChange(Math.max(0, value - 1))}><RemoveRounded /></DriveButton>
-  <Box sx={{ textAlign: "center", flex: 1 }}>
-   <Typography sx={{ fontSize: 24, color: "text.secondary" }}>{label}</Typography>
-   <Typography aria-live="polite" sx={{ fontSize: 32, fontWeight: 800 }}>{displayValue ?? value}</Typography>
+/**
+ * Where the fan blows, in the order a car steps through them. The pictograms are the standard
+ * ones: a seated person with arrows to the face and feet, and the windscreen symbol for demisting
+ * (Material Symbols "car fan" and "car defrost" icons, Apache 2.0).
+ */
+const AIRFLOW_MODES = [
+	{ name: "face", Icon: AirflowFaceIcon },
+	{ name: "face and feet", Icon: AirflowFaceFeetIcon },
+	{ name: "feet", Icon: AirflowFeetIcon },
+	{ name: "feet and windscreen", Icon: AirflowFeetScreenIcon },
+	{ name: "windscreen", Icon: AirflowScreenIcon },
+] as const;
+
+interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | null; setPanel: (panel: "media" | null) => void }
+interface StepControlProps { label: string; /** Shown beside the value instead of the label, which stays as the accessible name. */ icon?: React.ElementType; value: number; onChange: (value: number) => void; maximum: number; step?: number; displayValue?: string; /** A picture of the value, shown under the number. */ meter?: React.ReactNode; /** Share of the row, relative to the other steppers. */ grow?: number; disabled?: boolean; className?: string }
+/** The ‹ › beside a value: flat chevrons with the value as the centre of the cell. */
+const CHEVRON_BUTTON = { flex: "0 0 56px", minWidth: 0, minHeight: 96, borderRadius: 0, color: "text.secondary", "&:hover": { bgcolor: "action.hover", color: "text.primary" }, "& .MuiSvgIcon-root": { fontSize: 40 } } as const;
+function StepControl({ label, icon: Icon, value, onChange, maximum, step = 1, displayValue, meter, grow = 1, disabled, className }: StepControlProps) {
+ return <Box className={className} sx={{ display: "flex", alignItems: "stretch", flex: `${grow} 1 0`, minWidth: 0 }}>
+  <DriveButton color="inherit" sx={CHEVRON_BUTTON} aria-label={`Decrease ${label.toLowerCase()}`} disabled={disabled || value <= 0} onClick={() => onChange(Math.max(0, value - step))}><ChevronLeftRounded /></DriveButton>
+  <Box sx={{ flex: 1, minWidth: 0, display: "grid", alignContent: "center", justifyItems: "center", gap: 0.25, px: 0.5 }}>
+   <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+    {Icon && <Icon aria-hidden sx={{ fontSize: 30, color: "text.secondary" }} />}
+    <Typography aria-live="polite" sx={{ fontSize: 36, fontWeight: 500, lineHeight: 1.05, letterSpacing: "-0.5px" }}>{displayValue ?? value}</Typography>
+   </Box>
+   {meter}
   </Box>
-  <DriveButton color="inherit" aria-label={`Increase ${label.toLowerCase()}`} disabled={value === maximum} onClick={() => onChange(Math.min(maximum, value + 1))}><AddRounded /></DriveButton>
+  <DriveButton color="inherit" sx={CHEVRON_BUTTON} aria-label={`Increase ${label.toLowerCase()}`} disabled={disabled || value >= maximum} onClick={() => onChange(Math.min(maximum, value + step))}><ChevronRightRounded /></DriveButton>
  </Box>;
 }
+
+/** Cool to warm: a blue-to-orange scale with a marker at the current setting. */
+function WarmthMeter({ value }: { value: number }) {
+ return <Box aria-hidden sx={{ position: "relative", width: "80%", maxWidth: 160, height: 8, mt: 0.5, borderRadius: 6, background: "linear-gradient(90deg, #38BDF8, #FFD166 55%, #FF7A3D)" }}>
+  <Box sx={{ position: "absolute", top: -5, left: `calc(${value * 10}% - 9px)`, width: 18, height: 18, borderRadius: "50%", bgcolor: "#fff", border: "3px solid", borderColor: "background.default", boxSizing: "border-box", boxShadow: "0 0 0 2px #fff" }} />
+ </Box>;
+}
+/** Fan strength: ten bars that grow taller, lit up to the current setting. */
+function FanMeter({ value }: { value: number }) {
+ return <Box aria-hidden sx={{ display: "flex", alignItems: "flex-end", gap: "4px", width: "70%", maxWidth: 140, height: 20, mt: 0.25 }}>
+  {Array.from({ length: 10 }, (_, index) => <Box key={index} sx={{ flex: 1, height: `${30 + index * 7.8}%`, borderRadius: "3px", bgcolor: index < value ? "primary.main" : "text.disabled", opacity: index < value ? 1 : 0.45 }} />)}
+ </Box>;
+}
+
+/**
+ * A flat, icon-only switch for the dock bar: no fill, no rounding and no hover effect. A bar runs flush
+ * along the bottom edge only while it is on, in the accent colour.
+ * Without `pressed` it is a plain button (the airflow one, which steps through settings rather than
+ * switching on and off) and never shows the bar. The hazards use the red tone: red even when off, and
+ * tinted as well as barred when on.
+ */
+function Switch({ label, pressed, onClick, children, width, className, tone = "primary" }: { label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode; width?: number; className?: string; tone?: "primary" | "error" }) {
+ const on = pressed === true;
+ const background = on && tone === "error" ? (theme: Theme) => alpha(theme.palette.error.main, 0.2) : "transparent";
+ return <DriveButton className={className} aria-label={label} title={label} aria-pressed={pressed} onClick={onClick}
+  sx={{ flex: width ? `0 0 ${width}px` : 1, minWidth: 0, minHeight: 96, borderRadius: 0,
+   color: on ? `${tone}.main` : tone === "error" ? "error.main" : "text.primary",
+   bgcolor: background, "&:hover": { bgcolor: background },
+   // A pseudo-element rather than a shadow, so no hover, focus or ripple state can paint over it.
+   "&::after": on ? { content: '""', position: "absolute", left: 0, right: 0, bottom: 0, height: 6, zIndex: 1, bgcolor: (theme: Theme) => theme.palette[tone].main, pointerEvents: "none" } : undefined,
+   "& .MuiSvgIcon-root": { fontSize: 46 } }}>
+  {children}
+ </DriveButton>;
+}
+
 export default function CarControls({ overlay, isDriving, panel: tab, setPanel: setTab }: Props) {
  const spotify = useSpotify();
  const spotifyRef = useRef(spotify);
@@ -52,65 +113,59 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
   }
  }), []);
  const { hideKeyboard } = useKeyboard();
- // The mini player only earns its row once an account is linked; until then
- // Spotify is reached through the Media button.
- const [musicVisible, setMusicVisible] = useState(spotify.isConnected);
- useEffect(() => { if (spotify.isConnected) setMusicVisible(true); }, [spotify.isConnected]);
  const [temp, setTemp] = useState(5);
  const [fan, setFan] = useState(3);
  const [hazards, setHazards] = useState(false);
- const [rearDemist, setRearDemist] = useState(false);
  const [ac, setAc] = useState(false);
- const [airflow, setAirflow] = useState<"Face" | "Feet" | "Screen">("Face");
+ const [recirculate, setRecirculate] = useState(false);
+ const [airflow, setAirflow] = useState(0);
+ const [rearDemist, setRearDemist] = useState(false);
  const [error, setError] = useState<string | null>(null);
- const previousVolume = useRef(50);
+ // Which way the air blows, named for a moment after each change: the icon alone does not say.
+ const [airflowNote, setAirflowNote] = useState<string | null>(null);
+ useEffect(() => { if (!error) return; const timer = window.setTimeout(() => setError(null), 6000); return () => window.clearTimeout(timer); }, [error]);
+ useEffect(() => { if (!airflowNote) return; const timer = window.setTimeout(() => setAirflowNote(null), 1800); return () => window.clearTimeout(timer); }, [airflowNote]);
  const ready = spotify.isConnected && spotify.track !== null;
  useEffect(() => { if (isDriving) { setTab(null); hideKeyboard(); } }, [isDriving, hideKeyboard, setTab]);
  async function mediaAction(action: () => Promise<void>) {
   setError(null);
   try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Playback unavailable. Try again."); }
  }
- const mute = () => mediaAction(async () => {
-  const current = duckedFrom.current ?? spotify.volume;
-  duckedFrom.current = null;
-  if (current > 0) { previousVolume.current = current; await spotify.setVolume(0); }
-  else await spotify.setVolume(previousVolume.current || 50);
- });
- return <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 1, p: "0 16px 16px", pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
-  {overlay && <Box sx={{ alignSelf: "flex-end", "&&": { pointerEvents: "none" } }}>{overlay}</Box>}
-  {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
-  {tab && <Box role="region" id="dashboard-panel" data-map-obstruction aria-label={`${tab} controls`} sx={{ maxHeight: "min(50vh, 760px)", overflowY: "auto", position: "relative", boxShadow: 8, bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 3, p: 2 }}>
-   {tab === "media" && <SpotifyPopup spotify={spotify} isDriving={isDriving} />}
-   {tab === "climate" && <Box sx={{ display: "grid", gap: 2 }}>
-    <Box><Typography sx={{ fontSize: 32, fontWeight: 800 }}>Cabin comfort</Typography><Typography sx={{ fontSize: 22, color: "text.secondary" }}>Preview controls · vehicle not connected</Typography></Box>
-    <Box sx={{ display: "flex", gap: 2 }}>
-     <DriveButton fullWidth aria-pressed={ac} variant={ac ? "contained" : "outlined"} onClick={() => setAc(!ac)} startIcon={<AcUnitRounded />}>A/C {ac ? "on" : "off"}</DriveButton>
-     <DriveButton fullWidth variant="outlined" onClick={() => setAirflow(airflow === "Face" ? "Feet" : airflow === "Feet" ? "Screen" : "Face")}>Airflow: {airflow}</DriveButton>
-    </Box>
-   </Box>}
+ // Until a real vehicle link exists these only change what the screen shows.
+ const suffix = VEHICLE_CONNECTED ? "" : " (preview)";
+ return <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 0, p: 0, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
+  {overlay && <Box sx={{ alignSelf: "flex-end", px: 2, pb: 1.5, "&&": { pointerEvents: "none" } }}>{overlay}</Box>}
+  {error && <Box sx={{ mx: 2, mb: 1.5 }}><QuietNotice onClose={() => setError(null)}>{error}</QuietNotice></Box>}
+  {tab && <Box role="region" id="dashboard-panel" data-map-obstruction aria-label="media controls" sx={{ maxHeight: "min(50vh, 760px)", overflowY: "auto", position: "relative", mx: 2, mb: 1.5, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 8, p: 1.5 }}>
+   <SpotifyPopup spotify={spotify} isDriving={isDriving} onClose={() => setTab(null)} />
   </Box>}
-  {musicVisible && tab !== "media" && <Box sx={{ display: "flex", alignItems: "center", bgcolor: "background.paper", border: "1px solid", borderColor: "divider", borderRadius: 3, px: 2, gap: 1, boxShadow: 6 }}>
+  {/* The music card floats over the map and is hidden while the full player is open (the player has its own volume); tap the track to open it. */}
+  {tab !== "media" && <Box sx={{ alignSelf: "flex-start", display: "flex", alignItems: "center", mx: 2, mb: 1.5, maxWidth: "calc(100% - 32px)", bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 6, px: 1.5, py: 0.5, gap: 0.5, "& .MuiButton-root": { minHeight: 72 } }}>
    {spotify.isConnected ? <>
-    {spotify.track?.albumArt && <Box component="img" src={spotify.track.albumArt} alt="" sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: 2, flexShrink: 0 }} />}
-    <DriveButton color="inherit" aria-label="Expand music player" onClick={() => { hideKeyboard(); setTab("media"); }} sx={{ flex: 1, minWidth: 0, display: "block", textAlign: "left" }}><Typography noWrap sx={{ fontSize: 28, fontWeight: 700 }}>{spotify.track?.name ?? "Music"}</Typography><Typography noWrap sx={{ fontSize: 22, color: "text.secondary" }}>{spotify.track?.artists ?? "No active playback"}</Typography></DriveButton>
-    <DriveButton color="inherit" disabled={!ready} aria-label={spotify.track?.isPlaying ? "Pause music" : "Play music"} onClick={() => mediaAction(spotify.track?.isPlaying ? spotify.pause : spotify.play)}>{spotify.track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
+    {spotify.track?.albumArt && <Box component="img" src={spotify.track.albumArt} alt="" sx={{ width: 56, height: 56, objectFit: "cover", borderRadius: 2, flexShrink: 0, mr: 0.5 }} />}
+    <DriveButton color="inherit" aria-label="Expand music player" onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); }} sx={{ flex: "1 1 auto", minWidth: 0, justifyContent: "flex-start", textAlign: "left" }}><Typography noWrap sx={{ fontSize: 26, fontWeight: 700, minWidth: 0 }}>{spotify.track?.name ?? "Music"}{spotify.track?.artists && <Box component="span" sx={{ fontWeight: 500, color: "text.secondary" }}> · {spotify.track.artists}</Box>}{!spotify.track && <Box component="span" sx={{ fontWeight: 500, color: "text.secondary" }}> · No active playback</Box>}</Typography></DriveButton>
+    <DriveButton color="inherit" disabled={!spotify.isConnected} aria-label={spotify.track?.isPlaying ? "Pause music" : "Play music"} onClick={() => mediaAction(spotify.track?.isPlaying ? spotify.pause : spotify.play)}>{spotify.track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
     <DriveButton color="inherit" disabled={!ready} aria-label="Next track" onClick={() => mediaAction(spotify.next)}><SkipNextRounded /></DriveButton>
-    <DriveButton color="inherit" disabled={!ready} aria-label={spotify.volume === 0 ? "Unmute Spotify" : "Mute Spotify"} aria-pressed={spotify.volume === 0} onClick={mute}>{spotify.volume === 0 ? <VolumeOffRounded /> : <VolumeUpRounded />}</DriveButton>
-   </> : <DriveButton color="inherit" onClick={() => setTab("media")} sx={{ flex: 1, justifyContent: "flex-start", gap: 1 }}><MusicNoteRounded /> Connect Spotify</DriveButton>}
-   <DriveButton color="inherit" aria-label="Collapse music card" onClick={() => setMusicVisible(false)}><ExpandMoreRounded /></DriveButton>
+    <Box sx={{ width: "1px", alignSelf: "stretch", my: 1.5, bgcolor: "divider", mx: 0.5 }} />
+    <DriveButton color="inherit" sx={{ minWidth: 0, flex: "0 0 52px" }} aria-label="Decrease volume" disabled={spotify.volume <= 0} onClick={() => mediaAction(() => spotify.setVolume(Math.max(0, spotify.volume - 5)))}><ChevronLeftRounded /></DriveButton>
+    <Box aria-live="polite" sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, minWidth: 92 }}><VolumeUpRounded sx={{ fontSize: 30, color: "text.secondary" }} /><Typography sx={{ fontSize: 28, fontWeight: 500 }}>{spotify.volume}</Typography></Box>
+    <DriveButton color="inherit" sx={{ minWidth: 0, flex: "0 0 52px" }} aria-label="Increase volume" disabled={spotify.volume >= 100} onClick={() => mediaAction(() => spotify.setVolume(Math.min(100, spotify.volume + 5)))}><ChevronRightRounded /></DriveButton>
+   </> : <DriveButton color="inherit" aria-label="Open music player" onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); }} sx={{ justifyContent: "flex-start", gap: 1, fontSize: 24 }}><MusicNoteRounded /> Connect Spotify</DriveButton>}
   </Box>}
-  <Box sx={{ bgcolor: "background.paper", color: "text.primary", border: "1px solid", borderColor: "divider", borderRadius: 3, p: 1, boxShadow: 5 }}>
-  {/* No vehicle link exists yet: say so where the switches are, not only inside the Climate panel. */}
-  {!VEHICLE_CONNECTED && <Typography sx={{ fontSize: 18, color: "text.secondary", textAlign: "center", pb: 0.5 }}>Vehicle controls are a preview · not connected to the car</Typography>}
-  {/* Same 112 px tall targets as the cards above; width stays narrower so the row fits. */}
-  <Box component="nav" aria-label="Dashboard controls" sx={{ display: "flex", alignItems: "center", gap: 0.5, "--car-target": "clamp(76px, 8vw, 88px)", "& .MuiButton-root": { flexShrink: 0, minHeight: "clamp(76px, 10.4vw, 112px)" } }}>
-   <DriveButton color={tab === "media" ? "primary" : "inherit"} aria-label="Media" aria-expanded={tab === "media"} aria-controls={tab === "media" ? "dashboard-panel" : undefined} variant={tab === "media" ? "contained" : "text"} onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); setMusicVisible(true); }}><Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", fontSize: 18 }}><MusicNoteRounded />Media</Box></DriveButton>
-   <DriveButton color={tab === "climate" ? "primary" : "inherit"} aria-label="Climate" aria-expanded={tab === "climate"} aria-controls={tab === "climate" ? "dashboard-panel" : undefined} variant={tab === "climate" ? "contained" : "text"} onClick={() => { hideKeyboard(); setTab(tab === "climate" ? null : "climate"); }}><Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", fontSize: 18 }}><AcUnitRounded />Climate</Box></DriveButton>
-   <StepControl label="Warmth" value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} />
-   <StepControl label="Fan" value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} />
-   <DriveButton color={rearDemist ? "primary" : "inherit"} aria-label="Rear demist (preview)" aria-pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)} variant={rearDemist ? "contained" : "text"} sx={{ flexDirection: "column", fontSize: 20 }}><RearDefrostIcon width={36} height={36} fill="currentColor" />Demist</DriveButton>
-   <DriveButton aria-label="Hazard lights (preview)" aria-pressed={hazards} onClick={() => setHazards(!hazards)} color="error" variant={hazards ? "contained" : "outlined"} sx={{ flexDirection: "column", fontSize: 20 }}><WarningAmberRounded />Hazards</DriveButton>
-  </Box>
+  <Box component="nav" aria-label="Climate and safety controls" sx={{ bgcolor: "background.paper", color: "text.primary", borderTop: "1px solid", borderColor: "divider", display: "flex", alignItems: "stretch", position: "relative", borderTopLeftRadius: 20, borderTopRightRadius: 20, "& .dock-start": { borderTopLeftRadius: 20, overflow: "hidden" }, "& .dock-end": { borderTopRightRadius: 20 } }}>
+   {airflowNote && <Box role="status" sx={{ position: "absolute", left: "50%", bottom: "calc(100% + 112px)", transform: "translateX(-50%)", px: 3, py: 1, borderRadius: 8, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, fontSize: 24, fontWeight: 600, whiteSpace: "nowrap" }}>Air to {airflowNote}</Box>}
+   {/* One bar, Tesla style: the driver sits on the right, so the hazards and warmth are at that end, the air settings in the middle, and the fan at the left. */}
+   <StepControl className="dock-start" label="Fan" icon={AirRounded} grow={1} value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} meter={<FanMeter value={fan} />} />
+   <Box sx={{ display: "flex", alignItems: "stretch", flex: "0 0 auto" }}>
+    <Switch width={88} label={`Airflow direction: ${AIRFLOW_MODES[airflow].name}${suffix}`} onClick={() => { const next = (airflow + 1) % AIRFLOW_MODES.length; setAirflow(next); setAirflowNote(AIRFLOW_MODES[next].name); }}>
+     {React.createElement(AIRFLOW_MODES[airflow].Icon, { width: 46, height: 46, fill: "currentColor", "aria-hidden": true })}
+    </Switch>
+    <Switch width={88} label={`Recirculate cabin air${suffix}`} pressed={recirculate} onClick={() => setRecirculate(!recirculate)}><RecirculateIcon width={46} height={46} fill="currentColor" /></Switch>
+    <Switch width={88} label={`Rear demist${suffix}`} pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)}><RearDefrostIcon width={46} height={46} fill="currentColor" /></Switch>
+    <Switch width={88} label={`Air conditioning${suffix}`} pressed={ac} onClick={() => setAc(!ac)}><AcUnitRounded /></Switch>
+   </Box>
+   <StepControl label="Warmth" icon={DeviceThermostatRounded} grow={1} value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} meter={<WarmthMeter value={temp} />} />
+   <Switch className="dock-end" tone="error" width={96} label={`Hazard lights${suffix}`} pressed={hazards} onClick={() => setHazards(!hazards)}><WarningAmberRounded /></Switch>
   </Box>
  </Box>;
 }

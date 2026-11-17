@@ -32,7 +32,7 @@ export default function SpeedSigns({ state, estimated = false, simulated = false
 			<Box role="img" aria-label={`Current speed ${speed} ${unit}${over ? ", over the limit" : ""}${estimated ? ", estimated" : ""}${simulated ? ", simulated" : ""}`}
 				sx={{ width: 112, height: 112, borderRadius: "50%", bgcolor: over ? RED : "#16181c", color: "#fff", border: "7px solid #fff", boxShadow: signShadow, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", transition: "background-color 0.25s", lineHeight: 1 }}>
 				<Box component="span" sx={{ fontSize: speed >= 100 ? 40 : 48, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{speed}</Box>
-				<Box component="span" sx={{ fontSize: 17, fontWeight: 700, opacity: 0.85, mt: 0.4 }}>{estimated ? "est." : simulated ? "sim." : unit}</Box>
+				<Box component="span" sx={{ fontSize: 20, fontWeight: 700, opacity: 0.9, mt: 0.2 }}>{estimated ? "est." : simulated ? "sim." : unit}</Box>
 			</Box>
 			{limit && <LimitSign limit={limit} />}
 		</Box>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import mapboxgl from "mapbox-gl";
+import { alpha, type Theme } from "@mui/material/styles";
 import { useMapOcclusion } from "./hooks/useMapOcclusion";
 import { useMapbox } from "./hooks/useMapbox";
 import { useDestinationHighlight } from "./hooks/useDestinationHighlight";
@@ -18,7 +19,6 @@ import {
 } from "./lib/routing";
 import { DEV_ORIGIN, RoutingProvider, ZOOM_LEVEL } from "./constants";
 import { Alert, Box, Typography } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
 import RouteAlerts from "./components/RouteAlerts";
@@ -39,15 +39,14 @@ import { useDeadReckoning } from "./hooks/useDeadReckoning";
 import type { LastFix } from "./lib/deadReckoning";
 import SpeedSigns from "./components/SpeedSigns";
 import { limitAt, speedSignState } from "./lib/speedSigns";
-import ClockWeatherChip, { statusChipSx } from "./components/ClockWeatherChip";
+import ClockWeatherChip from "./components/ClockWeatherChip";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
-import { readFrequentPlaces, recordFrequentPlace } from "./lib/frequentPlaces";
+import { recordFrequentPlace } from "./lib/frequentPlaces";
 import { readSavedPlaces, savePlace, type PlaceSlot } from "./lib/savedPlaces";
 import { distanceKm, placeDetails, fetchPlaceDetails, sameBusinessName, type PlaceDetails } from "./lib/locationSearch";
 import QuickDestinations from "./components/QuickDestinations";
 import FlagRounded from "@mui/icons-material/FlagRounded";
-import ReplayRounded from "@mui/icons-material/ReplayRounded";
 import { useSpokenNavigation, type GuidanceStep } from "./hooks/useSpokenNavigation";
 import { kokoroVoice } from "./lib/kokoroVoice";
 import {
@@ -173,6 +172,8 @@ function summarizeManeuvers(maneuvers: NormalizedManeuver[]) {
 	const hrs = Math.floor(totalSecs / 3600);
 	const mins = Math.round((totalSecs % 3600) / 60);
 	return {
+		seconds: totalSecs,
+		km: totalKm,
 		duration: hrs > 0 ? `${hrs}h ${mins}m` : `${mins} min`,
 		distance:
 			totalKm >= 1
@@ -183,9 +184,9 @@ function summarizeManeuvers(maneuvers: NormalizedManeuver[]) {
 
 export default function App() {
 	const { period, weather, weatherAppearance, updatePosition } = useThemeMode();
-	const theme = useTheme();
 	const kokoroStatus = useSyncExternalStore(kokoroVoice.subscribe, () => kokoroVoice.status);
 	const mapContainer = useRef<HTMLDivElement>(null);
+	const [turnsSlot, setTurnsSlot] = useState<HTMLElement | null>(null);
 	const simIndexRef = useRef(0);
 	const lastPosRef = useRef<[number, number]>(DEV_ORIGIN);
 	const lastBearingRef = useRef<number>(0);
@@ -728,15 +729,6 @@ export default function App() {
 	useEffect(() => {
 		if (openPanel !== "search") setPlaceSlot(null);
 	}, [openPanel]);
-	const quickPlaces = useMemo(() => {
-		const saved = Object.values(savedPlaces);
-		const near = (a: [number, number], b: [number, number]) =>
-			Math.abs(a[0] - b[0]) < 0.0005 && Math.abs(a[1] - b[1]) < 0.0005;
-		return readFrequentPlaces()
-			.filter((place) => !saved.some((item) => near(item.coords, place.coords)))
-			.slice(0, 2);
-		// Re-read when a trip starts or ends, since that changes the ranking.
-	}, [savedPlaces, navActive]);
 	function handleQuickDestination(coords: [number, number], placeName: string, buildingCoords?: [number, number]) {
 		setOpenPanel(null);
 		handleSearchSelect(coords, placeName, buildingCoords).catch((cause) =>
@@ -876,6 +868,14 @@ export default function App() {
 	const onRouteNow = navActive && showSpeed && !!activeRoute && activeRoute.coords.length > 1 && locateOnRoute(activeRoute.coords, routeDistances(activeRoute.coords), lastPosRef.current, routeHintRef.current).offsetM < 30;
 	const signState = speedSignState(vehicleSpeedMs, limitAt(activeRoute?.speedLimits, routePosition, onRouteNow));
 
+	// One banner at a time, most urgent first. A closure on the route always shows; otherwise nothing
+	// competes with a turn that is close, and a faster-route offer waits until the road is clear.
+	const bannerRoom = navActive && !pendingDest && openPanel !== "search";
+	const turnClose = distanceToNextM != null && distanceToNextM <= 300;
+	const urgentAlert = routeAlerts.some(alert => alert.severity === "error");
+	const showFasterOffer = bannerRoom && !!fasterOffer && !turnClose && !urgentAlert;
+	const showAlertBanner = bannerRoom && routeAlerts.length > 0 && (urgentAlert || !turnClose) && !showFasterOffer;
+
 	return (
 		<Box
 			sx={{
@@ -905,23 +905,15 @@ export default function App() {
 					}}
 				>
 					<Box
-						sx={{
-							display: "flex",
-							justifyContent: "space-between",
-							alignItems: "center",
-							gap: 2,
-						}}
+						// Pulls the status bar out to the screen edges, past the overlay's own padding.
+						sx={{ m: "-16px -24px 0" }}
 					>
 						<ClockWeatherChip
 							position={lastPosRef.current}
 							gpsStatus={gpsStatus}
-								estimating={estimating}
+							estimating={estimating}
+							previewMode={previewMode}
 						/>
-						{!showSpeed && (
-							<Typography role="status" sx={{ ...statusChipSx(theme), fontSize: 24, fontWeight: 700 }}>
-								{previewMode ? "Preview" : "Waiting for GPS"}
-							</Typography>
-						)}
 					</Box>
 					{navActive && (
 						<NavigationCard
@@ -931,9 +923,11 @@ export default function App() {
 							timeToNextS={timeToNextS}
 							isDriving={isDriving}
 							onRepeat={guidance.speak}
+							listContainer={turnsSlot}
 						/>
 					)}
-					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: "var(--car-target, 112px)", bgcolor: "background.paper", boxShadow: 2, borderRadius: 3, "&:hover": { bgcolor: "surface.main" } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
+					<Box ref={setTurnsSlot} sx={{ display: "contents" }} />
+					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
@@ -979,35 +973,18 @@ export default function App() {
 					provider={provider}
 					onToggleProvider={handleToggleProvider}
 					isDriving={isDriving}
-					extraActions={navActive && (
-						<DriveButton color="inherit"
-							className="map-action"
-							aria-label="Repeat navigation instruction"
-							disabled={!guidance.supported}
-							onClick={guidance.speak}
-						>
-							<ReplayRounded />
-						</DriveButton>
-					)}
+					quickPlaces={!pendingDest && !arrivedAt && !isDriving && <QuickDestinations saved={savedPlaces} onGo={handleQuickDestination} onSet={handleSetPlace} disabled={routeBusy} />}
+					quickStops={navActive ? <QuickStops selected={openPanel === "search" ? stopCategory : null} onSelect={handleQuickStop} /> : undefined}
 				/>
 					</Box>
 
-					{!navActive && !pendingDest && !arrivedAt && !isDriving && (
-						<QuickDestinations
-							saved={savedPlaces}
-							frequent={quickPlaces}
-							onGo={handleQuickDestination}
-							onSet={handleSetPlace}
-							disabled={routeBusy}
-						/>
-					)}
 					{(routeBusy || isRerouting) && (
 						<Alert severity="info" sx={{ fontSize: 28, order: 2 }}>
 							Calculating route...
 						</Alert>
 					)}
-					{navActive && !pendingDest && openPanel !== "search" && fasterOffer && <Box sx={{ order: 2 }}><FasterRouteOffer savedSeconds={fasterOffer.savedSeconds} arrival={new Date(Date.now() + routeSeconds(fasterOffer.route) * 1000).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })} onSwitch={handleSwitchFaster} onKeep={handleKeepRoute} disabled={isRerouting} /></Box>}
-					{navActive && !pendingDest && openPanel !== "search" && routeAlerts.length > 0 && <Box sx={{ order: 2 }}><RouteAlerts alerts={routeAlerts} /></Box>}
+					{showFasterOffer && fasterOffer && <Box sx={{ order: 2 }}><FasterRouteOffer savedSeconds={fasterOffer.savedSeconds} arrival={new Date(Date.now() + routeSeconds(fasterOffer.route) * 1000).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" })} onSwitch={handleSwitchFaster} onKeep={handleKeepRoute} disabled={isRerouting} /></Box>}
+					{showAlertBanner && <Box sx={{ order: 2 }}><RouteAlerts alerts={routeAlerts.slice(0, 1)} /></Box>}
 					{routeError && (
 						<Alert
 							severity="error"
@@ -1043,7 +1020,7 @@ export default function App() {
 							duration={pendingDest.duration}
 							distance={pendingDest.distance}
 							confirmLabel={
-								pendingDest.action === "stop" ? "Add stop" : "Start"
+								pendingDest.action === "stop" ? "Add stop" : "Go"
 							}
 							onConfirm={handleConfirmNav}
 							onCancel={handleCancelSearch}
@@ -1070,7 +1047,6 @@ export default function App() {
 								toggleOrientation(lastBearingRef.current, lastPosRef.current)
 							}
 						/>
-						<QuickStops selected={openPanel === "search" ? stopCategory : null} onSelect={handleQuickStop} />
 						</Box>
 					) : arrivedAt ? (
 						<Box role="status" sx={{ bgcolor: "background.paper", borderRadius: 3, border: "1px solid", borderColor: "divider", p: 2, display: "flex", alignItems: "center", gap: 2 }}>
@@ -1097,7 +1073,7 @@ export default function App() {
 				/>
 
 			</Box>
-			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" || openPanel === "climate" ? openPanel : null} setPanel={setOpenPanel} />
+			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} />
 		</Box>
 	);
 }

@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, RefObject } from "react";
 import ReactDOM from "react-dom";
 import { Box } from "@mui/material";
+import { alpha, type Theme } from "@mui/material/styles";
 
 const NUM_ROW = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 const QWERTY = ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"];
@@ -103,10 +104,10 @@ function Key({
 
 	const isPressed = pressedKey === id;
 
-	const bg: Record<KeyVariant, string> = {
-		default: "rgba(255,255,255,0.13)",
-		special: "rgba(255,255,255,0.07)",
-		active: "rgba(255,255,255,0.92)",
+	const bg: Record<KeyVariant, (theme: Theme) => string> = {
+		default: (theme) => alpha(theme.palette.text.primary, 0.08),
+		special: (theme) => alpha(theme.palette.text.primary, 0.16),
+		active: (theme) => theme.palette.primary.main,
 	};
 
 	return (
@@ -150,11 +151,11 @@ function Key({
 				minWidth: 0,
 				height: "calc((var(--keyboard-height, 340px) - 64px) / 5)",
 				// Flash white when pressed, otherwise use variant colour
-				background: isPressed ? "rgba(255,255,255,0.55)" : bg[variant],
-				border: `1px solid ${isPressed ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.08)"}`,
+				background: (theme: Theme) => isPressed ? alpha(theme.palette.primary.main, 0.35) : bg[variant](theme),
+				border: "1px solid",
+				borderColor: "divider",
 				borderRadius: "8px",
-				color:
-					isPressed || variant === "active" ? "#111" : "rgba(255,255,255,0.9)",
+				color: !isPressed && variant === "active" ? "primary.contrastText" : "text.primary",
 				fontSize: typeof label === "string" && label.length === 1 ? 26 : 20,
 				fontWeight: variant !== "default" ? 600 : 400,
 				fontFamily: "inherit",
@@ -255,17 +256,18 @@ export default function InAppKeyboard({
 					right: 0,
 					zIndex: 10002,
 					height: "var(--keyboard-height, 340px)",
-					background: "rgba(12, 12, 12, 0.97)",
+					background: (theme: Theme) => alpha(theme.palette.background.paper, 0.97),
 					backdropFilter: "blur(24px)",
 					WebkitBackdropFilter: "blur(24px)",
-					borderTop: "1px solid rgba(255,255,255,0.1)",
+					borderTop: "1px solid",
+					borderColor: "divider",
 					px: 1,
 					pt: 1,
 					pb: 2.5,
 					display: "flex",
 					flexDirection: "column",
 					gap: 0.6,
-					boxShadow: "0 -8px 40px rgba(0,0,0,0.6)",
+					boxShadow: (theme: Theme) => theme.shadows[8],
 				}}
 			>
 				{/* Numbers */}

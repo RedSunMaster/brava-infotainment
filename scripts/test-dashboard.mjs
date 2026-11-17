@@ -46,12 +46,19 @@ test("day and night primary labels and filled buttons retain readable contrast",
 });
 test("navigation options retain secondary actions and avoid duplicate recenter", () => {
  const MapControls = load("src/components/MapControls.tsx").default;
- const render = active => renderToStaticMarkup(React.createElement(MapControls, { orientation: "heading", hasRoute: active, isNavActive: active, isDriving: active, panel: null, setPanel() {}, currentPosition: [172,-43], mapboxToken: "", provider: "mapbox" }));
+ const render = (active, cameraMode = "following") => renderToStaticMarkup(React.createElement(MapControls, { orientation: "heading", cameraMode, hasRoute: active, isNavActive: active, isDriving: active, panel: null, setPanel() {}, currentPosition: [172,-43], mapboxToken: "", provider: "mapbox" }));
  const idle = render(false), moving = render(true);
- assert.ok(idle.includes('aria-label="Centre on location"'));
+ // One view button: it switches orientation while following, and recentres once the map has been moved away.
+ assert.ok(render(false, "overview").includes('aria-label="Centre on location"'));
+ assert.ok(!idle.includes('aria-label="Centre on location"'));
  assert.ok(!moving.includes('aria-label="Centre on location"'));
+ assert.equal((idle.match(/map-action/g) ?? []).length, 3, "settings, view and destination only");
  for (const label of ["Switch to north up", "Open settings"]) assert.ok(idle.includes('aria-label="' + label + '"'));
- assert.ok(moving.includes('aria-label="Open settings"'));
+ // On a trip, settings only appear while parked: it is disabled when moving, so it would just take up room.
+ assert.ok(!moving.includes('aria-label="Open settings"'));
+ const parkedTrip = renderToStaticMarkup(React.createElement(MapControls, { orientation: "heading", cameraMode: "following", hasRoute: true, isNavActive: true, isDriving: false, panel: null, setPanel() {}, currentPosition: [172,-43], mapboxToken: "", provider: "mapbox", quickStops: React.createElement("span", { id: "stops" }) }));
+ assert.ok(parkedTrip.includes('aria-label="Open settings"'));
+ assert.ok(parkedTrip.includes('id="stops"'), "quick stops sit in the Add stop row");
  // While navigating, map orientation is one tap away on the trip card instead.
  assert.ok(!moving.includes('aria-label="Switch to north up"'));
  assert.ok(!idle.includes('aria-label="Route overview"'));
@@ -60,20 +67,29 @@ test("navigation options retain secondary actions and avoid duplicate recenter",
  assert.ok(moving.includes('Add stop'));
  // A stop can be added on the move.
  assert.doesNotMatch(moving, /<button[^>]*disabled[^>]*aria-label="Add a stop"/);
- assert.match(moving, /<button[^>]*disabled[^>]*aria-label="Open settings"/);
+ // Off a trip, moving still disables settings.
+ const movingIdle = renderToStaticMarkup(React.createElement(MapControls, { orientation: "heading", cameraMode: "following", hasRoute: false, isNavActive: false, isDriving: true, panel: null, setPanel() {}, currentPosition: [172,-43], mapboxToken: "", provider: "mapbox" }));
+ assert.match(movingIdle, /<button[^>]*disabled[^>]*aria-label="Open settings"/);
 });
-test("dashboard has two persistent accessible controls", () => {
+test("dock: warmth and fan steppers, five icon-only switches and a way into the player", () => {
  const Controls = load("src/components/CarControls.tsx").default;
- const html = renderToStaticMarkup(React.createElement(Controls, { isDriving: false, panel: null, setPanel() {} }, React.createElement("button", null, "Destination")));
- for (const label of ["Media", "Climate"]) assert.ok(html.includes('aria-label="' + label + '"'));
- assert.equal((html.match(/aria-expanded="false"/g) ?? []).length, 2);
+ const html = renderToStaticMarkup(React.createElement(Controls, { isDriving: false, panel: null, setPanel() {} }));
+ for (const label of ["Decrease warmth", "Increase warmth", "Decrease fan", "Increase fan"]) assert.ok(html.includes('aria-label="' + label + '"'), label);
+ // The switches are icon-only: each has an accessible name and pressed state but no visible text.
+ for (const name of ["Air conditioning", "Recirculate cabin air", "Rear demist", "Hazard lights"]) assert.match(html, new RegExp('<button[^>]*aria-label="' + name + '[^"]*"[^>]*aria-pressed="false"'), name);
+ // The fan direction is one button beside Fan that steps through the settings, starting at the face.
+ assert.match(html, /aria-label="Airflow direction: face[^"]*"/);
+ assert.ok(html.indexOf('aria-label="Decrease fan"') < html.indexOf('aria-label="Airflow direction'), "direction follows Fan");
+ // Hazards sit between the climate switches and the demist switch.
+ const order = ["Air conditioning", "Hazard lights", "Rear demist"].map(name => html.indexOf('aria-label="' + name));
+ assert.deepEqual([...order].sort((a, b) => a - b), order, "hazards sit in the middle of the switches");
+ for (const word of [">Media<", ">Climate<", ">Demist<", ">Hazards<"]) assert.ok(!html.includes(word), "no text labels: " + word);
  assert.ok(!html.includes('id="dashboard-panel"'));
- // Until an account is linked the mini player stays collapsed; Spotify is reached through Media.
- assert.ok(!html.includes("Connect Spotify"));
+ // The music strip is the way in to the player, and is there even before an account is linked.
+ assert.ok(html.includes("Connect Spotify"));
  const media = renderToStaticMarkup(React.createElement(Controls, { isDriving: false, panel: "media", setPanel() {} }));
- assert.ok(media.includes("Connect Spotify"));
- assert.ok(html.includes('aria-label="Decrease fan"'));
- assert.ok(html.includes("not connected to the car"));
+ assert.ok(media.includes('id="dashboard-panel"') && media.includes('aria-label="Close music player"'));
+ assert.ok(!html.includes("Vehicle controls are a preview"), "no preview line in the dock");
 });
 test("Spotify connection is unavailable while moving", () => {
  const Media = load("src/components/SpotifyPopup.tsx").default;
@@ -220,9 +236,9 @@ test("home and work shortcuts persist and reject invalid data", () => {
  delete globalThis.localStorage;
 });
 
-test("saved destinations offer one-tap navigation or a prompt to set them", () => {
+test("home and work are icon shortcuts: one tap to go, or a prompt to set them", () => {
  const Quick = load("src/components/QuickDestinations.tsx").default;
- const html = renderToStaticMarkup(React.createElement(Quick, { saved: { home: { name: "1 Example Street", coords: [172, -43] } }, frequent: [{ name: "Airport, Christchurch", coords: [172.5, -43.4] }], onGo() {}, onSet() {} }));
- for (const label of ["Navigate home", "Set work address", "Navigate to Airport, Christchurch"]) assert.ok(html.includes('aria-label="' + label + '"'), label);
- assert.ok(html.includes(">Airport<"));
+ const html = renderToStaticMarkup(React.createElement(Quick, { saved: { home: { name: "1 Example Street", coords: [172, -43] } }, onGo() {}, onSet() {} }));
+ for (const label of ["Navigate home", "Set work address"]) assert.ok(html.includes('aria-label="' + label + '"'), label);
+ assert.ok(!html.includes("Airport"), "frequent places are left to the search panel");
 });

@@ -9,17 +9,17 @@ import FlashOnRounded from "@mui/icons-material/FlashOnRounded";
 import BlurOnRounded from "@mui/icons-material/BlurOnRounded";
 import WbTwilightRounded from "@mui/icons-material/WbTwilightRounded";
 import { GpsStatus } from "../hooks/useGps";
-import GpsIndicator from "./GpsIndicator";
+import GpsIndicator, { gpsDescription } from "./GpsIndicator";
 import { useThemeMode } from "../ThemeContext";
 
 function wmoIcon(code: number) {
-	if (code === 0) return <WbSunnyRounded fontSize="small" />;
-	if (code <= 3) return <WbTwilightRounded fontSize="small" />;
-	if (code <= 48) return <BlurOnRounded fontSize="small" />;
-	if (code <= 67) return <GrainRounded fontSize="small" />;
-	if (code <= 77) return <AcUnitRounded fontSize="small" />;
-	if (code <= 82) return <CloudRounded fontSize="small" />;
-	return <FlashOnRounded fontSize="small" />;
+	if (code === 0) return <WbSunnyRounded sx={{ fontSize: 28 }} />;
+	if (code <= 3) return <WbTwilightRounded sx={{ fontSize: 28 }} />;
+	if (code <= 48) return <BlurOnRounded sx={{ fontSize: 28 }} />;
+	if (code <= 67) return <GrainRounded sx={{ fontSize: 28 }} />;
+	if (code <= 77) return <AcUnitRounded sx={{ fontSize: 28 }} />;
+	if (code <= 82) return <CloudRounded sx={{ fontSize: 28 }} />;
+	return <FlashOnRounded sx={{ fontSize: 28 }} />;
 }
 
 function wmoLabel(code: number) {
@@ -53,68 +53,71 @@ export function statusChipSx(theme: Theme) {
 
 interface Props {
 	position: [number, number];
-	gpsStatus: GpsStatus; // ← add
+	gpsStatus: GpsStatus;
 	estimating?: boolean;
+	/** The app is running as a display preview, not in the car. */
+	previewMode?: boolean;
 }
 
-export default function ClockWeatherChip({ gpsStatus, estimating }: Props) {
+/** A thin rule between the strip's three parts. */
+function Divider() {
+	return <Box aria-hidden sx={{ width: "1px", height: 28, flexShrink: 0, bgcolor: (theme) => alpha(theme.palette.text.primary, 0.2) }} />;
+}
+
+/**
+ * The status bar: time on the left, weather and GPS on the right, running edge to edge along the top
+ * of the screen. Everything shares one size of text and icon; the only colour is the GPS status, so
+ * a problem stands out, and the bar's lower edge picks up that colour too.
+ */
+export default function ClockWeatherChip({ gpsStatus, estimating = false, previewMode = false }: Props) {
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
 	const { weather } = useThemeMode();
 
-	// Clock — tick every second
+	// The clock only shows minutes, so it only needs to tick when the minute changes.
 	useEffect(() => {
-		const id = setInterval(() => setTime(new Date()), 1000);
+		const id = setInterval(() => setTime(new Date()), 5000);
 		return () => clearInterval(id);
 	}, []);
 
-	const chipSx = statusChipSx(theme);
+	const clock = time.toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit" });
+	const simulated = previewMode && gpsStatus !== "fix" && !estimating;
+	const accent = gpsStatus === "fix" || simulated ? null : gpsStatus === "disconnected" && !estimating ? theme.palette.error.main : theme.palette.warning.main;
+	const text = { fontSize: 26, fontWeight: 700, lineHeight: 1, fontVariantNumeric: "tabular-nums" as const };
 
 	return (
 		<Box
+			role="status"
+			aria-label={`${clock}${weather ? `, ${weather.temp} degrees, ${wmoLabel(weather.code)}` : ""}, ${simulated ? "preview mode" : gpsDescription(gpsStatus, estimating)}`}
 			sx={{
 				display: "flex",
-				flexDirection: "row",
-                flexWrap: "wrap",
 				alignItems: "center",
-				gap: 0.75,
+				justifyContent: "space-between",
+				gap: 2,
+				width: "100%",
+				height: 48,
+				px: 3,
+				boxSizing: "border-box",
+				background: alpha(theme.palette.surface.main, 0.94),
+				backdropFilter: "blur(10px)",
+				borderBottom: `${accent ? 3 : 1}px solid ${accent ?? alpha(theme.palette.text.primary, 0.16)}`,
+				color: theme.palette.text.primary,
+				whiteSpace: "nowrap",
 			}}
 		>
-			{/* Clock */}
-			<Box sx={chipSx}>
-				<Typography
-					sx={{
-						fontSize: 28,
-						fontWeight: 700,
-						letterSpacing: "0.04em",
-						fontVariantNumeric: "tabular-nums",
-					}}
-				>
-					{time.toLocaleTimeString("en-NZ", {
-						hour: "2-digit",
-						minute: "2-digit",
-					})}
-				</Typography>
+			<Typography sx={text}>{clock}</Typography>
+			<Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+				{weather && (
+					<>
+						<Box sx={{ display: "flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>
+							{wmoIcon(weather.code)}
+							<Typography sx={{ ...text, color: "text.primary" }}>{weather.temp}&deg;</Typography>
+						</Box>
+						<Divider />
+					</>
+				)}
+				<GpsIndicator status={gpsStatus} estimating={estimating} preview={previewMode} />
 			</Box>
-
-			{/* Weather */}
-			{weather && (
-				<Box sx={{ ...chipSx, gap: 0.6 }}>
-					<Box sx={{ display: "flex", color: theme.palette.primary.main }}>
-						{wmoIcon(weather.code)}
-					</Box>
-					<Typography sx={{ fontSize: 24, fontWeight: 600 }}>
-						{weather.temp}&deg;C
-					</Typography>
-					<Typography
-						sx={{ fontSize: 22, color: theme.palette.text.secondary }}
-					>
-						{wmoLabel(weather.code)}
-					</Typography>
-				</Box>
-			)}
-
-			<GpsIndicator status={gpsStatus} estimating={estimating} />
 		</Box>
 	);
 }

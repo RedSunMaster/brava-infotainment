@@ -14,6 +14,7 @@ import {
 	SpotifyQueueItem,
 	UseSpotifyReturn,
 } from "../hooks/useSpotify";
+import QuietNotice from "./QuietNotice";
 import DriveButton from "./DriveButton";
 import { useKeyboard } from "../contexts/KeyboardContext";
 
@@ -208,7 +209,7 @@ const SpotifyLibrary = ({
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-			{(actionError || spotify.error) && <Alert severity="error">{actionError || spotify.error}</Alert>}
+			{(actionError || spotify.error) && <Box sx={{ mb: 1 }}><QuietNotice onClose={actionError ? () => setActionError(null) : undefined}>{actionError || spotify.error}</QuietNotice></Box>}
 			{/* ── Header ── */}
 			<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
 				<DriveButton aria-label="Back to now playing"

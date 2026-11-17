@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // Use SPOTIFY_CLIENT_ID — set this in your .env (no NEXT_PUBLIC_ prefix in Electron)
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
+/** The name the car's own Spotify player (spotifyd or librespot) registers under; see SPOTIFY_PLAYER.md. */
+const CAR_DEVICE_NAME = (process.env.SPOTIFY_DEVICE_NAME || "Brava").toLowerCase();
 const REDIRECT_URI = "myapp://callback"; // must match Spotify dashboard exactly
 
 const SCOPES = [
@@ -15,6 +17,7 @@ const SCOPES = [
 const TOKEN_KEY = "spotify_access_token";
 const EXPIRY_KEY = "spotify_token_expiry";
 const VERIFIER_KEY = "spotify_code_verifier";
+const REFRESH_KEY = "spotify_refresh_token"; // web fallback only
 
 // ─── PKCE helpers ─────────────────────────────────────────────────────────────
 
@@ -49,6 +52,49 @@ function getStoredToken(): string | null {
 		return null;
 	}
 	return token;
+}
+
+// The refresh token lives in the main process, encrypted; the renderer only asks for it.
+async function readRefreshToken(): Promise<string | null> {
+	const ipc = getIpc();
+	if (ipc) return (await ipc.invoke("spotify-refresh-get")) ?? null;
+	return localStorage.getItem(REFRESH_KEY);
+}
+async function saveRefreshToken(token: string | null): Promise<void> {
+	const ipc = getIpc();
+	if (ipc) await ipc.invoke("spotify-refresh-set", token);
+	else if (token) localStorage.setItem(REFRESH_KEY, token);
+	else localStorage.removeItem(REFRESH_KEY);
+}
+
+/** One renewal at a time: Spotify may replace the refresh token on every use, so two at once would break it. */
+let renewal: Promise<string | null> | null = null;
+/** Swaps the saved refresh token for a new access token. Resolves null if there is none or it was refused. */
+function renewAccessToken(): Promise<string | null> {
+	if (renewal) return renewal;
+	renewal = (async () => {
+		const refresh = await readRefreshToken();
+		if (!refresh) return null;
+		try {
+			const res = await fetch("https://accounts.spotify.com/api/token", {
+				method: "POST",
+				headers: { "Content-Type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ client_id: CLIENT_ID, grant_type: "refresh_token", refresh_token: refresh }),
+			});
+			const data = await res.json().catch((): null => null);
+			if (res.ok && data?.access_token) {
+				storeToken(data.access_token, data.expires_in);
+				if (data.refresh_token) await saveRefreshToken(data.refresh_token);
+				return data.access_token as string;
+			}
+			// Spotify said no (revoked or expired): forget it so the next connect starts clean.
+			if (res.status === 400 || res.status === 401) await saveRefreshToken(null);
+		} catch {
+			// Offline: keep the saved token and try again later.
+		}
+		return null;
+	})().finally(() => { renewal = null; });
+	return renewal;
 }
 
 function storeToken(token: string, expiresIn: number): void {
@@ -147,12 +193,29 @@ export function useSpotify(): UseSpotifyReturn {
 			.then((data) => {
 				if (data.access_token) {
 					storeToken(data.access_token, data.expires_in);
+					if (data.refresh_token) void saveRefreshToken(data.refresh_token);
 					setToken(data.access_token);
 				}
 			})
 			.catch((e) => console.error("Spotify token exchange failed:", e))
 			.finally(() => setIsLoading(false));
 	}, []);
+
+	// ── Staying connected: with no access token, try the saved refresh token (this is what happens at
+	// start-up); with one, renew it shortly before it runs out. Either way there is nothing to sign in to. ──
+	useEffect(() => {
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		if (!token) {
+			void renewAccessToken().then((renewed) => { if (!cancelled && renewed) setToken(renewed); });
+		} else {
+			const expiry = parseInt(localStorage.getItem(EXPIRY_KEY) ?? "0", 10);
+			timer = setTimeout(() => {
+				void renewAccessToken().then((renewed) => { if (!cancelled && renewed) setToken(renewed); });
+			}, Math.max(5_000, expiry - Date.now() - 120_000));
+		}
+		return () => { cancelled = true; if (timer) clearTimeout(timer); };
+	}, [token]);
 
 	// ── OAuth: initiate PKCE — opens system browser via Electron IPC ─────────
 
@@ -223,14 +286,20 @@ export function useSpotify(): UseSpotifyReturn {
 			try {
 				if (method !== "GET") setError(null);
 				if (!token) throw new Error("Connect Spotify first.");
-				const res = await fetch(`https://api.spotify.com/v1${path}`, {
+				const send = (bearer: string) => fetch(`https://api.spotify.com/v1${path}`, {
 					method,
 					headers: {
-						Authorization: `Bearer ${token}`,
+						Authorization: `Bearer ${bearer}`,
 						...(body ? { "Content-Type": "application/json" } : {}),
 					},
 					body: body ? JSON.stringify(body) : undefined,
 				});
+				let res = await send(token);
+				if (res.status === 401) {
+					// The access token ran out: renew it quietly and try once more.
+					const renewed = await renewAccessToken();
+					if (renewed) { setToken(renewed); res = await send(renewed); }
+				}
 				if (res.status === 401) {
 					setToken(null);
 					localStorage.removeItem(TOKEN_KEY);
@@ -363,12 +432,42 @@ export function useSpotify(): UseSpotifyReturn {
 		};
 	}, [token, fetchPlayback]);
 
+	// ── The car's own player ─────────────────────────────────────────────────
+	// Nothing is "active" on a fresh start, and Spotify then refuses every command. So when nothing is
+	// playing, start on the car's player by name instead of asking the user to open Spotify somewhere.
+	const findCarDevice = useCallback(async (): Promise<string | null> => {
+		const data = await spotifyFetch("/me/player/devices");
+		const devices: { name: string; id: string | null; type: string; is_active: boolean; is_restricted: boolean }[] = (data?.devices ?? []).filter((item: { id: string | null; is_restricted: boolean }) => item.id && !item.is_restricted);
+		// The car's own player if it is there. Otherwise, so it also works on a development PC, whatever is
+		// already active, then any computer running Spotify (the desktop app counts), then any device.
+		const device = devices.find((item) => item.name.toLowerCase() === CAR_DEVICE_NAME)
+			?? devices.find((item) => item.is_active)
+			?? devices.find((item) => item.type === "Computer")
+			?? devices[0];
+		return device?.id ?? null;
+	}, [spotifyFetch]);
+	/** Adds the car's player to a play request when nothing is active yet. */
+	const onCarDevice = useCallback(async (path: string): Promise<string> => {
+		if (track) return path;
+		const id = await findCarDevice();
+		return id ? `${path}${path.includes("?") ? "&" : "?"}device_id=${id}` : path;
+	}, [track, findCarDevice]);
+
 	// ── Playback controls ────────────────────────────────────────────────────
 
 	const play = useCallback(async () => {
+		if (!track) {
+			// Nothing active: wake the car's player and carry on with what it last played.
+			const id = await findCarDevice();
+			if (id) {
+				await spotifyFetch("/me/player", "PUT", { device_ids: [id], play: true });
+				setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 800);
+				return;
+			}
+		}
 		await spotifyFetch("/me/player/play", "PUT");
 		setTrack((t) => t && { ...t, isPlaying: true });
-	}, [spotifyFetch]);
+	}, [spotifyFetch, track, findCarDevice, fetchPlayback]);
 
 	const pause = useCallback(async () => {
 		await spotifyFetch("/me/player/pause", "PUT");
@@ -421,24 +520,24 @@ export function useSpotify(): UseSpotifyReturn {
 
 	const playTrack = useCallback(
 		async (uri: string) => {
-			await spotifyFetch("/me/player/play", "PUT", { uris: [uri] });
+			await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris: [uri] });
 			setTimeout(() => {
 				void fetchPlayback().catch(() => setTrack(null));
 			}, 600);
 		},
-		[spotifyFetch, fetchPlayback],
+		[spotifyFetch, fetchPlayback, onCarDevice],
 	);
 
 	const playContext = useCallback(
 		async (contextUri: string, offsetTrackUri?: string) => {
 			const body: Record<string, unknown> = { context_uri: contextUri };
 			if (offsetTrackUri) body.offset = { uri: offsetTrackUri };
-			await spotifyFetch("/me/player/play", "PUT", body);
+			await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", body);
 			setTimeout(() => {
 				void fetchPlayback().catch(() => setTrack(null));
 			}, 600);
 		},
-		[spotifyFetch, fetchPlayback],
+		[spotifyFetch, fetchPlayback, onCarDevice],
 	);
 
 	return {

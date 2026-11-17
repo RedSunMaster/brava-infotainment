@@ -1,4 +1,6 @@
-import { app, BrowserWindow, ipcMain, session, screen } from "electron";
+import { app, BrowserWindow, ipcMain, safeStorage, session, screen } from "electron";
+import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { join } from "path";
 import { createConnection } from "net";
 import { exec } from "child_process";
 import {
@@ -171,6 +173,39 @@ ipcMain.on("osk-hide", () => {
 
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────
 ipcMain.on("app-quit", () => app.quit());
+
+// ── Spotify refresh token ─────────────────────────────────────────────────────
+// Kept in a file in the app's data folder, encrypted with the system keyring when there is one, so
+// Spotify stays connected across restarts without signing in again.
+const spotifyTokenFile = () => join(app.getPath("userData"), "spotify-refresh-token");
+ipcMain.handle("spotify-refresh-get", () => {
+	try {
+		const file = spotifyTokenFile();
+		if (!existsSync(file)) return null;
+		const raw = readFileSync(file);
+		const encrypted = raw[0] === 1;
+		const body = raw.subarray(1);
+		return encrypted ? (safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(body) : null) : body.toString("utf8");
+	} catch (error) {
+		console.warn("[Spotify] could not read the saved token:", error);
+		return null;
+	}
+});
+ipcMain.handle("spotify-refresh-set", (_event, token: string | null) => {
+	try {
+		const file = spotifyTokenFile();
+		if (!token) {
+			if (existsSync(file)) unlinkSync(file);
+			return;
+		}
+		const encrypted = safeStorage.isEncryptionAvailable();
+		const body = encrypted ? safeStorage.encryptString(token) : Buffer.from(token, "utf8");
+		writeFileSync(file, Buffer.concat([Buffer.from([encrypted ? 1 : 0]), body]), { mode: 0o600 });
+		try { chmodSync(file, 0o600); } catch { /* Not supported everywhere. */ }
+	} catch (error) {
+		console.warn("[Spotify] could not save the token:", error);
+	}
+});
 
 // ── Spotify auth ──────────────────────────────────────────────────────────────
 ipcMain.on("spotify-open-auth", (_event, authUrl: string) => {
