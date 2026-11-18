@@ -14,6 +14,9 @@ import { rendererConfig } from './webpack.renderer.config';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    // The app runs on castLabs' Electron (the "+wvcus" builds, with Widevine for Spotify playback). Those builds are not on the standard
+    // Electron downloads page, so package from the same place node_modules/electron installs them from (see its install.js).
+    download: { mirrorOptions: { mirror: 'https://github.com/castlabs/electron-releases/releases/download/' } },
   },
   rebuildConfig: {},
   makers: [
