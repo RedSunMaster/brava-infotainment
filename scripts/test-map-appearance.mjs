@@ -116,20 +116,22 @@ test("weather only shows near the ground: from space the globe keeps its clear a
  const map = { getCanvas: () => canvas, getZoom: () => zoom, on: (name, handler) => { if (name === "zoom") onZoom = handler; },
   setConfigProperty: () => {}, setRain: value => { state.rain = value; }, setSnow: value => { state.snow = value; }, setFog: value => { state.fog = value; filters.push(canvas.style.filter); } };
  applyMapAppearance(map, "day", weather, now);
- // Space has stars whatever the local time; otherwise the same clear atmosphere.
- assert.deepEqual(state.fog, { ...fogFor("day", 0, 0), "star-intensity": 0.55 });
+ // Space has stars whatever the local time, and a softer, bluer glow than the day-time haze; no weather colouring.
+ const clear = fogFor("day", 0, 0);
+ const spaceFog = { ...clear, "star-intensity": 0.55, color: "#87b5e7", "horizon-blend": clear["horizon-blend"] / 2 };
+ assert.deepEqual(state.fog, spaceFog);
  assert.equal(state.rain, null);
  assert.equal(canvas.style.filter, "");
  // Coming down to street level brings the weather in, in steps.
  zoom = 9; onZoom();
- assert.notDeepEqual(state.fog, { ...fogFor("day", 0, 0), "star-intensity": 0.55 });
+ assert.notDeepEqual(state.fog, spaceFog);
  assert.ok(state.rain && state.rain.opacity > 0 && state.rain.opacity < 0.5);
  zoom = 16.5; onZoom();
  assert.deepEqual(state.fog, fogFor("day", 0.9, 0.15));
  assert.ok(canvas.style.filter.includes("saturate"));
  // And going back up takes it away again.
  zoom = 2; onZoom();
- assert.deepEqual(state.fog, { ...fogFor("day", 0, 0), "star-intensity": 0.55 });
+ assert.deepEqual(state.fog, spaceFog);
  assert.equal(canvas.style.filter, "");
 });
 
