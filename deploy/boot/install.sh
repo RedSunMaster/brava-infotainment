@@ -53,10 +53,12 @@ if "brava-no-overview@brava" not in names:
 PY
 # (the extension is picked up at the next login)
 
-# 4. A plain dark desktop in the same colour, in case the desktop shows for a moment anywhere.
-gsettings set org.gnome.desktop.background picture-options none
+# 4. The desktop background is the same start-up picture. GNOME lets go of the boot splash a few seconds before the early splash
+# (step 3) can start; the desktop shows in between, so it must look exactly like the splash instead of an empty dark screen.
+BG="$HOME/.local/share/brava/splash.png"
+gsettings set org.gnome.desktop.background picture-options scaled
 gsettings set org.gnome.desktop.background color-shading-type solid
 gsettings set org.gnome.desktop.background primary-color '#0a0705'
-gsettings set org.gnome.desktop.background picture-uri ''
-gsettings set org.gnome.desktop.background picture-uri-dark ''
+gsettings set org.gnome.desktop.background picture-uri "file://$BG"
+gsettings set org.gnome.desktop.background picture-uri-dark "file://$BG"
 echo "installed; restart to see it"
