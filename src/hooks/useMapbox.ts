@@ -32,7 +32,13 @@ export function useMapbox(container: React.RefObject<HTMLDivElement | null>) {
 
 		const resize = new ResizeObserver(() => mapRef.current?.resize());
         resize.observe(container.current);
-        return () => { resize.disconnect(); mapRef.current?.remove(); };
+        return () => {
+			resize.disconnect();
+			// Remove the map after the other hooks have cleaned up their layers and markers (they run later in this same unmount),
+			// otherwise they touch a map that no longer has a style. This matters now that switching profiles remounts the app.
+			const map = mapRef.current;
+			setTimeout(() => map?.remove(), 0);
+		};
 	}, []);
 
 	return { mapRef, mapLoaded };

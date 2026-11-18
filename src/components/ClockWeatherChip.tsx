@@ -11,6 +11,8 @@ import WbTwilightRounded from "@mui/icons-material/WbTwilightRounded";
 import { GpsStatus } from "../hooks/useGps";
 import GpsIndicator, { gpsDescription } from "./GpsIndicator";
 import { useThemeMode } from "../ThemeContext";
+import { useProfiles } from "../contexts/ProfileContext";
+import { Avatar } from "./ProfileDialog";
 
 function wmoIcon(code: number) {
 	if (code === 0) return <WbSunnyRounded sx={{ fontSize: 28 }} />;
@@ -57,6 +59,8 @@ interface Props {
 	estimating?: boolean;
 	/** The app is running as a display preview, not in the car. */
 	previewMode?: boolean;
+	/** Tapping the driver's icon at the right end opens the profile switcher. */
+	onProfile?: () => void;
 }
 
 /** A thin rule between the strip's three parts. */
@@ -69,7 +73,8 @@ function Divider() {
  * of the screen. Everything shares one size of text and icon; the only colour is the GPS status, so
  * a problem stands out, and the bar's lower edge picks up that colour too.
  */
-export default function ClockWeatherChip({ gpsStatus, estimating = false, previewMode = false }: Props) {
+export default function ClockWeatherChip({ gpsStatus, estimating = false, previewMode = false, onProfile }: Props) {
+	const { active } = useProfiles();
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
 	const { weather } = useThemeMode();
@@ -117,6 +122,13 @@ export default function ClockWeatherChip({ gpsStatus, estimating = false, previe
 					</>
 				)}
 				<GpsIndicator status={gpsStatus} estimating={estimating} preview={previewMode} />
+				{onProfile && <>
+					<Divider />
+					<Box component="button" type="button" aria-label={`Driver: ${active.name}. Change profile`} onClick={onProfile} sx={{ display: "flex", alignItems: "center", gap: 1, height: 44, px: 0.75, border: 0, borderRadius: 8, bgcolor: "transparent", color: "inherit", cursor: "pointer", font: "inherit", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}>
+						<Avatar profile={active} size={38} />
+						<Typography sx={{ ...text, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis" }}>{active.name}</Typography>
+					</Box>
+				</>}
 			</Box>
 		</Box>
 	);

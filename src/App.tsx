@@ -40,6 +40,7 @@ import type { LastFix } from "./lib/deadReckoning";
 import SpeedSigns from "./components/SpeedSigns";
 import { limitAt, speedSignState } from "./lib/speedSigns";
 import ClockWeatherChip from "./components/ClockWeatherChip";
+import ProfileDialog from "./components/ProfileDialog";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
 import { recordFrequentPlace } from "./lib/frequentPlaces";
@@ -241,6 +242,7 @@ export default function App() {
 	// Set while the search panel is choosing the Home or Work address.
 	const [placeSlot, setPlaceSlot] = useState<PlaceTarget | null>(null);
 	const [favourites, setFavourites] = useState(readFavourites);
+	const [profilesOpen, setProfilesOpen] = useState(false);
 	const [hazardAlerts, setHazardAlerts] = usePersistentState("brava-hazard-alerts", true, isBool);
 	const [arrivedAt, setArrivedAt] = useState<string | null>(null);
 	const navDestNameRef = useRef<string | null>(null);
@@ -981,7 +983,9 @@ export default function App() {
 							gpsStatus={gpsStatus}
 							estimating={estimating}
 							previewMode={previewMode}
+							onProfile={() => setProfilesOpen(true)}
 						/>
+						<ProfileDialog open={profilesOpen} onClose={() => setProfilesOpen(false)} lockSwitch={navActive || isDriving} lockEdit={isDriving} />
 					</Box>
 					{navActive && (
 						<NavigationCard
