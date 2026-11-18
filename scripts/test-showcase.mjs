@@ -32,3 +32,15 @@ test("it goes back to the globe only after being parked and left alone for the w
 	assert.equal(S.idleLongEnough(start, start + 4 * minute, start + 9 * minute), true);
 	assert.equal(S.idleLongEnough(start + 10 * minute, start, start + 12 * minute), false); // stopped two minutes ago
 });
+
+test("a flight to the car takes the short way round, however many times the globe has been turned", () => {
+	assert.equal(S.nearestLongitude(172, -124), -188);
+	assert.equal(S.nearestLongitude(172, 55), 172);
+	assert.equal(S.nearestLongitude(172, 140 + 720), 172 + 720);
+	assert.equal(S.nearestLongitude(-170, 175), 190);
+	for (const from of [-1000, -400, -181, 0, 179, 725]) for (const target of [-180, -42, 0, 172.6, 180]) {
+		const at = S.nearestLongitude(target, from);
+		assert.ok(Math.abs(at - from) <= 180, `${target} from ${from}`);
+		assert.ok(Math.abs(S.wrapLongitude(at) - S.wrapLongitude(target)) < 1e-9);
+	}
+});

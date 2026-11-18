@@ -3,7 +3,7 @@ import type mapboxgl from "mapbox-gl";
 import { ZOOM_LEVEL } from "../constants";
 import { puckOffset, puckOffsetFor, type Insets } from "../lib/cameraPadding";
 import { driftClouds } from "../lib/mapStyle";
-import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, nextSpinCentre } from "../lib/showcase";
+import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, nearestLongitude, nextSpinCentre, wrapLongitude } from "../lib/showcase";
 
 type Phase = "waiting" | "globe" | "approaching" | "local" | "leaving" | "grabbed" | "manual";
 const APPROACH_MS = 8000;
@@ -75,8 +75,11 @@ export function useGlobeShowcase(options: Options) {
 			transition(true);
 			const padding = o.paddingAt(ZOOM_LEVEL);
 			hold(true);
+			// Settle the camera's own longitude into one turn and aim at the nearest copy of the car's: the flight then goes the short way.
+			const here = map!.getCenter();
+			map!.jumpTo({ center: [wrapLongitude(here.lng), here.lat] });
 			map!.flyTo({
-				center: o.positionRef.current, zoom: ZOOM_LEVEL, pitch: 45, bearing: o.bearingRef.current,
+				center: [nearestLongitude(o.positionRef.current[0], wrapLongitude(here.lng)), o.positionRef.current[1]], zoom: ZOOM_LEVEL, pitch: 45, bearing: o.bearingRef.current,
 				padding, offset: puckOffsetFor(map!.getContainer().clientHeight, padding, 0.2), duration: APPROACH_MS,
 				// Without this Mapbox skips the flight when the system has reduced motion on (Windows "Show animations" off, remote
 				// sessions, kiosks). The flight is part of the product, so it always runs.
@@ -107,7 +110,7 @@ export function useGlobeShowcase(options: Options) {
 			phase.current = "leaving";
 			transition(true);
 			hold(true);
-			map!.flyTo({ center: [o.positionRef.current[0], GLOBE_LATITUDE], zoom: GLOBE_ZOOM, pitch: 0, bearing: 0, padding: o.paddingAt(GLOBE_ZOOM), offset: [0, 0], duration: LEAVE_MS, essential: true });
+			map!.flyTo({ center: [nearestLongitude(o.positionRef.current[0], map!.getCenter().lng), GLOBE_LATITUDE], zoom: GLOBE_ZOOM, pitch: 0, bearing: 0, padding: o.paddingAt(GLOBE_ZOOM), offset: [0, 0], duration: LEAVE_MS, essential: true });
 			map!.once("moveend", () => { if (my === generation.current) { hold(false); startGlobe(); } });
 		}
 
@@ -142,10 +145,11 @@ export function useGlobeShowcase(options: Options) {
 		const grab = () => {
 			const was = phase.current;
 			if (was !== "globe" && was !== "approaching" && was !== "leaving") return;
-			map.stop();
-			hold(false);
+			// Bump the generation first: stopping the camera fires "moveend", and the turn's own handler would otherwise start the next step.
 			const my = ++generation.current;
 			phase.current = "grabbed";
+			map.stop();
+			hold(false);
 			window.clearTimeout(resumeTimer);
 			resumeTimer = window.setTimeout(() => {
 				if (my !== generation.current || phase.current !== "grabbed") return;

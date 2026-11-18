@@ -9,6 +9,7 @@ import { ZOOM_LEVEL } from "../constants";
 import { lookAheadCamera, puckModelScale, smoothToward } from "../lib/cameraLookAhead";
 import { puckOffset, puckScreenPoint } from "../lib/cameraPadding";
 import { locateOnRoute, pointAtDistance, routeCache, segmentAtDistance } from "../lib/routeLocate";
+import { nearestLongitude } from "../lib/showcase";
 
 // How quickly the rendered bearing chases the target bearing.
 const BEARING_LERP_SPEED = 2.5;
@@ -277,8 +278,9 @@ export function usePositionPuck(
 					if (!following) recenterRef.current = null;
 					// However the camera comes back to following (a button, the auto-return after browsing, a route starting), glide
 					// back to the car instead of snapping: only a deliberate smoothLocate used to do that.
+					// (Not while a flight is running, such as the fly-down from the globe: that brings the camera back itself.)
 					else if (!wasFollowingRef.current && !recenterRef.current && !cameraTransitionRef.current) smoothLocate();
-					if (!cameraTransitionRef.current) wasFollowingRef.current = following;
+					wasFollowingRef.current = following;
 					const recenter = recenterRef.current;
 					if (recenter && !cameraTransitionRef.current) {
 						const t = Math.min(1, (now - recenter.started) / RECENTER_MS);
@@ -286,9 +288,12 @@ export function usePositionPuck(
 						const heading = orientationRef.current === "heading";
 						const goal = renderPosRef.current;
 						const goalBearing = heading ? renderBearingRef.current : 0;
+						// Blend along the short way round the world: the longitudes are not simply averaged, or a camera that has been turned
+						// round the globe (by hand) would sweep back round the whole Earth, once for every turn it was given.
+						const goalLng = nearestLongitude(goal[0], recenter.anchor[0]);
 						map.easeTo({
 							center: [
-								recenter.anchor[0] + (goal[0] - recenter.anchor[0]) * e,
+								recenter.anchor[0] + (goalLng - recenter.anchor[0]) * e,
 								recenter.anchor[1] + (goal[1] - recenter.anchor[1]) * e,
 							],
 							bearing: lerpBearing(recenter.bearing, goalBearing, e),

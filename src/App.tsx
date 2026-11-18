@@ -954,6 +954,14 @@ export default function App() {
 		parked: !isDriving && !navActive && !pendingDest && !arrivedAt && openPanel === null && !routeBusy && !selectingBuilding && !dockEditing && !profilesOpen,
 	});
 
+	// The camera comes back to following (the automatic return after browsing, say) while it is out at the globe: fly down to the car.
+	const previousCameraMode = useRef(cameraMode);
+	useEffect(() => {
+		const was = previousCameraMode.current;
+		previousCameraMode.current = cameraMode;
+		if (cameraMode === "following" && was !== "following") showcase.approachIfAway();
+	}, [cameraMode]);
+
 	// ── Speed signs ────────────────────────────────────────────────────────────
 	// Show your speed whenever the position is real or being estimated along the route, and the
 	// posted limit only while you are on the route (a wrong limit is worse than none).

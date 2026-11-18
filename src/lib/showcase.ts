@@ -22,6 +22,12 @@ export function idleLongEnough(parkedSince: number | null, lastActivity: number,
 /** Keeps a longitude between -180 and 180. */
 export const wrapLongitude = (longitude: number): number => ((((longitude + 180) % 360) + 360) % 360) - 180;
 
+/**
+ * The longitude equal to `target` that is nearest to `from`, so a flight takes the short way round the world (never more than half a turn),
+ * however far the Earth has turned while the camera was circling it.
+ */
+export const nearestLongitude = (target: number, from: number): number => target + 360 * Math.round((from - target) / 360);
+
 /** Where the camera goes for the next step of the turn: west along the same latitude, so the Earth appears to turn eastward. */
 export function nextSpinCentre(longitude: number): [number, number] {
 	return [wrapLongitude(longitude - SPIN_STEP_DEG), GLOBE_LATITUDE];
