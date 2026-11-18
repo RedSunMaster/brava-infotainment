@@ -203,13 +203,13 @@ test("the map is lit for the time of day at the place in view, and the car's wea
  assert.ok(state.rain);
 });
 
-test("changing the lighting preset fades over a couple of seconds instead of snapping", () => {
+test("changing the lighting preset fades slowly instead of snapping", () => {
  const calls = [];
  const map = { style: { setTransition: transition => calls.push(["transition", transition.duration]) }, setConfigProperty: (...args) => calls.push(["preset", args[2]]) };
  setLightPreset(map, "night");
  // The transition is stretched first, then the preset changes, so the change is the thing that fades.
  assert.deepEqual(calls, [["transition", PRESET_FADE_MS], ["preset", "night"]]);
- assert.ok(PRESET_FADE_MS >= 1000 && PRESET_FADE_MS <= 4000);
+ assert.ok(PRESET_FADE_MS >= 1000 && PRESET_FADE_MS <= 10000);
  // The very first lighting is just there.
  calls.length = 0;
  setLightPreset(map, "day", false);

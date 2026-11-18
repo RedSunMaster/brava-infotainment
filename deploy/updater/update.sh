@@ -6,7 +6,13 @@
 #   update.sh --force  rebuild and restart even if nothing is new
 set -uo pipefail
 
-REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+if [ -z "${BRAVA_UPDATE_COPY:-}" ]; then
+	COPY="$(mktemp /tmp/brava-update.XXXXXX)"; cp "$0" "$COPY"
+	export BRAVA_UPDATE_COPY=1 BRAVA_REPO="${BRAVA_REPO:-$(cd "$(dirname "$0")/../.." && pwd)}"
+	exec bash "$COPY" "$@"
+fi
+
+REPO="$BRAVA_REPO"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/brava-update"
 APP="$REPO/out/brava-infotainment-linux-x64/brava-infotainment"
 BRANCH="${BRAVA_BRANCH:-master}"
@@ -44,9 +50,16 @@ nice -n 10 npm run package >"$STATE/build.log" 2>&1 || { log "build failed, see 
 rm -f "$STATE/failed"
 
 log "restarting app"
-systemctl --user stop brava-app.service brava-test.service 2>/dev/null
-pkill -x brava-infotainm 2>/dev/null
-sleep 1
-systemctl --user reset-failed brava-app.service 2>/dev/null
-systemd-run --user --quiet --collect --unit=brava-app --working-directory="$(dirname "$APP")" "$APP" || { log "could not start the app"; exit 1; }
-log "now running ${REMOTE:0:7}"
+# Stop every copy: units of earlier launches (named brava-app-*), and any strays.
+systemctl --user stop 'brava-app*.service' brava-test.service >/dev/null 2>&1
+for i in $(seq 1 20); do pgrep -x brava-infotainm >/dev/null || break; [ "$i" -ge 10 ] && pkill -9 -x brava-infotainm; sleep 1; done
+# A fresh unit name each time, so a unit that is slow to go away can never block the start; errors are kept in the log.
+for try in 1 2 3 4 5; do
+	if systemd-run --user --quiet --collect --unit="brava-app-$(date +%s)" --working-directory="$(dirname "$APP")" "$APP" >>"$STATE/update.log" 2>&1; then
+		log "now running ${REMOTE:0:7}"
+		exit 0
+	fi
+	log "start attempt $try failed"; sleep 2
+done
+log "could not start the app"
+exit 1

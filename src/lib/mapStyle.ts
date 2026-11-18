@@ -307,7 +307,7 @@ export function skyPeriod(latitude: number, longitude: number, sun: Sun): TimeOf
 }
 
 /** How long the light takes to change from one preset to the next (day to dusk, dusk to night...), so it eases instead of snapping. */
-export const PRESET_FADE_MS = 1800;
+export const PRESET_FADE_MS = 6000;
 const DEFAULT_TRANSITION = { duration: 300, delay: 0 };
 type Transitions = { style?: { setTransition?: (transition: { duration: number; delay: number }) => void } };
 const fadeTimers = new WeakMap<object, ReturnType<typeof setTimeout>>();
