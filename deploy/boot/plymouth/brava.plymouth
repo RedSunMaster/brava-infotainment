@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Brava
+Description=FIAT Brava start-up logo
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/brava
+ScriptFile=/usr/share/plymouth/themes/brava/brava.script

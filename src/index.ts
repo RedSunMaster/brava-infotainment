@@ -182,6 +182,16 @@ startUpdater(() => mainWindow);
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────
 ipcMain.on("app-quit", () => app.quit());
 
+// ── Boot splash hand-over ─────────────────────────────────────────────────────
+// The early boot splash (deploy/boot) stays up until the app's own opening screen, which looks the same, is on the display; it
+// watches for this file.
+ipcMain.on("splash-shown", () => {
+	try {
+		const dir = process.env.XDG_RUNTIME_DIR;
+		if (dir) writeFileSync(join(dir, "brava-ready"), String(Date.now()));
+	} catch { /* Not on the car computer. */ }
+});
+
 // ── Spotify refresh token ─────────────────────────────────────────────────────
 // Kept in a file in the app's data folder, encrypted with the system keyring when there is one, so
 // Spotify stays connected across restarts without signing in again.

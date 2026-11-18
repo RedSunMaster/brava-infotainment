@@ -1,0 +1,44 @@
+# FIAT Brava boot splash: a flat dark background with the logo in the middle. The app's own opening screen (src/index.html) draws the same
+# picture in the same place and size, so the hand-over from boot to app cannot be seen. Pictures come from tools/make-brand.mjs.
+
+# Same colour as the app's opening screen (#060a14).
+Window.SetBackgroundTopColor(0.0235, 0.0392, 0.0784);
+Window.SetBackgroundBottomColor(0.0235, 0.0392, 0.0784);
+
+screen_w = Window.GetWidth();
+screen_h = Window.GetHeight();
+short_side = Math.Min(screen_w, screen_h);
+
+# The monitor is mounted on its side, but the boot framebuffer is the panel's own landscape shape: turn the picture to suit.
+# A quarter turn one way or the other; if the logo comes up upside down, change the sign here.
+quarter_turn = 1.5707963;
+turn = 0;
+if (screen_w > screen_h) turn = quarter_turn;
+
+logo_image = Image("logo.png");
+glow_image = Image("glow.png");
+logo_w = short_side * 0.9;
+logo_h = logo_w * logo_image.GetHeight() / logo_image.GetWidth();
+logo_image = logo_image.Scale(logo_w, logo_h);
+glow_image = glow_image.Scale(logo_w, logo_h);
+if (turn != 0) {
+	logo_image = logo_image.Rotate(turn);
+	glow_image = glow_image.Rotate(turn);
+}
+x = (screen_w - logo_image.GetWidth()) / 2;
+y = (screen_h - logo_image.GetHeight()) / 2;
+
+glow = Sprite(glow_image);
+glow.SetPosition(x, y, 10);
+logo = Sprite(logo_image);
+logo.SetPosition(x, y, 11);
+
+# A short fade in, then it holds perfectly still.
+frame = 0;
+fun refresh() {
+	frame++;
+	opacity = Math.Min(1, frame / 25);
+	glow.SetOpacity(opacity);
+	logo.SetOpacity(opacity);
+}
+Plymouth.SetRefreshFunction(refresh);

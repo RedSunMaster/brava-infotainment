@@ -45,6 +45,7 @@ import { SIDE_DOCK_WIDTH, isDockSide } from "./lib/dockLayout";
 import lightsUrl from "../public/textures/city-lights.webp";
 import { useCameraPadding } from "./hooks/useCameraPadding";
 import { useGlobeShowcase } from "./hooks/useGlobeShowcase";
+import { useSplash } from "./hooks/useSplash";
 import { wantsLocation } from "./lib/showcase";
 import { CLOUDS_KEY, NIGHT_KEY, applyNight, presetFor, setCloudsVisible, setLightPreset } from "./lib/mapStyle";
 import { useThemeMode } from "./ThemeContext";
@@ -290,6 +291,7 @@ export default function App() {
 	} | null>(null);
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
+	useSplash(mapLoaded);
 	const [showTraffic, setShowTraffic] = useState(() => { try { return localStorage.getItem("brava-show-traffic") !== "off"; } catch { return true; } });
 	useEffect(() => { try { localStorage.setItem("brava-show-traffic", showTraffic ? "on" : "off"); } catch { /* Keep the choice for this session. */ } }, [showTraffic]);
 	useTrafficLayer(mapRef, mapLoaded, showTraffic, navActive || !!pendingDest);

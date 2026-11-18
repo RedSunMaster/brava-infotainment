@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Brava early splash
+Exec=/home/brava/.local/share/brava/early-splash.py
+X-GNOME-Autostart-Phase=Initialization
+X-GNOME-Autostart-Delay=0
+NoDisplay=true
