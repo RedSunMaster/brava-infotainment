@@ -394,6 +394,12 @@ function paintWeather(map: WeatherMap, period: TimeOfDay, effect: WeatherEffect,
  const fog = fogFor(period, effect.cloud * strength, effect.mist * strength);
  // Space is dark and full of stars whatever the time of day where you are.
  if (space > 0) fog["star-intensity"] = Math.max(Number(fog["star-intensity"] ?? 0), 0.55 * space);
+ // Seen from space the day-time haze colour is near white, which made the Earth glow too much: pull it towards the blue of the upper
+ // atmosphere and thin the glow, in step with how far out the camera is.
+ if (space > 0) {
+  fog.color = mixHex(String(fog.color), String(fog["high-color"]), 0.65 * space);
+  fog["horizon-blend"] = Number(fog["horizon-blend"] ?? 0.04) * (1 - 0.5 * space);
+ }
  // The glow follows the sun: bright over the day side, a faint blue over the night side.
  const darkness = space * (1 - glow);
  if (darkness > 0) {
