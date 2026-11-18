@@ -958,7 +958,7 @@ export default function App() {
 		enabled: globeIdle,
 		hasPosition: previewMode || gpsStatus === "fix",
 		positionRef: lastPosRef, bearingRef: lastBearingRef, mapOffset, cameraTransitionRef,
-		paddingHold, paddingAt: cameraPadding.paddingAt, refreshPadding: cameraPadding.refresh,
+		paddingHold, paddingAt: cameraPadding.paddingAt, refreshPadding: cameraPadding.refresh, blendToCar: smoothLocate,
 		wantsLocal: wantsLocation({ driving: isDriving, navigating: navActive, destinationPending: !!pendingDest, searchOpen: openPanel === "search", routing: routeBusy, choosingBuilding: !!selectingBuilding }),
 		parked: !isDriving && !navActive && !pendingDest && !arrivedAt && openPanel === null && !routeBusy && !selectingBuilding && !dockEditing && !profilesOpen,
 	});

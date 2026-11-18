@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type mapboxgl from "mapbox-gl";
 import { ZOOM_LEVEL } from "../constants";
-import { puckOffset, puckOffsetFor, type Insets } from "../lib/cameraPadding";
+import { puckOffsetFor, type Insets } from "../lib/cameraPadding";
 import { driftClouds } from "../lib/mapStyle";
 import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, FLY_BACK_FROM_M, flightMs, nearestLongitude, nextSpinCentre, wrapLongitude } from "../lib/showcase";
 import { metresBetween } from "../lib/routeLocate";
@@ -27,6 +27,8 @@ interface Options {
 	/** The padding the camera will have at a zoom, and a way to apply it again once a flight is over. */
 	paddingAt: (zoom: number) => Insets;
 	refreshPadding: () => void;
+	/** Glides the camera from where it is to the live follow view of the car. */
+	blendToCar: () => void;
 	/** The driver is using destinations, or the car is moving: come down to the car. */
 	wantsLocal: boolean;
 	/** Nothing is going on: parked, no route, no panels open. */
@@ -93,11 +95,11 @@ export function useGlobeShowcase(options: Options) {
 				window.clearTimeout(safety);
 				map!.off("moveend", finish);
 				hold(false);
-				// The flight's own offset is not reliable (it can end with the car at the screen centre), so set the resting camera
-				// explicitly: the car where the open or closed panels say it belongs.
-				map!.easeTo({ center: latest.current.positionRef.current, offset: puckOffset(map!, latest.current.mapOffset.current), duration: 0 });
 				transition(false);
 				phase.current = "local";
+				// The flight was aimed at where the car was when it began; a moving car is somewhere else by now (and may have turned). Glide
+				// the rest of the way to the live follow view instead of jumping there. The blend also puts the car where the panels say it belongs.
+				latest.current.blendToCar();
 			};
 			// If the flight is interrupted or never reports its end, do not leave the camera stuck in transition.
 			const safety = window.setTimeout(finish, duration + 1500);
