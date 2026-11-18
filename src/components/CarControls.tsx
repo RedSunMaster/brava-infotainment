@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { isBool, isNumberIn, usePersistentState } from "../lib/usePersistentState";
 import { Box, Typography } from "@mui/material";
 import { alpha, type Theme } from "@mui/material/styles";
@@ -14,6 +14,10 @@ import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
 import SkipNextRounded from "@mui/icons-material/SkipNextRounded";
 import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
+import AddRounded from "@mui/icons-material/AddRounded";
+import RemoveRounded from "@mui/icons-material/RemoveRounded";
+import CloseRounded from "@mui/icons-material/CloseRounded";
+import { DEFAULT_LAYOUT, DOCK_COLUMNS, WIDGETS, addWidget, availableWidgets, canStep, dragWidget, freeCells, isStoredLayout, moveWidget, normaliseLayout, removeWidget, sizeThatFits, startColumns, stepWidgetSize, type DockLayout, type WidgetId } from "../lib/dockLayout";
 import DriveButton from "./DriveButton";
 import SpotifyPopup from "./SpotifyPopup";
 import QuietNotice from "./QuietNotice";
@@ -59,7 +63,7 @@ function HazardOverlay() {
  </Box>;
 }
 
-interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | null; setPanel: (panel: "media" | null) => void }
+interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | null; setPanel: (panel: "media" | null) => void; /** Dock layout editing is on (parked only). */ editing: boolean; onEditingChange: (editing: boolean) => void }
 interface StepControlProps { label: string; /** Shown beside the value instead of the label, which stays as the accessible name. */ icon?: React.ElementType; value: number; onChange: (value: number) => void; maximum: number; step?: number; displayValue?: string; /** A picture of the value, shown under the number. */ meter?: React.ReactNode; /** Share of the row, relative to the other steppers. */ grow?: number; disabled?: boolean; className?: string }
 /** The ‹ › beside a value: flat chevrons with the value as the centre of the cell. */
 const CHEVRON_BUTTON = { flex: "0 0 56px", minWidth: 0, minHeight: 96, borderRadius: 0, color: "text.secondary", "&:hover": { bgcolor: "action.hover", color: "text.primary" }, "& .MuiSvgIcon-root": { fontSize: 40 } } as const;
@@ -97,10 +101,10 @@ function FanMeter({ value }: { value: number }) {
  * switching on and off) and never shows the bar. The hazards use the red tone: red even when off, and
  * tinted as well as barred when on.
  */
-function Switch({ label, pressed, onClick, children, width, className, tone = "primary" }: { label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode; width?: number; className?: string; tone?: "primary" | "error" }) {
+function Switch({ label, pressed, onClick, children, width, className, tone = "primary", disabled }: { label: string; pressed?: boolean; onClick: () => void; children: React.ReactNode; width?: number; className?: string; tone?: "primary" | "error"; disabled?: boolean }) {
  const on = pressed === true;
  const background = on && tone === "error" ? (theme: Theme) => alpha(theme.palette.error.main, 0.2) : "transparent";
- return <DriveButton className={className} aria-label={label} title={label} aria-pressed={pressed} onClick={onClick}
+ return <DriveButton className={className} aria-label={label} title={label} aria-pressed={pressed} onClick={onClick} disabled={disabled}
   sx={{ flex: width ? `0 0 ${width}px` : 1, minWidth: 0, minHeight: 96, borderRadius: 0,
    color: on ? `${tone}.main` : tone === "error" ? "error.main" : "text.primary",
    bgcolor: background, "&:hover": { bgcolor: background },
@@ -112,7 +116,7 @@ function Switch({ label, pressed, onClick, children, width, className, tone = "p
  </DriveButton>;
 }
 
-export default function CarControls({ overlay, isDriving, panel: tab, setPanel: setTab }: Props) {
+export default function CarControls({ overlay, isDriving, panel: tab, setPanel: setTab, editing, onEditingChange }: Props) {
  const spotify = useSpotify();
  const spotifyRef = useRef(spotify);
  spotifyRef.current = spotify;
@@ -151,8 +155,81 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
   setError(null);
   try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Playback unavailable. Try again."); }
  }
+
+ // ── Dock layout (per profile): which tiles, how wide, in what order. Only changeable while parked. ──
+ const [storedLayout, setStoredLayout] = usePersistentState<DockLayout>("brava-dock-layout", DEFAULT_LAYOUT, isStoredLayout as (value: unknown) => value is DockLayout);
+ const layout = useMemo(() => normaliseLayout(storedLayout), [storedLayout]);
+ const layoutRef = useRef(layout);
+ layoutRef.current = layout;
+ const starts = startColumns(layout);
+ const [selected, setSelected] = useState<WidgetId | null>(null);
+ const [drag, setDrag] = useState<{ id: WidgetId; offsetPx: number } | null>(null);
+ const gridRef = useRef<HTMLDivElement>(null);
+ const grab = useRef<{ id: WidgetId; startX: number; lastX: number; dir: 1 | -1; moved: boolean; offsetInTile: number } | null>(null);
+ const holdTimer = useRef<number | null>(null);
+ const suppressClick = useRef(false);
+ useEffect(() => { if (isDriving && editing) onEditingChange(false); }, [isDriving, editing, onEditingChange]);
+ useEffect(() => { if (!editing) { setSelected(null); setDrag(null); grab.current = null; } }, [editing]);
+ const stopHold = () => { if (holdTimer.current !== null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; } };
+ useEffect(() => stopHold, []);
+ // Press and hold the dock while parked to start customising it.
+ const holdStart = (event: React.PointerEvent) => {
+  if (editing || isDriving) return;
+  stopHold();
+  const x = event.clientX, y = event.clientY;
+  holdTimer.current = window.setTimeout(() => { holdTimer.current = null; suppressClick.current = true; window.setTimeout(() => { suppressClick.current = false; }, 900); onEditingChange(true); }, 700);
+  const cancel = (e: PointerEvent) => { if (e.type === "pointermove" && Math.hypot(e.clientX - x, e.clientY - y) < 14) return; stopHold(); window.removeEventListener("pointermove", cancel); window.removeEventListener("pointerup", cancel); window.removeEventListener("pointercancel", cancel); };
+  window.addEventListener("pointermove", cancel);
+  window.addEventListener("pointerup", cancel);
+  window.addEventListener("pointercancel", cancel);
+ };
+ const tilePointerDown = (event: React.PointerEvent<HTMLElement>, id: WidgetId) => {
+  const grid = gridRef.current;
+  if (!grid) return;
+  const rect = grid.getBoundingClientRect();
+  const cell = rect.width / DOCK_COLUMNS;
+  const index = layoutRef.current.findIndex(item => item.id === id);
+  const left = rect.left + (startColumns(layoutRef.current)[index] - 1) * cell;
+  grab.current = { id, startX: event.clientX, lastX: event.clientX, dir: 1, moved: false, offsetInTile: event.clientX - left };
+  event.currentTarget.setPointerCapture(event.pointerId);
+  setSelected(id);
+ };
+ const tilePointerMove = (event: React.PointerEvent<HTMLElement>) => {
+  const g = grab.current, grid = gridRef.current;
+  if (!g || !grid) return;
+  if (!g.moved && Math.abs(event.clientX - g.startX) < 10) return;
+  g.moved = true;
+  const rect = grid.getBoundingClientRect();
+  const cell = rect.width / DOCK_COLUMNS;
+  const current = layoutRef.current;
+  const span = current.find(item => item.id === g.id)!.span;
+  const left = Math.max(0, Math.min(rect.width - span * cell, event.clientX - g.offsetInTile - rect.left));
+  if (event.clientX !== g.lastX) g.dir = event.clientX > g.lastX ? 1 : -1;
+  g.lastX = event.clientX;
+  const next = dragWidget(current, g.id, left / cell, g.dir);
+  if (next !== current) { layoutRef.current = next; setStoredLayout(next); }
+  const natural = (startColumns(next)[next.findIndex(item => item.id === g.id)] - 1) * cell;
+  setDrag({ id: g.id, offsetPx: left - natural });
+ };
+ const tilePointerEnd = () => { grab.current = null; setDrag(null); };
+ const change = (next: DockLayout) => { if (next !== layoutRef.current) { layoutRef.current = next; setStoredLayout(next); } };
+
  // Until a real vehicle link exists these only change what the screen shows.
  const suffix = VEHICLE_CONNECTED ? "" : " (preview)";
+ const tile = (id: WidgetId, className?: string): React.ReactNode => {
+  switch (id) {
+   case "fan": return <StepControl className={className} label="Fan" icon={AirRounded} grow={1} value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} meter={<FanMeter value={fan} />} />;
+   case "warmth": return <StepControl className={className} label="Warmth" icon={DeviceThermostatRounded} grow={1} value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} meter={<WarmthMeter value={temp} />} />;
+   case "volume": return <StepControl className={className} label="Volume" icon={VolumeUpRounded} grow={1} value={spotify.volume} step={10} maximum={100} disabled={!spotify.isConnected} displayValue={spotify.isConnected ? String(spotify.volume) : "—"} onChange={(value) => void mediaAction(() => spotify.setVolume(value))} />;
+   case "airflow": return <Switch className={className} label={`Airflow direction: ${AIRFLOW_MODES[airflow].name}${suffix}`} onClick={() => { const next = (airflow + 1) % AIRFLOW_MODES.length; setAirflow(next); setAirflowNote(AIRFLOW_MODES[next].name); }}>{React.createElement(AIRFLOW_MODES[airflow].Icon, { width: 46, height: 46, fill: "currentColor", "aria-hidden": true })}</Switch>;
+   case "recirculate": return <Switch className={className} label={`Recirculate cabin air${suffix}`} pressed={recirculate} onClick={() => setRecirculate(!recirculate)}><RecirculateIcon width={46} height={46} fill="currentColor" /></Switch>;
+   case "demist": return <Switch className={className} label={`Rear demist${suffix}`} pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)}><RearDefrostIcon width={46} height={46} fill="currentColor" /></Switch>;
+   case "ac": return <Switch className={className} label={`Air conditioning${suffix}`} pressed={ac} onClick={() => setAc(!ac)}><AcUnitRounded /></Switch>;
+   case "playPause": return <Switch className={className} disabled={!spotify.isConnected} label={spotify.track?.isPlaying ? "Pause music" : "Play music"} onClick={() => void mediaAction(spotify.track?.isPlaying ? spotify.pause : spotify.play)}>{spotify.track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</Switch>;
+   case "nextTrack": return <Switch className={className} disabled={!ready} label="Next track" onClick={() => void mediaAction(spotify.next)}><SkipNextRounded /></Switch>;
+   case "hazards": return <Switch className={className} tone="error" label={`Hazard lights${suffix}`} pressed={hazards} onClick={() => setHazards(!hazards)}><WarningAmberRounded /></Switch>;
+  }
+ };
  return <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: 0, right: 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 0, p: 0, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
   {hazards && <HazardOverlay />}
   {overlay && <Box sx={{ alignSelf: "flex-end", px: 2, pb: 1.5, "&&": { pointerEvents: "none" } }}>{overlay}</Box>}
@@ -173,20 +250,51 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
     <DriveButton color="inherit" sx={{ minWidth: 0, flex: "0 0 52px" }} aria-label="Increase volume" disabled={spotify.volume >= 100} onClick={() => mediaAction(() => spotify.setVolume(Math.min(100, Math.floor(spotify.volume / 10) * 10 + 10)))}><ChevronRightRounded /></DriveButton>
    </> : <DriveButton color="inherit" aria-label="Open music player" onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); }} sx={{ justifyContent: "flex-start", gap: 1, fontSize: 24 }}><MusicNoteRounded /> Connect Spotify</DriveButton>}
   </Box>}
-  <Box component="nav" aria-label="Climate and safety controls" sx={{ bgcolor: "background.paper", color: "text.primary", borderTop: "1px solid", borderColor: "divider", display: "flex", alignItems: "stretch", position: "relative", borderTopLeftRadius: 20, borderTopRightRadius: 20, "& .dock-start": { borderTopLeftRadius: 20, overflow: "hidden" }, "& .dock-end": { borderTopRightRadius: 20 } }}>
-   {airflowNote && <Box role="status" sx={{ position: "absolute", left: "50%", bottom: "calc(100% + 112px)", transform: "translateX(-50%)", px: 3, py: 1, borderRadius: 8, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, fontSize: 24, fontWeight: 600, whiteSpace: "nowrap" }}>Air to {airflowNote}</Box>}
-   {/* One bar, Tesla style: the driver sits on the right, so the hazards and warmth are at that end, the air settings in the middle, and the fan at the left. */}
-   <StepControl className="dock-start" label="Fan" icon={AirRounded} grow={1} value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} meter={<FanMeter value={fan} />} />
-   <Box sx={{ display: "flex", alignItems: "stretch", flex: "0 0 auto" }}>
-    <Switch width={88} label={`Airflow direction: ${AIRFLOW_MODES[airflow].name}${suffix}`} onClick={() => { const next = (airflow + 1) % AIRFLOW_MODES.length; setAirflow(next); setAirflowNote(AIRFLOW_MODES[next].name); }}>
-     {React.createElement(AIRFLOW_MODES[airflow].Icon, { width: 46, height: 46, fill: "currentColor", "aria-hidden": true })}
-    </Switch>
-    <Switch width={88} label={`Recirculate cabin air${suffix}`} pressed={recirculate} onClick={() => setRecirculate(!recirculate)}><RecirculateIcon width={46} height={46} fill="currentColor" /></Switch>
-    <Switch width={88} label={`Rear demist${suffix}`} pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)}><RearDefrostIcon width={46} height={46} fill="currentColor" /></Switch>
-    <Switch width={88} label={`Air conditioning${suffix}`} pressed={ac} onClick={() => setAc(!ac)}><AcUnitRounded /></Switch>
+  {editing && <Box role="region" data-map-obstruction aria-label="Customise dock" sx={{ mx: 2, mb: 1.5, p: 2, display: "grid", gap: 1.5, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 8 }}>
+   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+    <Box sx={{ flex: 1, minWidth: 0 }}>
+     <Typography sx={{ fontSize: 28, fontWeight: 800 }}>Customise dock</Typography>
+     <Typography sx={{ fontSize: 20, color: "text.secondary" }}>Drag a tile to move it. Tap a tile to resize or remove it.</Typography>
+    </Box>
+    <DriveButton color="inherit" variant="outlined" onClick={() => { change(normaliseLayout(DEFAULT_LAYOUT)); setSelected(null); }} sx={{ minHeight: 64, px: 3 }}>Reset</DriveButton>
+    <DriveButton variant="contained" onClick={() => onEditingChange(false)} sx={{ minHeight: 64, px: 4 }}>Done</DriveButton>
    </Box>
-   <StepControl label="Warmth" icon={DeviceThermostatRounded} grow={1} value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} meter={<WarmthMeter value={temp} />} />
-   <Switch className="dock-end" tone="error" width={96} label={`Hazard lights${suffix}`} pressed={hazards} onClick={() => setHazards(!hazards)}><WarningAmberRounded /></Switch>
+   {selected && layout.some(item => item.id === selected) && <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, p: 1, borderRadius: 2, bgcolor: "action.hover" }}>
+    <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 24, fontWeight: 700 }}>{WIDGETS[selected].label}</Typography>
+    {WIDGETS[selected].sizes.length > 1 && <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }} role="group" aria-label="Size">
+     <DriveButton color="inherit" variant="outlined" aria-label="Make smaller" disabled={!canStep(layout, selected, -1)} onClick={() => change(stepWidgetSize(layout, selected, -1))} sx={{ minWidth: 64, minHeight: 64, p: 0 }}><RemoveRounded /></DriveButton>
+     <Typography sx={{ minWidth: 150, textAlign: "center", fontSize: 22 }}>{layout.find(item => item.id === selected)!.span} cells wide</Typography>
+     <DriveButton color="inherit" variant="outlined" aria-label="Make bigger" disabled={!canStep(layout, selected, 1)} onClick={() => change(stepWidgetSize(layout, selected, 1))} sx={{ minWidth: 64, minHeight: 64, p: 0 }}><AddRounded /></DriveButton>
+    </Box>}
+    {WIDGETS[selected].pinned ? <Typography sx={{ fontSize: 20, color: "text.secondary" }}>Always on the dock</Typography>
+     : <DriveButton color="error" variant="outlined" onClick={() => { change(removeWidget(layout, selected)); setSelected(null); }} sx={{ minHeight: 64, px: 3 }}>Remove</DriveButton>}
+   </Box>}
+   <Box>
+    <Typography sx={{ fontSize: 20, color: "text.secondary", mb: 0.75 }}>{availableWidgets(layout).length ? `Add to dock · ${freeCells(layout)} ${freeCells(layout) === 1 ? "cell" : "cells"} free${availableWidgets(layout).some(id => sizeThatFits(layout, id) === null) ? " · greyed ones need more room" : ""}` : "Everything is on the dock"}</Typography>
+    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+     {availableWidgets(layout).map(id => {
+      const fits = sizeThatFits(layout, id) !== null;
+      return <DriveButton key={id} color="inherit" variant="outlined" disabled={!fits} title={fits ? undefined : "Not enough room: remove or shrink something first"} onClick={() => { change(addWidget(layout, id)); setSelected(id); }} startIcon={<AddRounded />} sx={{ minHeight: 64, px: 2.5, fontSize: 22 }}>{WIDGETS[id].label}<Box component="span" sx={{ ml: 1, fontWeight: 500, color: "text.secondary" }}>{WIDGETS[id].sizes[0]}×1</Box></DriveButton>;
+     })}
+    </Box>
+   </Box>
+  </Box>}
+  <Box component="nav" aria-label="Climate and safety controls" ref={gridRef} onPointerDown={holdStart} onClickCapture={(event) => { if (suppressClick.current) { suppressClick.current = false; event.stopPropagation(); event.preventDefault(); } }} sx={{ bgcolor: "background.paper", color: "text.primary", borderTop: "1px solid", borderColor: "divider", display: "grid", gridTemplateColumns: `repeat(${DOCK_COLUMNS}, minmax(0, 1fr))`, alignItems: "stretch", position: "relative", borderTopLeftRadius: 20, borderTopRightRadius: 20, "& .dock-start": { borderTopLeftRadius: 20, overflow: "hidden" }, "& .dock-end": { borderTopRightRadius: 20 } }}>
+   {airflowNote && <Box role="status" sx={{ position: "absolute", left: "50%", bottom: "calc(100% + 112px)", transform: "translateX(-50%)", px: 3, py: 1, borderRadius: 8, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, fontSize: 24, fontWeight: 600, whiteSpace: "nowrap" }}>Air to {airflowNote}</Box>}
+   {layout.map((item, index) => {
+    const start = starts[index];
+    const className = start === 1 ? "dock-start" : start + item.span - 1 === DOCK_COLUMNS ? "dock-end" : undefined;
+    const dragging = drag?.id === item.id;
+    return <Box key={item.id} data-dock-tile={item.id} sx={{ gridColumn: `${start} / span ${item.span}`, gridRow: 1, display: "flex", minWidth: 0, position: "relative", ...(dragging ? { transform: `translateX(${drag!.offsetPx}px)`, zIndex: 6, bgcolor: "background.paper", boxShadow: 8, borderRadius: 2 } : {}) }}>
+     {tile(item.id, className)}
+     {editing && <>
+      <Box role="button" aria-label={`${WIDGETS[item.id].label}. Drag to move, tap to select`} aria-pressed={selected === item.id} onPointerDown={(event) => tilePointerDown(event, item.id)} onPointerMove={tilePointerMove} onPointerUp={tilePointerEnd} onPointerCancel={tilePointerEnd}
+       sx={{ position: "absolute", inset: 3, zIndex: 3, borderRadius: 2, cursor: dragging ? "grabbing" : "grab", touchAction: "none", userSelect: "none", border: "3px solid", borderColor: selected === item.id ? "primary.main" : "transparent", outline: selected === item.id ? "none" : `2px dashed ${"rgba(127,127,127,0.55)"}`, outlineOffset: -3, bgcolor: (theme) => alpha(theme.palette.background.paper, selected === item.id ? 0.35 : 0.2) }} />
+      {!WIDGETS[item.id].pinned && <DriveButton color="inherit" aria-label={`Remove ${WIDGETS[item.id].label}`} onClick={() => { change(removeWidget(layoutRef.current, item.id)); if (selected === item.id) setSelected(null); }} sx={{ position: "absolute", top: 2, right: 2, zIndex: 4, minWidth: 0, width: 36, height: 36, minHeight: 36, p: 0, borderRadius: "50%", bgcolor: "error.main", color: "#fff", "&:hover": { bgcolor: "error.dark" }, "& .MuiSvgIcon-root": { fontSize: 22 } }}><CloseRounded /></DriveButton>}
+     </>}
+    </Box>;
+   })}
+   {editing && freeCells(layout) > 0 && <Box aria-hidden sx={{ gridColumn: `${DOCK_COLUMNS - freeCells(layout) + 1} / span ${freeCells(layout)}`, gridRow: 1, m: 0.75, borderRadius: 2, border: "2px dashed", borderColor: "divider", display: "flex", alignItems: "center", justifyContent: "center", color: "text.secondary", fontSize: 20 }}>{freeCells(layout)} free</Box>}
   </Box>
  </Box>;
 }

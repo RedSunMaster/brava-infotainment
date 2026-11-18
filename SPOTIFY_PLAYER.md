@@ -51,3 +51,7 @@ If you want a Windows test that behaves like the car, build `librespot` (`cargo 
 - Open Spotify on your phone: **Brava** should be listed under Connect devices. If not, repeat step 4.
 - This was written and checked against the app's code, but not run on the car computer. Treat the config
   as a starting point.
+
+## Which player is used
+
+The app can also play inside its own window; that player shows up in Spotify as **Brava (app)**, so it never clashes with the car's real **Brava** device. When the real Brava is online, new songs, playlists and episodes go to it, even if the app's own player is on. The in-app player is used only when no real Brava is found.

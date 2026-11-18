@@ -127,6 +127,8 @@ interface Props {
 	onPlaceMarker?: (target: PlaceSlot | { favourite: string }) => void;
 	onRemoveFavourite?: (id: string) => void;
 	onGoToPlace?: (coords: Coordinates, name: string, buildingCoords?: Coordinates) => void;
+	/** Starts dock customising (parked only); the settings sheet closes first. */
+	onCustomiseDock?: () => void;
 	hazardAlerts?: boolean;
 	onHazardAlertsChange?: (value: boolean) => void;
 	/** One-line description of which guidance voice is in use. */
@@ -167,7 +169,7 @@ export default function MapControls({
 	searchTitle,
 	onSetPlace,
 	savedPlaces = {}, favourites = [], onPlaceMarker, onRemoveFavourite, onGoToPlace,
-	hazardAlerts = true, onHazardAlertsChange,
+	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
 	voiceVolume = 1, onVoiceVolumeChange, onTestVoice,
@@ -308,6 +310,9 @@ export default function MapControls({
 								</Section>}
 								{onHazardAlertsChange && <Section title="Cameras and hazards" hint="Warns about speed cameras, red light cameras, railway crossings and mapped hazards on your route. Data from OpenStreetMap; needs internet.">
 									<Options<boolean> label="Cameras and hazards" columns={2} value={hazardAlerts} onChange={onHazardAlertsChange} items={[[true, "Warn me"], [false, "Off"]] as const} />
+								</Section>}
+								{onCustomiseDock && <Section title="Dock" hint="Choose which controls sit in the bottom dock, how big they are and where. Only while parked.">
+									<DriveButton className="settings-option" variant="outlined" disabled={isDriving} onClick={() => { setPanel(null); onCustomiseDock(); }}>Customise dock</DriveButton>
 								</Section>}
 								<Section title="Saved places" hint="Tap a pin to change how it looks on the map.">
 									{(["home", "work"] as const).map(slot => {

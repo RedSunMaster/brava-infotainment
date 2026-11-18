@@ -41,6 +41,19 @@ test("switching swaps every brava setting and leaves the Spotify sign-in alone",
 	assert.equal(store.getItem("brava.theme"), null);
 });
 
+test("the Spotify account and music player set-up are the same in every profile", () => {
+	const store = memory({ "spotify_access_token": "t", "spotify_token_expiry": "9", "spotify_refresh_token": "r", "brava-spotify-volume": "40", "brava-inapp-player": "false", "brava-resume-music": "true", "brava-climate-temp": "21" });
+	const first = readProfiles(store).activeId;
+	const sam = createProfile(store, "Sam", "😎", "#000").profiles[1].id;
+	switchProfile(store, sam);
+	for (const [key, value] of [["spotify_access_token", "t"], ["spotify_token_expiry", "9"], ["spotify_refresh_token", "r"], ["brava-spotify-volume", "40"], ["brava-inapp-player", "false"], ["brava-resume-music", "true"]]) assert.equal(store.getItem(key), value, key);
+	assert.equal(store.getItem("brava-climate-temp"), null);
+	store.setItem("brava-spotify-volume", "70");
+	switchProfile(store, first);
+	assert.equal(store.getItem("brava-spotify-volume"), "70");
+	assert.equal(store.getItem("brava-climate-temp"), "21");
+});
+
 test("edit, limits and delete rules", () => {
 	const store = memory();
 	const first = readProfiles(store).activeId;

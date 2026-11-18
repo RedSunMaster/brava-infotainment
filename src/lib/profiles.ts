@@ -2,7 +2,8 @@
  * Driver profiles. Every setting the app keeps under a "brava-" or "brava." key (climate, favourites, saved
  * places, voice, route and map choices, theme, and anything added later) belongs to the active profile. Switching
  * stores the active profile's values, clears them, and loads the next profile's, so each driver finds the car as
- * they left it. The Spotify sign-in and the profile list itself are shared and never swapped.
+ * they left it. The Spotify account (its tokens are not "brava-" keys, and the refresh token lives in the main process),
+ * the music player set-up, and the profile list itself are shared and never swapped.
  */
 export interface Profile { id: string; name: string; avatar: string; color: string }
 export interface ProfileState { activeId: string; profiles: Profile[] }
@@ -16,7 +17,9 @@ export const MAX_NAME = 16;
 
 const PROFILES_KEY = "brava-profiles";
 const DATA_PREFIX = "brava-profile-data:";
-const isScoped = (key: string) => (key.startsWith("brava-") || key.startsWith("brava.")) && key !== PROFILES_KEY && !key.startsWith(DATA_PREFIX);
+/** Settings that describe the car or the Spotify account rather than the driver, so every profile sees the same ones. */
+export const SHARED_KEYS: readonly string[] = [PROFILES_KEY, "brava-spotify-volume", "brava-inapp-player", "brava-resume-music"];
+const isScoped = (key: string) => (key.startsWith("brava-") || key.startsWith("brava.")) && !SHARED_KEYS.includes(key) && !key.startsWith(DATA_PREFIX);
 
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 export const cleanName = (name: string): string => name.replace(/\s+/g, " ").trim().slice(0, MAX_NAME);

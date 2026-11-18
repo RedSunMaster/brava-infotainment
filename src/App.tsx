@@ -243,6 +243,7 @@ export default function App() {
 	const [placeSlot, setPlaceSlot] = useState<PlaceTarget | null>(null);
 	const [favourites, setFavourites] = useState(readFavourites);
 	const [profilesOpen, setProfilesOpen] = useState(false);
+	const [dockEditing, setDockEditing] = useState(false);
 	const [hazardAlerts, setHazardAlerts] = usePersistentState("brava-hazard-alerts", true, isBool);
 	const [arrivedAt, setArrivedAt] = useState<string | null>(null);
 	const navDestNameRef = useRef<string | null>(null);
@@ -1040,6 +1041,7 @@ export default function App() {
 					onRemoveFavourite={id => setFavourites(removeFavourite(id))}
 					onGoToPlace={navActive ? undefined : handleQuickDestination}
 					hazardAlerts={hazardAlerts}
+					onCustomiseDock={() => setDockEditing(true)}
 					onHazardAlertsChange={setHazardAlerts}
 					voiceStatus={voiceStatus}
 					voiceEngine={guidance.engine}
@@ -1157,7 +1159,7 @@ export default function App() {
 				/>
 
 			</Box>
-			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} />
+			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} editing={dockEditing} onEditingChange={setDockEditing} />
 		</Box>
 	);
 }

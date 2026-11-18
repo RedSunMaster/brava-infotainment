@@ -495,11 +495,13 @@ export function useSpotify(): UseSpotifyReturn {
 		// When this app is the active player, read it locally: no network round trip, so no lag or stale values.
 		const local = playerRef.current ? await playerRef.current.getCurrentState().catch((): null => null) : null;
 		if (local) {
+			activeDeviceRef.current = ownDeviceRef.current;
 			setTrack(trackFromSdkState(local));
 			if (!volumeSettleRef.current) void playerRef.current!.getVolume().then((v) => { if (!volumeSettleRef.current && typeof v === "number") setVolumeState(Math.round(v * 100)); }).catch((): void => undefined);
 			return;
 		}
 		const data = await spotifyFetch("/me/player?additional_types=episode");
+		activeDeviceRef.current = data?.device?.id ?? null;
 		if (!data?.item) {
 			setTrack(null);
 			return;
@@ -537,9 +539,11 @@ export function useSpotify(): UseSpotifyReturn {
 	}, [token, fetchPlayback]);
 
 	// ── The app as its own Spotify player (Web Playback SDK) ──────────────────
-	// Registers a "Brava" device inside this window, so no spotifyd / desktop app is needed.
+	// Registers a "Brava (app)" device inside this window, so no spotifyd / desktop app is needed.
 	// Needs Widevine (castlabs Electron) and Premium. Other devices are still used if it can't start.
 	const ownDeviceRef = useRef<string | null>(null);
+	/** The Spotify device that is playing right now, as last seen. */
+	const activeDeviceRef = useRef<string | null>(null);
 	const playerRef = useRef<SpotifyPlayer | null>(null);
 	const [ownReady, setOwnReady] = useState(false);
 	const tokenRef = useRef<string | null>(token);
@@ -558,7 +562,8 @@ export function useSpotify(): UseSpotifyReturn {
 		const start = () => {
 			if (cancelled || !window.Spotify) return;
 			player = new window.Spotify.Player({
-				name: process.env.SPOTIFY_DEVICE_NAME || "Brava",
+				// A different name from the car's own player (spotifyd), which keeps the plain name: two devices called "Brava" cannot be told apart.
+				name: `${process.env.SPOTIFY_DEVICE_NAME || "Brava"} (app)`,
 				getOAuthToken: (cb) => {
 					const current = tokenRef.current ?? getStoredToken();
 					if (current) cb(current);
@@ -614,7 +619,7 @@ export function useSpotify(): UseSpotifyReturn {
 			void (async () => {
 				const current = await spotifyFetch("/me/player");
 				if (current?.is_playing) return;
-				const id = ownDeviceRef.current;
+				const id = await findCarDevice();
 				if (id) await spotifyFetch("/me/player", "PUT", { device_ids: [id], play: true }).catch((): void => undefined);
 			})();
 		}, 3000);
@@ -624,25 +629,37 @@ export function useSpotify(): UseSpotifyReturn {
 	// ── The car's own player ─────────────────────────────────────────────────
 	// Nothing is "active" on a fresh start, and Spotify then refuses every command. So when nothing is
 	// playing, start on the car's player by name instead of asking the user to open Spotify somewhere.
-	const findCarDevice = useCallback(async (): Promise<string | null> => {
-		// The app's own in-window player wins when it is registered.
-		if (ownDeviceRef.current) return ownDeviceRef.current;
+	const listDevices = useCallback(async () => {
 		const data = await spotifyFetch("/me/player/devices");
-		const devices: { name: string; id: string | null; type: string; is_active: boolean; is_restricted: boolean }[] = (data?.devices ?? []).filter((item: { id: string | null; is_restricted: boolean }) => item.id && !item.is_restricted);
-		// The car's own player if it is there. Otherwise, so it also works on a development PC, whatever is
-		// already active, then any computer running Spotify (the desktop app counts), then any device.
-		const device = devices.find((item) => item.name.toLowerCase() === CAR_DEVICE_NAME)
-			?? devices.find((item) => item.is_active)
-			?? devices.find((item) => item.type === "Computer")
-			?? devices[0];
-		return device?.id ?? null;
+		return ((data?.devices ?? []) as { name: string; id: string | null; type: string; is_active: boolean; is_restricted: boolean }[]).filter(item => item.id && !item.is_restricted);
 	}, [spotifyFetch]);
-	/** Adds the car's player to a play request when nothing is active yet. */
+	/** The car's own player (spotifyd or librespot, called "Brava"), never this app's "Brava (app)" player. */
+	const findRealCar = useCallback(async (): Promise<string | null> => {
+		const own = ownDeviceRef.current;
+		return (await listDevices()).find(item => item.id !== own && item.name.toLowerCase() === CAR_DEVICE_NAME)?.id ?? null;
+	}, [listDevices]);
+	const findCarDevice = useCallback(async (): Promise<string | null> => {
+		const devices = await listDevices();
+		const own = ownDeviceRef.current;
+		// The car's own player if it is there, then this app's player. Otherwise, so it also works on a development PC,
+		// whatever is already active, then any computer running Spotify (the desktop app counts), then any device.
+		const device = devices.find(item => item.id !== own && item.name.toLowerCase() === CAR_DEVICE_NAME)
+			?? devices.find(item => item.id === own)
+			?? devices.find(item => item.is_active)
+			?? devices.find(item => item.type === "Computer")
+			?? devices[0];
+		return device?.id ?? own ?? null;
+	}, [listDevices]);
+	/** Adds the car's player to a play request when nothing is active yet, or when something else is playing but the car's player is available. */
 	const onCarDevice = useCallback(async (path: string): Promise<string> => {
-		if (track) return path;
+		const withDevice = (id: string) => `${path}${path.includes("?") ? "&" : "?"}device_id=${id}`;
+		if (track) {
+			const car = await findRealCar();
+			return car && car !== activeDeviceRef.current ? withDevice(car) : path;
+		}
 		const id = await findCarDevice();
-		return id ? `${path}${path.includes("?") ? "&" : "?"}device_id=${id}` : path;
-	}, [track, findCarDevice]);
+		return id ? withDevice(id) : path;
+	}, [track, findCarDevice, findRealCar]);
 
 	/** True when this app is the active Spotify player, so controls can run locally and instantly. */
 	const localPlayer = useCallback(async (): Promise<boolean> => !!playerRef.current && !!(await playerRef.current.getCurrentState().catch((): null => null)), []);
