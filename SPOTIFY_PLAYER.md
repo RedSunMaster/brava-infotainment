@@ -54,4 +54,8 @@ If you want a Windows test that behaves like the car, build `librespot` (`cargo 
 
 ## Which player is used
 
-The app can also play inside its own window; that player shows up in Spotify as **Brava (app)**, so it never clashes with the car's real **Brava** device. When the real Brava is online, new songs, playlists and episodes go to it, even if the app's own player is on. The in-app player is used only when no real Brava is found.
+The app can also play inside its own window. That player shows up in Spotify as **Brava**, the same name as the car's own device, so Spotify
+shows "Playing on Brava" whichever one is playing. The app tells them apart by device id: when the car's own Brava (spotifyd) is online,
+new songs, playlists and episodes go to it, even if the app's own player is on; the in-app player is used only when no other Brava is found.
+If you run both at once, Spotify on your phone will list two devices called Brava; turn the in-app player off in Settings > Sound > Music player
+to avoid the duplicate.

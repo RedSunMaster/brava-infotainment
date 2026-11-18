@@ -5,7 +5,7 @@ import { puckOffset } from "../lib/cameraPadding";
 import { driftClouds } from "../lib/mapStyle";
 import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, nextSpinCentre } from "../lib/showcase";
 
-type Phase = "waiting" | "globe" | "approaching" | "local" | "leaving" | "manual";
+type Phase = "waiting" | "globe" | "approaching" | "local" | "leaving" | "grabbed" | "manual";
 const APPROACH_MS = 8000;
 const LEAVE_MS = 6000;
 
@@ -100,7 +100,7 @@ export function useGlobeShowcase(options: Options) {
 		}
 
 		const approachIfAway = (): boolean => {
-			const away = phase.current === "globe" || phase.current === "leaving" || (phase.current === "manual" && map.getZoom() < 6);
+			const away = phase.current === "globe" || phase.current === "leaving" || phase.current === "grabbed" || (phase.current === "manual" && map.getZoom() < 6);
 			if (!away || !latest.current.hasPosition) return false;
 			approach();
 			return true;
@@ -109,7 +109,7 @@ export function useGlobeShowcase(options: Options) {
 
 		// The driver takes the camera: stop turning and flying, and let the usual map handling carry on.
 		const manual = () => {
-			if (phase.current === "globe" || phase.current === "approaching" || phase.current === "leaving") {
+			if (phase.current === "globe" || phase.current === "approaching" || phase.current === "leaving" || phase.current === "grabbed") {
 				generation.current++;
 				phase.current = "manual";
 				transition(false);
@@ -123,12 +123,26 @@ export function useGlobeShowcase(options: Options) {
 		// The moment a finger (or the wheel) touches the map, the turn or flight in progress stops, before the map's own gesture handling
 		// starts: otherwise the animation would carry on under the finger and the driver could not move the globe.
 		const canvas = map.getCanvas();
+		// A touch that turns out to be a swipe or a pinch hands the camera to the driver. A tap that does nothing (no drag, and no destination
+		// picked) carries on with whatever was happening, so touching the globe does not leave it frozen.
+		let resumeTimer: number | undefined;
 		const grab = () => {
-			if (phase.current === "globe" || phase.current === "approaching" || phase.current === "leaving") map.stop();
-			manual();
+			const was = phase.current;
+			if (was !== "globe" && was !== "approaching" && was !== "leaving") return;
+			map.stop();
+			const my = ++generation.current;
+			phase.current = "grabbed";
+			window.clearTimeout(resumeTimer);
+			resumeTimer = window.setTimeout(() => {
+				if (my !== generation.current || phase.current !== "grabbed") return;
+				if (was === "approaching") approach();
+				else if (was === "leaving") leave();
+				else startGlobe();
+			}, 900);
 		};
 		canvas.addEventListener("pointerdown", grab, { capture: true, passive: true });
 		canvas.addEventListener("wheel", grab, { capture: true, passive: true });
+		const stopResume = () => window.clearTimeout(resumeTimer);
 
 		// Anything touched on screen counts as someone being there.
 		const activity = () => { lastActivity.current = Date.now(); };
@@ -163,6 +177,7 @@ export function useGlobeShowcase(options: Options) {
 			events.forEach(name => document.removeEventListener(name, activity, { capture: true }));
 			canvas.removeEventListener("pointerdown", grab, { capture: true });
 			canvas.removeEventListener("wheel", grab, { capture: true });
+			stopResume();
 			map.off("dragstart", manual);
 			map.off("zoomstart", onUserZoom);
 			map.off("rotatestart", onUserZoom);

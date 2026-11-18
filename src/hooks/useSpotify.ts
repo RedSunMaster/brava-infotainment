@@ -539,7 +539,7 @@ export function useSpotify(): UseSpotifyReturn {
 	}, [token, fetchPlayback]);
 
 	// ── The app as its own Spotify player (Web Playback SDK) ──────────────────
-	// Registers a "Brava (app)" device inside this window, so no spotifyd / desktop app is needed.
+	// Registers a "Brava" device inside this window, so no spotifyd / desktop app is needed.
 	// Needs Widevine (castlabs Electron) and Premium. Other devices are still used if it can't start.
 	const ownDeviceRef = useRef<string | null>(null);
 	/** The Spotify device that is playing right now, as last seen. */
@@ -562,8 +562,9 @@ export function useSpotify(): UseSpotifyReturn {
 		const start = () => {
 			if (cancelled || !window.Spotify) return;
 			player = new window.Spotify.Player({
-				// A different name from the car's own player (spotifyd), which keeps the plain name: two devices called "Brava" cannot be told apart.
-				name: `${process.env.SPOTIFY_DEVICE_NAME || "Brava"} (app)`,
+				// The same plain name as the car's own player (spotifyd): Spotify shows "Brava" whichever one is playing. The app tells the two
+				// apart by device id, preferring the car's own player when it is online.
+				name: process.env.SPOTIFY_DEVICE_NAME || "Brava",
 				getOAuthToken: (cb) => {
 					const current = tokenRef.current ?? getStoredToken();
 					if (current) cb(current);
@@ -614,7 +615,7 @@ export function useSpotify(): UseSpotifyReturn {
 		const data = await spotifyFetch("/me/player/devices");
 		return ((data?.devices ?? []) as { name: string; id: string | null; type: string; is_active: boolean; is_restricted: boolean }[]).filter(item => item.id && !item.is_restricted);
 	}, [spotifyFetch]);
-	/** The car's own player (spotifyd or librespot, called "Brava"), never this app's "Brava (app)" player. */
+	/** The car's own player (spotifyd or librespot, called "Brava"), never this app's own in-window player (which has the same name, so the two are told apart by id). */
 	const findRealCar = useCallback(async (): Promise<string | null> => {
 		const own = ownDeviceRef.current;
 		return (await listDevices()).find(item => item.id !== own && item.name.toLowerCase() === CAR_DEVICE_NAME)?.id ?? null;

@@ -943,7 +943,6 @@ export default function App() {
 	}
 
 	// The turning globe at start and when idle; down to the car when destinations are used or the car moves.
-	if (process.env.NODE_ENV !== "production") (window as unknown as { __bravaWants?: unknown }).__bravaWants = { driving: isDriving, navigating: navActive, destinationPending: !!pendingDest, searchOpen: openPanel === "search", routing: routeBusy, choosingBuilding: !!selectingBuilding, openPanel, arrivedAt: !!arrivedAt };
 	const showcase = useGlobeShowcase({
 		mapRef, mapLoaded,
 		enabled: globeIdle,
