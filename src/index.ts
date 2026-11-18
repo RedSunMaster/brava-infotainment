@@ -17,6 +17,9 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 if (require("electron-squirrel-startup")) app.quit();
 
 // ── Wayland + Touch flags ─────────────────────────────────────────────────────
+// On the car computer the desktop logs in by itself, so the system keyring stays locked and asks for a password at every start.
+// Chromium's own plain store avoids that; the Spotify token is then kept in a private (0600) file instead.
+if (process.platform === "linux") app.commandLine.appendSwitch("password-store", "basic");
 app.commandLine.appendSwitch("touch-events", "enabled");
 app.commandLine.appendSwitch(
 	"enable-features",

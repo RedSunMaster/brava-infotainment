@@ -29,6 +29,20 @@ cp "$HERE"/early-splash.py "$HERE"/splash.png ~/.local/share/brava/
 chmod +x ~/.local/share/brava/early-splash.py
 cp "$HERE"/brava-early-splash.desktop ~/.config/autostart/
 
+# 3b. GNOME shows its Activities overview after an automatic login, which hides the app: a tiny extension closes it at start-up.
+EXT=~/.local/share/gnome-shell/extensions/brava-no-overview@brava
+mkdir -p "$EXT"
+cp "$HERE"/gnome-extension/{metadata.json,extension.js} "$EXT"/
+python3 - <<'PY'
+import ast, subprocess
+current = subprocess.run(["gsettings", "get", "org.gnome.shell", "enabled-extensions"], capture_output=True, text=True).stdout.strip()
+names = ast.literal_eval(current.replace("@as ", "")) if current else []
+if "brava-no-overview@brava" not in names:
+    names.append("brava-no-overview@brava")
+    subprocess.run(["gsettings", "set", "org.gnome.shell", "enabled-extensions", str(names)], check=True)
+PY
+# (the extension is picked up at the next login)
+
 # 4. A plain dark desktop in the same colour, in case the desktop shows for a moment anywhere.
 gsettings set org.gnome.desktop.background picture-options none
 gsettings set org.gnome.desktop.background color-shading-type solid

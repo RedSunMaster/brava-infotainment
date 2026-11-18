@@ -1,0 +1,7 @@
+{
+  "uuid": "brava-no-overview@brava",
+  "name": "Brava: start on the desktop, not the overview",
+  "description": "GNOME opens the Activities overview after an automatic login, which hides the app. This closes it as soon as the session has started.",
+  "shell-version": ["48", "49", "50", "51", "52"],
+  "version": 1
+}
