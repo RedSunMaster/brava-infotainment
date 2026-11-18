@@ -73,8 +73,8 @@ const cloudCoordinates = (shift: number, copy: 0 | 1): [[number, number], [numbe
  const left = -180 + shift - 360 * copy, right = left + 360;
  return [[left, MERCATOR_EDGE], [right, MERCATOR_EDGE], [right, -MERCATOR_EDGE], [left, -MERCATOR_EDGE]];
 };
-/** How bright the clouds are at each time of day: white by day, grey in the dark so they never glow like snow. */
-const CLOUD_BRIGHTNESS: Record<TimeOfDay, number> = { day: 1, dawn: 0.8, dusk: 0.7, night: 0.28 };
+/** How bright the clouds are at each time of day. Always full white: the globe's night side is darkened by its own layer drawn over the clouds, and dimming them here as well left them grey on the day side. */
+const CLOUD_BRIGHTNESS: Record<TimeOfDay, number> = { day: 1, dawn: 1, dusk: 1, night: 1 };
 
 /**
  * A layer of clouds over the whole globe, so the Earth looks like Earth from space. It is a flat picture drawn on the globe, and
@@ -88,7 +88,7 @@ export function applyClouds(map: Pick<Map, "getSource" | "getLayer" | "addSource
    id, type: "raster", source: id, slot: "middle", maxzoom: 6,
    layout: { visibility: visible ? "visible" : "none" },
    paint: {
-    "raster-opacity": ["interpolate", ["linear"], ["zoom"], 0, 0.85, 2.5, 0.78, 4, 0.32, 5.5, 0],
+    "raster-opacity": ["interpolate", ["linear"], ["zoom"], 0, 1, 2.5, 1, 4, 0.4, 5.5, 0],
     "raster-fade-duration": 0, "raster-resampling": "linear", "raster-emissive-strength": 1, "raster-brightness-max": 1,
    },
   });
@@ -398,7 +398,7 @@ function paintWeather(map: WeatherMap, period: TimeOfDay, effect: WeatherEffect,
  // atmosphere and thin the glow, in step with how far out the camera is.
  if (space > 0) {
   fog.color = mixHex(String(fog.color), String(fog["high-color"]), 0.65 * space);
-  fog["horizon-blend"] = Number(fog["horizon-blend"] ?? 0.04) * (1 - 0.5 * space);
+  fog["horizon-blend"] = Number(fog["horizon-blend"] ?? 0.04) * (1 - space);
  }
  // The glow follows the sun: bright over the day side, a faint blue over the night side.
  const darkness = space * (1 - glow);
@@ -434,7 +434,7 @@ export function applyMapAppearance(
  const preset = presetFor(period, zoom, view, nightWanted(), view);
  // The first lighting is simply there; every change after that fades.
  setLightPreset(map, preset, shown.has(map));
- if (map.getLayer && map.setPaintProperty) setCloudAppearance(map as Pick<Map, "getLayer" | "setPaintProperty">, period);
+ if (map.getLayer && map.setPaintProperty) setCloudAppearance(map as Pick<Map, "getLayer" | "setPaintProperty">, view);
  const { effect } = resolveWeather(appearance, weather, now);
  const strength = map.getZoom && !near ? 0 : map.getZoom ? weatherStrength(zoom) : 1;
  const space = map.getZoom ? spaceShare(zoom) : 0;

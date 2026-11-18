@@ -116,9 +116,9 @@ test("weather only shows near the ground: from space the globe keeps its clear a
  const map = { getCanvas: () => canvas, getZoom: () => zoom, on: (name, handler) => { if (name === "zoom") onZoom = handler; },
   setConfigProperty: () => {}, setRain: value => { state.rain = value; }, setSnow: value => { state.snow = value; }, setFog: value => { state.fog = value; filters.push(canvas.style.filter); } };
  applyMapAppearance(map, "day", weather, now);
- // Space has stars whatever the local time, and a softer, bluer glow than the day-time haze; no weather colouring.
+ // Space has stars whatever the local time, and no glow round the Earth (a bluer haze colour, no horizon blend); no weather colouring.
  const clear = fogFor("day", 0, 0);
- const spaceFog = { ...clear, "star-intensity": 0.55, color: "#87b5e7", "horizon-blend": clear["horizon-blend"] / 2 };
+ const spaceFog = { ...clear, "star-intensity": 0.55, color: "#87b5e7", "horizon-blend": 0 };
  assert.deepEqual(state.fog, spaceFog);
  assert.equal(state.rain, null);
  assert.equal(canvas.style.filter, "");
