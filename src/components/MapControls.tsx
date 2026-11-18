@@ -37,9 +37,11 @@ import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import DriveButton from "./DriveButton";
 import DestinationSearch, { topSheetSx } from "./DestinationSearch";
-import type { PlaceSlot } from "../lib/savedPlaces";
+import type { PlaceSlot, PlaceTarget, SavedPlaces } from "../lib/savedPlaces";
+import { defaultMarker } from "../lib/savedPlaces";
+import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
-import type { PlaceDetails } from "../lib/locationSearch";
+import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
 type SettingsTab = "display" | "sound" | "drive" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
@@ -60,6 +62,19 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 		<Box sx={{ display: "grid", gap: 1.25 }}>
 			<Box><Typography sx={{ fontSize: 25, fontWeight: 700 }}>{title}</Typography>{hint && <Typography sx={{ fontSize: 20, color: "text.secondary" }}>{hint}</Typography>}</Box>
 			{children}
+		</Box>
+	);
+}
+
+/** One saved place: its map pin (tap to change), its name, and what can be done with it. */
+function PlaceRow({ marker, name, label, onMarker, onGo, onEdit, editLabel, onRemove }: { marker: string; name: string; label: string; onMarker?: () => void; onGo?: () => void; onEdit?: () => void; editLabel?: string; onRemove?: () => void }) {
+	return (
+		<Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+			<DriveButton color="inherit" variant="outlined" disabled={!onMarker} aria-label={`Change ${label} pin`} onClick={onMarker} sx={{ minWidth: 72, fontSize: 32, p: 0 }}>{marker}</DriveButton>
+			<Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 24, fontWeight: onGo ? 700 : 400, color: onGo ? "text.primary" : "text.secondary" }}>{name}</Typography>
+			{onGo && <DriveButton color="inherit" variant="outlined" aria-label={`Navigate to ${label}`} onClick={onGo}>Go</DriveButton>}
+			{onEdit && <DriveButton color="inherit" variant="outlined" onClick={onEdit}>{editLabel}</DriveButton>}
+			{onRemove && <DriveButton color="error" variant="outlined" aria-label={`Remove ${label}`} onClick={onRemove}>Remove</DriveButton>}
 		</Box>
 	);
 }
@@ -105,7 +120,15 @@ interface Props {
 	/** Heading for the search panel when it is choosing a saved place. */
 	searchTitle?: string;
 	/** Opens search to choose the Home or Work address. */
-	onSetPlace?: (slot: PlaceSlot) => void;
+	onSetPlace?: (slot: PlaceTarget) => void;
+	savedPlaces?: SavedPlaces;
+	favourites?: Favourite[];
+	/** Cycles the pin shown on the map for Home, Work or a favourite. */
+	onPlaceMarker?: (target: PlaceSlot | { favourite: string }) => void;
+	onRemoveFavourite?: (id: string) => void;
+	onGoToPlace?: (coords: Coordinates, name: string, buildingCoords?: Coordinates) => void;
+	hazardAlerts?: boolean;
+	onHazardAlertsChange?: (value: boolean) => void;
 	/** One-line description of which guidance voice is in use. */
 	voiceStatus?: string;
 	voiceEngine?: "natural" | "system";
@@ -143,6 +166,8 @@ export default function MapControls({
 	quickStops,
 	searchTitle,
 	onSetPlace,
+	savedPlaces = {}, favourites = [], onPlaceMarker, onRemoveFavourite, onGoToPlace,
+	hazardAlerts = true, onHazardAlertsChange,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
 	voiceVolume = 1, onVoiceVolumeChange, onTestVoice,
@@ -281,12 +306,25 @@ export default function MapControls({
 								{onRoutePreferencesChange && <Section title="Avoid on routes" hint="Applies to new Mapbox routes.">
 									<Box role="group" aria-label="Route preferences" sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1 }}>{([["toll", "Tolls"], ["ferry", "Ferries"], ["unpaved", "Unpaved"]] as const).map(([value, label]) => <DriveButton key={value} className="settings-option" disabled={isDriving || provider !== "mapbox"} aria-pressed={routePreferences.includes(value)} variant={routePreferences.includes(value) ? "contained" : "outlined"} onClick={() => onRoutePreferencesChange(routePreferences.includes(value) ? routePreferences.filter(item => item !== value) : [...routePreferences, value])}>{label}</DriveButton>)}</Box>
 								</Section>}
-								{onSetPlace && <Section title="Saved places">
-									<Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1 }}>
-										<DriveButton className="settings-option" variant="outlined" onClick={() => onSetPlace("home")}>Change Home</DriveButton>
-										<DriveButton className="settings-option" variant="outlined" onClick={() => onSetPlace("work")}>Change Work</DriveButton>
-									</Box>
+								{onHazardAlertsChange && <Section title="Cameras and hazards" hint="Warns about speed cameras, red light cameras, railway crossings and mapped hazards on your route. Data from OpenStreetMap; needs internet.">
+									<Options<boolean> label="Cameras and hazards" columns={2} value={hazardAlerts} onChange={onHazardAlertsChange} items={[[true, "Warn me"], [false, "Off"]] as const} />
 								</Section>}
+								<Section title="Saved places" hint="Tap a pin to change how it looks on the map.">
+									{(["home", "work"] as const).map(slot => {
+										const place = savedPlaces[slot];
+										return <PlaceRow key={slot} marker={place?.marker ?? defaultMarker(slot)} name={place ? place.name : `No ${slot} address yet`} label={slot === "home" ? "Home" : "Work"}
+											onMarker={place && onPlaceMarker ? () => onPlaceMarker(slot) : undefined}
+											onGo={place && onGoToPlace ? () => onGoToPlace(place.coords, place.name, place.buildingCoords) : undefined}
+											onEdit={onSetPlace ? () => onSetPlace(slot) : undefined} editLabel={place ? "Change" : "Set"} />;
+									})}
+								</Section>
+								<Section title="Favourites" hint="Each favourite gets its own pin on the building. Tap a pin to choose another.">
+									{favourites.map(item => <PlaceRow key={item.id} marker={item.marker} name={item.name} label={item.name}
+										onMarker={onPlaceMarker ? () => onPlaceMarker({ favourite: item.id }) : undefined}
+										onGo={onGoToPlace ? () => onGoToPlace(item.coords, item.name, item.buildingCoords) : undefined}
+										onRemove={onRemoveFavourite ? () => onRemoveFavourite(item.id) : undefined} />)}
+									{onSetPlace && <DriveButton className="settings-option" variant="outlined" onClick={() => onSetPlace("favourite")}>Add favourite</DriveButton>}
+								</Section>
 							</>}
 							{tab === "system" && <>
 								<Section title="Routing" hint="Local routing requires Valhalla. Place search needs internet.">

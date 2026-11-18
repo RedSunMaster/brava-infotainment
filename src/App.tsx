@@ -27,7 +27,7 @@ import FasterRouteOffer from "./components/FasterRouteOffer";
 import { describeSaving, findFasterRoute, remainingSeconds, routeSeconds, type FasterRoute } from "./lib/fasterRoute";
 import { useTrafficLayer } from "./hooks/useTrafficLayer";
 import { isSignificantTurn } from "./lib/cameraLookAhead";
-import { buildRouteAlerts } from "./lib/routeAlerts";
+import { buildRouteAlerts, HAZARD_ALERT_M } from "./lib/routeAlerts";
 import { routeLineMetrics } from "./lib/routeLine";
 import { usePositionPuck } from "./hooks/usePuckPosition";
 import CarControls from "./components/CarControls";
@@ -43,7 +43,11 @@ import ClockWeatherChip from "./components/ClockWeatherChip";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
 import { recordFrequentPlace } from "./lib/frequentPlaces";
-import { readSavedPlaces, savePlace, type PlaceSlot } from "./lib/savedPlaces";
+import { readSavedPlaces, savePlace, setPlaceMarker, defaultMarker, type PlaceTarget } from "./lib/savedPlaces";
+import { readFavourites, addFavourite, removeFavourite, setFavouriteMarker, nextMarker } from "./lib/favourites";
+import { useRouteHazards } from "./hooks/useRouteHazards";
+
+import { usePersistentState, isBool } from "./lib/usePersistentState";
 import { distanceKm, placeDetails, fetchPlaceDetails, sameBusinessName, type PlaceDetails } from "./lib/locationSearch";
 import QuickDestinations from "./components/QuickDestinations";
 import FlagRounded from "@mui/icons-material/FlagRounded";
@@ -182,6 +186,17 @@ function summarizeManeuvers(maneuvers: NormalizedManeuver[]) {
 	};
 }
 
+/** A round map pin showing an emoji, used for saved places and for cameras and hazards. */
+function pinElement(symbol: string, ring: string, onTap: () => void): HTMLDivElement {
+	const el = document.createElement("div");
+	el.textContent = symbol;
+	Object.assign(el.style, { width: "44px", height: "44px", borderRadius: "50%", background: "#fff", border: `3px solid ${ring}`, boxShadow: "0 2px 6px rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "24px", cursor: "pointer" });
+	// Keep taps on a pin to the pin: otherwise the map underneath treats it as a tap or a press-and-hold on the map and picks a destination.
+	el.addEventListener("click", onTap);
+	for (const type of ["click", "dblclick", "mousedown", "mouseup", "touchstart", "touchend", "pointerdown", "pointerup", "contextmenu"]) el.addEventListener(type, event => event.stopPropagation());
+	return el;
+}
+
 export default function App() {
 	const { period, weather, weatherAppearance, updatePosition } = useThemeMode();
 	const kokoroStatus = useSyncExternalStore(kokoroVoice.subscribe, () => kokoroVoice.status);
@@ -224,7 +239,9 @@ export default function App() {
 	const [routeError, setRouteError] = useState<string | null>(null);
 	const [savedPlaces, setSavedPlaces] = useState(readSavedPlaces);
 	// Set while the search panel is choosing the Home or Work address.
-	const [placeSlot, setPlaceSlot] = useState<PlaceSlot | null>(null);
+	const [placeSlot, setPlaceSlot] = useState<PlaceTarget | null>(null);
+	const [favourites, setFavourites] = useState(readFavourites);
+	const [hazardAlerts, setHazardAlerts] = usePersistentState("brava-hazard-alerts", true, isBool);
 	const [arrivedAt, setArrivedAt] = useState<string | null>(null);
 	const navDestNameRef = useRef<string | null>(null);
 	// True while the latest raw position is within 30 m of the end of the route.
@@ -262,7 +279,8 @@ export default function App() {
 	useEffect(() => { try { localStorage.setItem("brava-show-traffic", showTraffic ? "on" : "off"); } catch { /* Keep the choice for this session. */ } }, [showTraffic]);
 	useTrafficLayer(mapRef, mapLoaded, showTraffic, navActive || !!pendingDest);
 	const routeMeters = useMemo(() => routeLineMetrics(activeRoute?.coords ?? []).meters, [activeRoute?.coords]);
-	const routeAlerts = useMemo(() => activeRoute ? buildRouteAlerts({ incidents: activeRoute.incidents, closures: activeRoute.closures, trafficDelaySeconds: activeRoute.trafficDelaySeconds, meters: routeMeters, position: routePosition, stale: trafficStale }) : [], [activeRoute, routeMeters, routePosition, trafficStale]);
+	const routeHazards = useRouteHazards(activeRoute?.coords, hazardAlerts);
+	const routeAlerts = useMemo(() => activeRoute ? buildRouteAlerts({ incidents: activeRoute.incidents, closures: activeRoute.closures, hazards: routeHazards, trafficDelaySeconds: activeRoute.trafficDelaySeconds, meters: routeMeters, position: routePosition, stale: trafficStale }) : [], [activeRoute, routeMeters, routePosition, trafficStale, routeHazards]);
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded || !activeRoute) return;
@@ -279,6 +297,33 @@ export default function App() {
 		}
 		return () => markers.forEach(marker => marker.remove());
 	}, [mapLoaded, activeRoute, routePosition]);
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded || !activeRoute) return;
+		const markers = routeHazards.filter(item => item.index >= routePosition).map(item => {
+			const marker = new mapboxgl.Marker({ element: pinElement(item.kind === "hazard" || item.kind === "level_crossing" ? "\u26A0\uFE0F" : "\uD83D\uDCF7", "#f59e0b", () => marker.togglePopup()) }).setLngLat(item.coords).setPopup(new mapboxgl.Popup().setText(item.label)).addTo(map);
+			marker.getElement().setAttribute("aria-label", item.label);
+			return marker;
+		});
+		return () => markers.forEach(marker => marker.remove());
+	}, [mapLoaded, activeRoute, routePosition, routeHazards]);
+	// Tapping a pin starts navigation there, but only while parked and idle, like the Home and Work buttons.
+	const goToPlaceRef = useRef<(coords: [number, number], name: string, building?: [number, number]) => void>(() => {});
+	goToPlaceRef.current = (coords, name, building) => { if (!navActive && !isDriving && !routeBusy) handleQuickDestination(coords, name, building); };
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+		const places = [
+			...(["home", "work"] as const).flatMap(slot => savedPlaces[slot] ? [{ key: slot, name: savedPlaces[slot]!.name, label: slot === "home" ? "Home" : "Work", marker: savedPlaces[slot]!.marker ?? defaultMarker(slot), coords: savedPlaces[slot]!.coords, building: savedPlaces[slot]!.buildingCoords }] : []),
+			...favourites.map(item => ({ key: item.id, name: item.name, label: "Favourite", marker: item.marker, coords: item.coords, building: item.buildingCoords })),
+		];
+		const markers = places.map(place => {
+			const marker = new mapboxgl.Marker({ element: pinElement(place.marker, "#2563eb", () => goToPlaceRef.current(place.coords, place.name, place.building)) }).setLngLat(place.building ?? place.coords).addTo(map);
+			marker.getElement().setAttribute("aria-label", `Navigate to ${place.label}: ${place.name}`);
+			return marker;
+		});
+		return () => markers.forEach(marker => marker.remove());
+	}, [mapLoaded, savedPlaces, favourites]);
 	useDestinationHighlight(mapRef, mapLoaded, selectingBuilding ?? pendingDest?.buildingCoords ?? (navActive || arrivedAt ? navBuildingRef.current : null));
 	const {
 		coordsRef,
@@ -486,10 +531,10 @@ export default function App() {
 	useEffect(() => { if (isRerouting) guidance.announce("Rerouting."); }, [isRerouting]); // eslint-disable-line
 	useEffect(() => {
 		if (!navActive) { announcedAlerts.current.clear(); return; }
-		const alert = routeAlerts.find(item => (item.kind === "closure" || item.kind === "incident") && !announcedAlerts.current.has(item.id) && (item.aheadM ?? 0) <= 3000);
+		const alert = routeAlerts.find(item => (item.kind === "closure" || item.kind === "incident" || item.kind === "camera" || item.kind === "hazard") && !announcedAlerts.current.has(item.id) && (item.aheadM ?? 0) <= (item.kind === "camera" || item.kind === "hazard" ? Math.min(HAZARD_ALERT_M, 800) : 3000));
 		if (!alert) return;
 		announcedAlerts.current.add(alert.id);
-		guidance.announce(alert.kind === "closure" ? "There is a road closure on your route." : "There is a traffic incident ahead.");
+		guidance.announce(alert.kind === "closure" ? "There is a road closure on your route." : alert.kind === "camera" ? "Speed camera ahead." : alert.kind === "hazard" ? `${alert.title} ahead.` : "There is a traffic incident ahead.");
 	}, [routeAlerts, navActive]); // eslint-disable-line
 	// Developer aid: braveSay("Turn left onto Papanui Rd") in the console speaks it the way guidance would.
 	useEffect(() => { (window as unknown as { braveSay?: (text: string) => void }).braveSay = guidance.sample; }, [guidance.sample]);
@@ -744,7 +789,7 @@ export default function App() {
 			),
 		);
 	}
-	function handleSetPlace(slot: PlaceSlot) {
+	function handleSetPlace(slot: PlaceTarget) {
 		setPlaceSlot(slot);
 		setOpenPanel("search");
 	}
@@ -974,12 +1019,24 @@ export default function App() {
 					onSearchSelect={
 						placeSlot
 							? async (coords, placeName, buildingCoords) => {
-									setSavedPlaces(savePlace(placeSlot, placeName, coords, buildingCoords));
+									if (placeSlot === "favourite") setFavourites(addFavourite(placeName, coords, buildingCoords));
+									else setSavedPlaces(savePlace(placeSlot, placeName, coords, buildingCoords));
+									setOpenPanel("settings");
 								}
 							: handleSearchSelect
 					}
-					searchTitle={placeSlot ? (placeSlot === "home" ? "Set Home address" : "Set Work address") : undefined}
+					searchTitle={placeSlot ? (placeSlot === "home" ? "Set Home address" : placeSlot === "work" ? "Set Work address" : "Add a favourite") : undefined}
 					onSetPlace={navActive ? undefined : handleSetPlace}
+					savedPlaces={savedPlaces}
+					favourites={favourites}
+					onPlaceMarker={target => {
+						if (typeof target === "string") setSavedPlaces(setPlaceMarker(target, nextMarker(savedPlaces[target]?.marker ?? defaultMarker(target))));
+						else setFavourites(setFavouriteMarker(target.favourite, nextMarker(favourites.find(item => item.id === target.favourite)?.marker)));
+					}}
+					onRemoveFavourite={id => setFavourites(removeFavourite(id))}
+					onGoToPlace={navActive ? undefined : handleQuickDestination}
+					hazardAlerts={hazardAlerts}
+					onHazardAlertsChange={setHazardAlerts}
 					voiceStatus={voiceStatus}
 					voiceEngine={guidance.engine}
 					onVoiceEngineChange={guidance.setEngine}

@@ -113,3 +113,7 @@ body {
 	font-weight: 900;
 	font-style: italic;
 }
+
+/* Map pin popups: readable, big enough to see from the driver seat, and without the default close cross. */
+.mapboxgl-popup-content { color: #111; font: 700 22px/1.25 system-ui, sans-serif; padding: 10px 14px; border-radius: 12px; max-width: 280px; }
+.mapboxgl-popup-close-button { display: none; }

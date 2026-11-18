@@ -1,9 +1,11 @@
-export type AlertKind = "closure" | "incident" | "delay" | "stale";
+export type AlertKind = "closure" | "incident" | "camera" | "hazard" | "delay" | "stale";
 export interface RouteAlert { id: string; kind: AlertKind; severity: "error" | "warning" | "info"; title: string; detail?: string; /** How far ahead the closure or incident is, in metres. */ aheadM?: number }
 
 interface Input {
 	incidents?: { id: string; description: string; index: number }[];
 	closures?: { start: number; end: number }[];
+	/** Mapped speed cameras and hazards on the route; `index` is the route vertex. */
+	hazards?: { id: string; kind: string; label: string; index: number; maxspeed?: string }[];
 	trafficDelaySeconds?: number;
 	/** Cumulative route distance in metres for each coordinate index. */
 	meters: number[];
@@ -22,8 +24,11 @@ function shorten(text: string, max = 44): string {
 	return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
 }
 
+/** Hazards further off than this are not worth a banner yet. */
+export const HAZARD_ALERT_M = 1500;
+
 /** Short, glanceable warnings about the rest of the route, most urgent first. */
-export function buildRouteAlerts({ incidents = [], closures = [], trafficDelaySeconds = 0, meters, position, stale = false }: Input): RouteAlert[] {
+export function buildRouteAlerts({ incidents = [], hazards = [], closures = [], trafficDelaySeconds = 0, meters, position, stale = false }: Input): RouteAlert[] {
 	const here = meters[Math.min(position, meters.length - 1)] ?? 0;
 	const ahead = (index: number) => Math.max(0, (meters[Math.min(index, meters.length - 1)] ?? here) - here);
 	const alerts: RouteAlert[] = [];
@@ -40,6 +45,14 @@ export function buildRouteAlerts({ incidents = [], closures = [], trafficDelaySe
 		title: shorten(upcoming[0].description),
 		detail: `${formatAhead(ahead(upcoming[0].index))}${upcoming.length > 1 ? ` · +${upcoming.length - 1} more` : ""}`, aheadM: ahead(upcoming[0].index),
 	});
+
+	const hazard = hazards.filter(item => item.index >= position).sort((a, b) => a.index - b.index).find(item => ahead(item.index) <= HAZARD_ALERT_M);
+	if (hazard) {
+		const camera = hazard.kind === "speed_camera" || hazard.kind === "red_light_camera";
+		const maxspeed = hazard.maxspeed?.trim();
+		const limit = maxspeed && /^\d{2,3}( ?(km\/h|mph))?$/.test(maxspeed) ? ` · ${maxspeed}` : "";
+		alerts.push({ id: `hazard:${hazard.id}`, kind: camera ? "camera" : "hazard", severity: "warning", title: hazard.label, detail: `${formatAhead(ahead(hazard.index))}${limit}`, aheadM: ahead(hazard.index) });
+	}
 
 	if (trafficDelaySeconds >= 120) {
 		const minutes = Math.round(trafficDelaySeconds / 60);

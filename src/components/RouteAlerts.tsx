@@ -3,12 +3,14 @@ import { Box, Typography } from "@mui/material";
 import ConstructionRounded from "@mui/icons-material/ConstructionRounded";
 import BlockRounded from "@mui/icons-material/BlockRounded";
 import TrafficRounded from "@mui/icons-material/TrafficRounded";
+import CameraAltRounded from "@mui/icons-material/CameraAltRounded";
+import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import CloudOffRounded from "@mui/icons-material/CloudOffRounded";
 import CloseRounded from "@mui/icons-material/CloseRounded";
 import DriveButton from "./DriveButton";
 import type { AlertKind, RouteAlert } from "../lib/routeAlerts";
 
-const ICONS: Record<AlertKind, React.ElementType> = { closure: BlockRounded, incident: ConstructionRounded, delay: TrafficRounded, stale: CloudOffRounded };
+const ICONS: Record<AlertKind, React.ElementType> = { closure: BlockRounded, incident: ConstructionRounded, camera: CameraAltRounded, hazard: WarningAmberRounded, delay: TrafficRounded, stale: CloudOffRounded };
 const COLOURS = { error: "error.main", warning: "warning.main", info: "text.secondary" } as const;
 
 /** Compact route warnings: one line each, colour-coded, dismissible until something new appears. */
