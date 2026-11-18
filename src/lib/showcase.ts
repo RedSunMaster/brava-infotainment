@@ -28,6 +28,14 @@ export const wrapLongitude = (longitude: number): number => ((((longitude + 180)
  */
 export const nearestLongitude = (target: number, from: number): number => target + 360 * Math.round((from - target) / 360);
 
+/** Closer than this to the car (in metres), the camera simply glides back; further off it flies. */
+export const FLY_BACK_FROM_M = 4000;
+
+/** How long a flight back to the car takes: a couple of seconds for a few kilometres, up to the full descent from the globe. */
+export function flightMs(distanceM: number): number {
+	return Math.round(Math.max(1500, Math.min(8000, 1500 + 1000 * Math.log2(Math.max(1, distanceM / FLY_BACK_FROM_M)))));
+}
+
 /** Where the camera goes for the next step of the turn: west along the same latitude, so the Earth appears to turn eastward. */
 export function nextSpinCentre(longitude: number): [number, number] {
 	return [wrapLongitude(longitude - SPIN_STEP_DEG), GLOBE_LATITUDE];

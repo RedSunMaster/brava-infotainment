@@ -3,7 +3,8 @@ import type mapboxgl from "mapbox-gl";
 import { ZOOM_LEVEL } from "../constants";
 import { puckOffset, puckOffsetFor, type Insets } from "../lib/cameraPadding";
 import { driftClouds } from "../lib/mapStyle";
-import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, nearestLongitude, nextSpinCentre, wrapLongitude } from "../lib/showcase";
+import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, FLY_BACK_FROM_M, flightMs, nearestLongitude, nextSpinCentre, wrapLongitude } from "../lib/showcase";
+import { metresBetween } from "../lib/routeLocate";
 
 type Phase = "waiting" | "globe" | "approaching" | "local" | "leaving" | "grabbed" | "manual";
 const APPROACH_MS = 8000;
@@ -44,7 +45,7 @@ export function useGlobeShowcase(options: Options) {
 	const generation = useRef(0);
 	const parkedSince = useRef<number | null>(null);
 	const lastActivity = useRef(Date.now());
-	const controls = useRef<{ approach: () => void; approachIfAway: () => boolean; startGlobe: () => void } | null>(null);
+	const controls = useRef<{ approach: (duration?: number) => void; approachIfAway: (fromFar?: boolean) => boolean; startGlobe: () => void } | null>(null);
 
 	useEffect(() => {
 		const map = options.mapRef.current;
@@ -67,7 +68,7 @@ export function useGlobeShowcase(options: Options) {
 			spin();
 		}
 
-		function approach() {
+		function approach(duration = APPROACH_MS) {
 			const o = latest.current;
 			if (!o.hasPosition) return;
 			const my = ++generation.current;
@@ -80,7 +81,7 @@ export function useGlobeShowcase(options: Options) {
 			map!.jumpTo({ center: [wrapLongitude(here.lng), here.lat] });
 			map!.flyTo({
 				center: [nearestLongitude(o.positionRef.current[0], wrapLongitude(here.lng)), o.positionRef.current[1]], zoom: ZOOM_LEVEL, pitch: 45, bearing: o.bearingRef.current,
-				padding, offset: puckOffsetFor(map!.getContainer().clientHeight, padding, 0.2), duration: APPROACH_MS,
+				padding, offset: puckOffsetFor(map!.getContainer().clientHeight, padding, 0.2), duration,
 				// Without this Mapbox skips the flight when the system has reduced motion on (Windows "Show animations" off, remote
 				// sessions, kiosks). The flight is part of the product, so it always runs.
 				essential: true,
@@ -99,7 +100,7 @@ export function useGlobeShowcase(options: Options) {
 				phase.current = "local";
 			};
 			// If the flight is interrupted or never reports its end, do not leave the camera stuck in transition.
-			const safety = window.setTimeout(finish, APPROACH_MS + 1500);
+			const safety = window.setTimeout(finish, duration + 1500);
 			// Registered after flyTo, which first ends whatever the camera was doing and would otherwise trigger this at once.
 			map!.once("moveend", finish);
 		}
@@ -114,10 +115,19 @@ export function useGlobeShowcase(options: Options) {
 			map!.once("moveend", () => { if (my === generation.current) { hold(false); startGlobe(); } });
 		}
 
-		const approachIfAway = (): boolean => {
+		/**
+		 * Flies down to the car when the camera is out at the globe. With `fromFar` (the locate button, the return to following) it also flies
+		 * when the camera has been taken a long way from the car, in a flight as long as the distance deserves, instead of a quick glide.
+		 */
+		const approachIfAway = (fromFar = false): boolean => {
+			if (!latest.current.hasPosition) return false;
 			const away = phase.current === "globe" || phase.current === "leaving" || phase.current === "grabbed" || (phase.current === "manual" && map.getZoom() < 6);
-			if (!away || !latest.current.hasPosition) return false;
-			approach();
+			if (away) { approach(); return true; }
+			if (!fromFar || (phase.current !== "local" && phase.current !== "manual")) return false;
+			const here = map.getCenter();
+			const distance = metresBetween([here.lng, here.lat], latest.current.positionRef.current);
+			if (distance <= FLY_BACK_FROM_M) return false;
+			approach(flightMs(distance));
 			return true;
 		};
 		controls.current = { approach, approachIfAway, startGlobe };
@@ -221,5 +231,5 @@ export function useGlobeShowcase(options: Options) {
 	// Lets the dev tools (and UI tests) see which part of the showcase is running; never exposed in packaged builds.
 	if (process.env.NODE_ENV !== "production") (window as unknown as { __bravaShowcase?: () => string }).__bravaShowcase = () => phase.current;
 
-	return { approachIfAway: () => controls.current?.approachIfAway() ?? false };
+	return { approachIfAway: (fromFar = false) => controls.current?.approachIfAway(fromFar) ?? false };
 }

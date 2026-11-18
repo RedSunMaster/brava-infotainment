@@ -938,7 +938,7 @@ export default function App() {
 
 	function handleLocate() {
 		// On the globe, the locate button brings the camera down to the car.
-		if (showcase.approachIfAway()) return;
+		if (showcase.approachIfAway(true)) return;
 		resumeFollowing();
 		smoothLocate();
 	}
@@ -959,7 +959,7 @@ export default function App() {
 	useEffect(() => {
 		const was = previousCameraMode.current;
 		previousCameraMode.current = cameraMode;
-		if (cameraMode === "following" && was !== "following") showcase.approachIfAway();
+		if (cameraMode === "following" && was !== "following") showcase.approachIfAway(true);
 	}, [cameraMode]);
 
 	// ── Speed signs ────────────────────────────────────────────────────────────

@@ -44,3 +44,10 @@ test("a flight to the car takes the short way round, however many times the glob
 		assert.ok(Math.abs(S.wrapLongitude(at) - S.wrapLongitude(target)) < 1e-9);
 	}
 });
+
+test("a flight back to the car lasts as long as the distance deserves", () => {
+	assert.equal(S.flightMs(S.FLY_BACK_FROM_M), 1500);
+	assert.ok(S.flightMs(40_000) > S.flightMs(10_000));
+	assert.equal(S.flightMs(20_000_000), 8000);
+	assert.equal(S.flightMs(0), 1500);
+});
