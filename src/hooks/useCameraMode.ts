@@ -91,9 +91,15 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		setMode("following");
 	}
 
+	/**
+	 * Heading up <-> north up. While following, `blend` (the puck hook's smoothLocate) carries the view across to the new orientation
+	 * while still tracking the live puck: a fixed-target move toward where the car was a moment ago left the car sliding about on a moving
+	 * GPS, and snapped when the follow camera took over again.
+	 */
 	function toggleOrientation(
 		currentBearing: number,
 		currentPosition: [number, number],
+		blend?: () => void,
 	) {
 		const map = mapRef.current;
 		if (!map) return;
@@ -113,7 +119,9 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 
 		if (transitionTimeoutRef.current) clearTimeout(transitionTimeoutRef.current);
 
-		if (followingRef.current === "following") {
+		if (followingRef.current === "following" && blend) {
+			blend();
+		} else if (followingRef.current === "following") {
 			cameraTransitionRef.current = true;
 			map.easeTo({
 				center: currentPosition,

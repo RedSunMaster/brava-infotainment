@@ -942,7 +942,7 @@ export default function App() {
 	// the camera to the car at once), and during the flight it waits.
 	function handleViewButton() {
 		if (showcase.approachIfAway(true) || showcase.cameraAway()) return;
-		toggleOrientation(lastBearingRef.current, lastPosRef.current);
+		toggleOrientation(lastBearingRef.current, lastPosRef.current, smoothLocate);
 	}
 
 	function handleLocate() {
