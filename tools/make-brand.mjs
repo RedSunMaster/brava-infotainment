@@ -44,6 +44,9 @@ if (process.argv[1] && process.argv[1].endsWith("make-brand.mjs")) {
 	const glowOnly = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${VIEWBOX}"><defs><filter id="g" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="14"/></filter></defs><g filter="url(#g)" opacity="0.42">${lettering("#5aa9ff", 20)}</g></svg>`;
 	await png(lettersOnly, "deploy/boot/plymouth/logo.png");
 	await png(glowOnly, "deploy/boot/plymouth/glow.png");
+	// The boot framebuffer is the monitor's own landscape shape, and Plymouth's runtime Rotate keeps the old picture size (it cuts the ends
+	// off), so the quarter-turned pictures are made here, a quarter turn clockwise, the way the last boot showed upright.
+	for (const name of ["logo", "glow"]) await sharp(`deploy/boot/plymouth/${name}.png`).rotate(90).toFile(`deploy/boot/plymouth/${name}-turned.png`);
 	// The early desktop splash draws both together as one picture (letters over glow, on a transparent canvas).
 	await png(logoSvg({ id: "e" }), "deploy/boot/splash.png");
 

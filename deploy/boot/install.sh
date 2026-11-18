@@ -16,7 +16,7 @@ fi
 # 1. The Plymouth boot splash theme.
 rpm -q plymouth-plugin-script >/dev/null 2>&1 || sudo dnf install -y plymouth-plugin-script
 sudo mkdir -p /usr/share/plymouth/themes/brava
-sudo cp "$HERE"/plymouth/{brava.plymouth,brava.script,logo.png,glow.png} /usr/share/plymouth/themes/brava/
+sudo cp "$HERE"/plymouth/{brava.plymouth,brava.script,logo.png,glow.png,logo-turned.png,glow-turned.png} /usr/share/plymouth/themes/brava/
 sudo plymouth-set-default-theme -R brava      # also rebuilds the boot image, which takes a minute
 
 # 2. Quiet boot with no menu: Fedora already boots "rhgb quiet" with the menu hidden; make sure of both.

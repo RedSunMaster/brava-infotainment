@@ -8,12 +8,13 @@
 Window.SetBackgroundTopColor(0.0235, 0.0392, 0.0784);
 Window.SetBackgroundBottomColor(0.0235, 0.0392, 0.0784);
 
-# The monitor is mounted on its side, but the boot framebuffer is the panel's own landscape shape: turn the picture to suit.
-# A quarter turn one way or the other; if the logo comes up upside down, change the sign here.
-quarter_turn = 1.5707963;
+# The monitor is mounted on its side, but the boot framebuffer is the panel's own landscape shape, so on that shape the picture is used
+# already turned a quarter turn (logo-turned.png). If the logo comes up upside down, swap which way it is turned in tools/make-brand.mjs.
 
 source_logo = Image("logo.png");
 source_glow = Image("glow.png");
+turned_logo = Image("logo-turned.png");
+turned_glow = Image("glow-turned.png");
 glow = Sprite();
 logo = Sprite();
 
@@ -32,11 +33,13 @@ fun layout() {
 	short_side = Math.Min(screen_w, screen_h);
 	logo_w = short_side * 0.9;
 	logo_h = logo_w * source_logo.GetHeight() / source_logo.GetWidth();
-	logo_image = source_logo.Scale(logo_w, logo_h);
-	glow_image = source_glow.Scale(logo_w, logo_h);
 	if (screen_w > screen_h) {
-		logo_image = logo_image.Rotate(quarter_turn);
-		glow_image = glow_image.Rotate(quarter_turn);
+		logo_image = turned_logo.Scale(logo_h, logo_w);
+		glow_image = turned_glow.Scale(logo_h, logo_w);
+	}
+	else {
+		logo_image = source_logo.Scale(logo_w, logo_h);
+		glow_image = source_glow.Scale(logo_w, logo_h);
 	}
 	x = (screen_w - logo_image.GetWidth()) / 2;
 	y = (screen_h - logo_image.GetHeight()) / 2;
