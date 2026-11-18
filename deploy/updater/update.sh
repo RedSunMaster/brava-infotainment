@@ -1,7 +1,8 @@
 #!/bin/bash
-# Pulls the newest commit of the branch this checkout tracks, rebuilds the packaged app and restarts it.
-# Run by brava-update.timer every couple of minutes; safe to run by hand. Does nothing when already up to date.
-#   update.sh          update if there is something new
+# Updates the packaged app from git. The app calls this itself: --check for the status bar's "update available" icon,
+# and a plain run when that icon is tapped. Also safe to run by hand.
+#   update.sh --check  print "<current> <latest> <subject>" when a newer commit exists, nothing otherwise; changes nothing
+#   update.sh          pull the newest commit, rebuild the packaged app and restart it
 #   update.sh --force  rebuild and restart even if nothing is new
 set -uo pipefail
 
@@ -11,6 +12,13 @@ APP="$REPO/out/brava-infotainment-linux-x64/brava-infotainment"
 BRANCH="${BRAVA_BRANCH:-master}"
 mkdir -p "$STATE"
 log() { echo "$(date '+%F %T') $*" | tee -a "$STATE/update.log"; }
+
+if [ "${1:-}" = "--check" ]; then
+	cd "$REPO" && git fetch -q origin "$BRANCH" 2>/dev/null || exit 0
+	LOCAL=$(git rev-parse HEAD); REMOTE=$(git rev-parse "origin/$BRANCH")
+	[ "$LOCAL" != "$REMOTE" ] && echo "${LOCAL:0:7} ${REMOTE:0:7} $(git log -1 --format=%s "origin/$BRANCH")"
+	exit 0
+fi
 
 exec 9>"$STATE/lock"
 flock -n 9 || { echo "another update is running"; exit 0; }
@@ -36,7 +44,7 @@ nice -n 10 npm run package >"$STATE/build.log" 2>&1 || { log "build failed, see 
 rm -f "$STATE/failed"
 
 log "restarting app"
-systemctl --user stop brava-app.service 2>/dev/null
+systemctl --user stop brava-app.service brava-test.service 2>/dev/null
 pkill -x brava-infotainm 2>/dev/null
 sleep 1
 systemctl --user reset-failed brava-app.service 2>/dev/null

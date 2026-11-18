@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Box, Typography } from "@mui/material";
+import { Box, CircularProgress, Typography } from "@mui/material";
+import SystemUpdateAltRounded from "@mui/icons-material/SystemUpdateAltRounded";
+import { useAppUpdate } from "../hooks/useAppUpdate";
 import { alpha, useTheme, type Theme } from "@mui/material/styles";
 import WbSunnyRounded from "@mui/icons-material/WbSunnyRounded";
 import CloudRounded from "@mui/icons-material/CloudRounded";
@@ -78,6 +80,7 @@ export default function ClockWeatherChip({ gpsStatus, estimating = false, previe
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
 	const { weather } = useThemeMode();
+	const { state: update, apply: applyUpdate } = useAppUpdate();
 
 	// The clock only shows minutes, so it only needs to tick when the minute changes.
 	useEffect(() => {
@@ -112,6 +115,22 @@ export default function ClockWeatherChip({ gpsStatus, estimating = false, previe
 		>
 			<Typography sx={text}>{clock}</Typography>
 			<Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+				{update.phase !== "idle" && (() => {
+					const busy = update.phase === "updating";
+					const failed = update.phase === "failed";
+					const colour = failed ? theme.palette.error.main : theme.palette.primary.main;
+					return <>
+						<Box
+							component="button" type="button" disabled={busy} onClick={applyUpdate}
+							aria-label={busy ? "Updating the app" : failed ? "Update failed. Tap to try again" : `Update available${update.subject ? `: ${update.subject}` : ""}. Tap to install and restart`}
+							sx={{ display: "flex", alignItems: "center", gap: 0.75, height: 44, px: 1.25, border: `2px solid ${colour}`, borderRadius: 8, bgcolor: alpha(colour, 0.14), color: colour, cursor: busy ? "default" : "pointer", font: "inherit", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}
+						>
+							{busy ? <CircularProgress size={24} color="inherit" /> : <SystemUpdateAltRounded sx={{ fontSize: 28 }} />}
+							<Typography sx={{ ...text, color: "inherit" }}>{busy ? "Updating…" : failed ? "Retry update" : "Update"}</Typography>
+						</Box>
+						<Divider />
+					</>;
+				})()}
 				{weather && (
 					<>
 						<Box sx={{ display: "flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>

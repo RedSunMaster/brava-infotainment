@@ -1,9 +1,0 @@
-[Unit]
-Description=Check for a new Brava build every few minutes
-
-[Timer]
-OnBootSec=3min
-OnUnitInactiveSec=3min
-
-[Install]
-WantedBy=timers.target

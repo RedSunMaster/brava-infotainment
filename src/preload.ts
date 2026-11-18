@@ -20,6 +20,17 @@ import { ipcRenderer } from "electron";
 	},
 };
 
+// ── Self-update (see updaterMain.ts) ─────────────────────────────────────────
+(window as any).electronUpdate = {
+	getState: () => ipcRenderer.invoke("update:state"),
+	apply: () => ipcRenderer.send("update:apply"),
+	onState: (cb: (state: unknown) => void) => {
+		const handler = (_event: Electron.IpcRendererEvent, state: unknown) => cb(state);
+		ipcRenderer.on("update-state", handler);
+		return () => ipcRenderer.removeListener("update-state", handler);
+	},
+};
+
 // ── On-screen keyboard (GNOME/Wayland) ───────────────────────────────────────
 (window as any).electronOSK = {
 	show: () => ipcRenderer.send("osk-show"),
