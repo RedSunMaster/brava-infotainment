@@ -14,7 +14,7 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 HERE = os.path.dirname(os.path.realpath(__file__))
 PICTURE = os.path.join(HERE, "splash.png")
 FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "brava-ready")
-BACKGROUND = "#060a14"
+BACKGROUND = "#0a0705"
 HOLD_AFTER_READY_MS = 700
 GIVE_UP_S = 60
 
@@ -38,7 +38,7 @@ class Splash(Gtk.Application):
         self.window.add_css_class("brava-splash")
         self.window.set_decorated(False)
         self.picture = Gtk.Picture.new_for_filename(PICTURE)
-        # The picture is the full Traccia canvas, fitted to the screen and centred, exactly as in the boot splash and the app.
+        # The picture is the full Matrice end frame, fitted to the screen and centred, exactly as in the boot splash and the app.
         self.picture.set_can_shrink(True)
         self.picture.set_hexpand(True)
         self.picture.set_vexpand(True)

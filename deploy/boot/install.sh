@@ -16,7 +16,8 @@ fi
 # 1. The Plymouth boot splash theme.
 rpm -q plymouth-plugin-script >/dev/null 2>&1 || sudo dnf install -y plymouth-plugin-script
 sudo mkdir -p /usr/share/plymouth/themes/brava
-sudo cp "$HERE"/plymouth/{brava.plymouth,brava.script,splash-portrait.png,splash-landscape.png} /usr/share/plymouth/themes/brava/
+sudo rm -f /usr/share/plymouth/themes/brava/*.png      # pictures from an earlier design
+sudo cp "$HERE"/plymouth/brava.plymouth "$HERE"/plymouth/brava.script "$HERE"/plymouth/*.png /usr/share/plymouth/themes/brava/
 sudo plymouth-set-default-theme -R brava      # also rebuilds the boot image, which takes a minute
 
 # 2. Quiet boot with no menu: Fedora already boots "rhgb quiet" with the menu hidden; make sure of both.
@@ -46,7 +47,7 @@ PY
 # 4. A plain dark desktop in the same colour, in case the desktop shows for a moment anywhere.
 gsettings set org.gnome.desktop.background picture-options none
 gsettings set org.gnome.desktop.background color-shading-type solid
-gsettings set org.gnome.desktop.background primary-color '#060a14'
+gsettings set org.gnome.desktop.background primary-color '#0a0705'
 gsettings set org.gnome.desktop.background picture-uri ''
 gsettings set org.gnome.desktop.background picture-uri-dark ''
 echo "installed; restart to see it"

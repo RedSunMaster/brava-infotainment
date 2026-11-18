@@ -4,7 +4,7 @@ import { envDefinePlugin } from "./webpack.plugins"; // ✅ import DefinePlugin
 
 rules.push({ test: /\.css$/, use: ["style-loader", "css-loader"] });
 rules.push({ test: /\.(glb|gltf)$/, type: "asset/resource" });
-rules.push({ test: /\.(jpg|jpeg|png|webp)$/, type: "asset/resource" });
+rules.push({ test: /\.(jpg|jpeg|png|webp|webm)$/, type: "asset/resource" });
 
 export const rendererConfig: Configuration = {
 	target: "electron-renderer",

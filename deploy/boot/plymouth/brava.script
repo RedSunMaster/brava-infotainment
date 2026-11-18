@@ -1,47 +1,64 @@
-# FIAT Brava boot splash: the Traccia still (full canvas, already on the background colour), centred. The early desktop splash and the
-# app's opening screen show the same picture, so the hand-over from boot to app cannot be seen. Pictures come from tools/make-brand.mjs.
+# FIAT Brava boot splash: the Matrice animation (amber LED dot-matrix), played once at 24 fps, then held on its last frame for as long as
+# boot takes. The early desktop splash and the app's opening screen open on that same last frame, so the hand-over cannot be seen.
+# Frames come from tools/make-brand.mjs: portrait-0001..0062.png and landscape-0001..0062.png (transparent, full canvas).
 #
-# The screen changes shape during boot (the firmware's framebuffer first, then the real graphics driver takes over), so the layout is
-# worked out again whenever the size changes, not once at the start.
+# Only the frame on screen is kept in memory (each is loaded when it is due), so the animation costs one frame's worth of memory, not 62.
+# The screen changes shape during boot (the firmware's framebuffer first, then the real graphics driver takes over), so the layout and
+# the frame set are worked out again whenever the size changes; the animation carries on from where it was.
 
-# Same colour as the app's opening screen (#060a14).
-Window.SetBackgroundTopColor(0.0235, 0.0392, 0.0784);
-Window.SetBackgroundBottomColor(0.0235, 0.0392, 0.0784);
+# Same colour as the app's opening screen (#0a0705).
+Window.SetBackgroundTopColor(0.0392, 0.0275, 0.0196);
+Window.SetBackgroundBottomColor(0.0392, 0.0275, 0.0196);
 
-# The monitor is mounted on its side, but the boot framebuffer is the panel's own landscape shape, so on a landscape screen the picture
-# used is the one already turned a quarter turn clockwise (splash-landscape.png, 1920x1080). Plymouth's runtime Rotate would cut it.
-portrait_image = Image("splash-portrait.png");
-landscape_image = Image("splash-landscape.png");
+FRAMES = 62;          # the last one is the held end
+TICKS_PER_FRAME = 50 / 24;   # Plymouth calls refresh about 50 times a second; the animation is 24 fps
+
+digits[0] = "0"; digits[1] = "1"; digits[2] = "2"; digits[3] = "3"; digits[4] = "4";
+digits[5] = "5"; digits[6] = "6"; digits[7] = "7"; digits[8] = "8"; digits[9] = "9";
+
+fun frame_name(prefix, n) {
+	tens = Math.Int(n / 10);
+	return prefix + "-00" + digits[tens] + digits[n - tens * 10] + ".png";
+}
+
 splash = Sprite();
+splash.SetZ(10);
 
 state = [];
 state.width = 0;
 state.height = 0;
-state.frame = 0;
+state.prefix = "portrait";
+state.tick = 0;
+state.shown = 0;      # the frame number on screen (0 = none yet)
 
-fun layout() {
-	screen_w = Window.GetWidth();
-	screen_h = Window.GetHeight();
-	if (screen_w == state.width && screen_h == state.height) return;
-	state.width = screen_w;
-	state.height = screen_h;
-
-	if (screen_w > screen_h) source = landscape_image;
-	else source = portrait_image;
-
+fun show(n) {
+	source = Image(frame_name(state.prefix, n));
 	# Fit the whole picture inside the screen without changing its shape (native size when the screen is 1080x1920 / 1920x1080).
-	scale = Math.Min(screen_w / source.GetWidth(), screen_h / source.GetHeight());
+	scale = Math.Min(state.width / source.GetWidth(), state.height / source.GetHeight());
 	if (scale == 1) shown = source;
 	else shown = source.Scale(source.GetWidth() * scale, source.GetHeight() * scale);
 	splash.SetImage(shown);
-	splash.SetPosition((screen_w - shown.GetWidth()) / 2, (screen_h - shown.GetHeight()) / 2, 10);
+	splash.SetPosition((state.width - shown.GetWidth()) / 2, (state.height - shown.GetHeight()) / 2, 10);
+	state.shown = n;
 }
 
-# A short fade in, then it holds perfectly still.
 fun refresh() {
-	layout();
-	state.frame++;
-	splash.SetOpacity(Math.Min(1, state.frame / 25));
+	screen_w = Window.GetWidth();
+	screen_h = Window.GetHeight();
+	changed = 0;
+	if (screen_w != state.width || screen_h != state.height) {
+		state.width = screen_w;
+		state.height = screen_h;
+		# The monitor is mounted on its side; on a landscape screen use the frames already turned a quarter turn clockwise
+		# (Plymouth's runtime Rotate would cut the ends off).
+		if (screen_w > screen_h) state.prefix = "landscape";
+		else state.prefix = "portrait";
+		changed = 1;
+	}
+
+	n = Math.Min(FRAMES, Math.Int(state.tick / TICKS_PER_FRAME) + 1);
+	state.tick++;
+	if (changed || n != state.shown) show(n);
 }
 Plymouth.SetRefreshFunction(refresh);
-layout();
+refresh();
