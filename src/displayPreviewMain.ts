@@ -59,10 +59,14 @@ function applyWindowPreview(win: BrowserWindow, resize: boolean): void {
 		);
 		const [outerWidth, outerHeight] = win.getSize();
 		const [contentWidth, contentHeight] = win.getContentSize();
-		win.setAspectRatio(win.isFullScreen() ? 0 : settings.width / settings.height, {
-			width: outerWidth - contentWidth,
-			height: outerHeight - contentHeight,
-		});
+		// On Windows the lock applies to the whole window (frame included), so give it the ratio the frame and
+		// content make together at this size; the content then keeps the preview's shape instead of stretching.
+		const frameWidth = outerWidth - contentWidth;
+		const frameHeight = outerHeight - contentHeight;
+		const idealHeight = (contentWidth * settings.height) / settings.width;
+		win.setAspectRatio(
+			win.isFullScreen() ? 0 : (contentWidth + frameWidth) / (idealHeight + frameHeight),
+		);
 	} finally {
 		applyingWindowSize = false;
 	}
@@ -98,9 +102,20 @@ export function configureDisplayPreview(
 			});
 			settings = { ...next };
 			try {
-				applyWindowPreview(win, true);
-				await new Promise<void>((resolve) => setTimeout(resolve, 150));
-				const [width, height] = win.getContentSize();
+				// Making the window resizable (or not) changes its frame, so the first resize can land a few pixels
+				// off. Apply again once the frame has settled before deciding the size is impossible.
+				let width = 0;
+				let height = 0;
+				for (let attempt = 0; attempt < 3; attempt++) {
+					applyWindowPreview(win, true);
+					await new Promise<void>((resolve) => setTimeout(resolve, 150));
+					[width, height] = win.getContentSize();
+					if (
+						Math.abs(width - expected.width) <= 2 &&
+						Math.abs(height - expected.height) <= 2
+					)
+						break;
+				}
 				if (
 					Math.abs(width - expected.width) > 2 ||
 					Math.abs(height - expected.height) > 2
