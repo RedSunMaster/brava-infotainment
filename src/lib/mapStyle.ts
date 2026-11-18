@@ -1,5 +1,6 @@
 import type { ExpressionSpecification, FogSpecification, Map } from "mapbox-gl";
 import type { AmbientWeather } from "./ambientTheme";
+import { MERCATOR_LATITUDE, renderLightsMask, renderNightMask, solarAltitude, sunPosition, type Sun } from "./sunlight";
 
 export const WEATHER_APPEARANCES = ["auto", "clear", "partly", "overcast", "fog", "drizzle", "rain", "storm", "snow", "blizzard"] as const;
 export type WeatherAppearance = (typeof WEATHER_APPEARANCES)[number];
@@ -57,6 +58,141 @@ export function applyTerrain(map: Pick<Map, "getSource" | "addSource" | "setTerr
   type: "raster-dem", url: "mapbox://mapbox.mapbox-terrain-dem-v1", tileSize: 512, maxzoom: 14,
  });
  map.setTerrain({ source: "brava-terrain", exaggeration: 1 });
+}
+
+/** The key that turns the globe's clouds on or off (per profile, like the other settings). */
+export const CLOUDS_KEY = "brava-earth-clouds";
+export const cloudsWanted = (): boolean => { try { return localStorage.getItem(CLOUDS_KEY) !== "false"; } catch { return true; } };
+
+/** The clouds are two copies of the same picture side by side, so they can slide round the world without a gap. */
+const CLOUD_LAYERS = ["brava-clouds", "brava-clouds-b"] as const;
+const MERCATOR_EDGE = 85.0511287798;
+/** How far the clouds have drifted round the world, in degrees east of where they are in the picture. */
+let cloudShift = 0;
+const cloudCoordinates = (shift: number, copy: 0 | 1): [[number, number], [number, number], [number, number], [number, number]] => {
+ const left = -180 + shift - 360 * copy, right = left + 360;
+ return [[left, MERCATOR_EDGE], [right, MERCATOR_EDGE], [right, -MERCATOR_EDGE], [left, -MERCATOR_EDGE]];
+};
+/** How bright the clouds are at each time of day: white by day, grey in the dark so they never glow like snow. */
+const CLOUD_BRIGHTNESS: Record<TimeOfDay, number> = { day: 1, dawn: 0.8, dusk: 0.7, night: 0.28 };
+
+/**
+ * A layer of clouds over the whole globe, so the Earth looks like Earth from space. It is a flat picture drawn on the globe, and
+ * it fades out as the camera comes in (the globe flattens into the ordinary map around zoom 5 to 6) and is not drawn at all beyond
+ * zoom 6, so it costs nothing while driving.
+ */
+export function applyClouds(map: Pick<Map, "getSource" | "getLayer" | "addSource" | "addLayer" | "setLayoutProperty">, url: string, visible: boolean) {
+ CLOUD_LAYERS.forEach((id, copy) => {
+  if (!map.getSource(id)) map.addSource(id, { type: "image", url, coordinates: cloudCoordinates(cloudShift, copy as 0 | 1) });
+  if (!map.getLayer(id)) map.addLayer({
+   id, type: "raster", source: id, slot: "middle", maxzoom: 6,
+   layout: { visibility: visible ? "visible" : "none" },
+   paint: {
+    "raster-opacity": ["interpolate", ["linear"], ["zoom"], 0, 0.85, 2.5, 0.78, 4, 0.32, 5.5, 0],
+    "raster-fade-duration": 0, "raster-resampling": "linear", "raster-emissive-strength": 1, "raster-brightness-max": 1,
+   },
+  });
+  else map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+ });
+}
+
+export function setCloudsVisible(map: Pick<Map, "getLayer" | "setLayoutProperty">, visible: boolean) {
+ for (const id of CLOUD_LAYERS) if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+}
+
+export function setCloudAppearance(map: Pick<Map, "getLayer" | "setPaintProperty">, period: TimeOfDay) {
+ for (const id of CLOUD_LAYERS) if (map.getLayer(id)) map.setPaintProperty(id, "raster-brightness-max", CLOUD_BRIGHTNESS[period]);
+}
+
+/** Slides the clouds `degrees` further east over the ground. */
+export function driftClouds(map: Pick<Map, "getSource">, degrees: number) {
+ cloudShift = (((cloudShift + degrees) % 360) + 360) % 360;
+ CLOUD_LAYERS.forEach((id, copy) => (map.getSource(id) as unknown as { setCoordinates?: (coordinates: unknown) => void } | undefined)?.setCoordinates?.(cloudCoordinates(cloudShift, copy as 0 | 1)));
+}
+
+/** The key that turns the globe's day and night sides on or off (per profile). */
+export const NIGHT_KEY = "brava-globe-night";
+export const nightWanted = (): boolean => { try { return localStorage.getItem(NIGHT_KEY) !== "false"; } catch { return true; } };
+
+const NIGHT_LAYER = "brava-night";
+const NIGHT_SIZE = 768;
+const nightCoordinates: [[number, number], [number, number], [number, number], [number, number]] = [[-180, MERCATOR_LATITUDE], [180, MERCATOR_LATITUDE], [180, -MERCATOR_LATITUDE], [-180, -MERCATOR_LATITUDE]];
+let nightUrl: string | null = null;
+/** Where the sun was for the picture on the globe, so the atmosphere glow can follow it. Null when the night side is off. */
+let globeSun: Sun | null = null;
+
+const LIGHTS_SIZE = 2048;
+let lightsImage: HTMLImageElement | null = null;
+let lightsLoading: Promise<HTMLImageElement | null> | null = null;
+/** The city-lights picture, loaded once. Null if it cannot be loaded; the night side is then just the shade. */
+function loadLights(url: string | undefined): Promise<HTMLImageElement | null> {
+ if (lightsImage) return Promise.resolve(lightsImage);
+ if (!url || typeof Image === "undefined") return Promise.resolve(null);
+ lightsLoading ??= new Promise(resolve => {
+  const image = new Image();
+  image.onload = () => { lightsImage = image; resolve(image); };
+  image.onerror = () => { lightsLoading = null; resolve(null); };
+  image.src = url;
+ });
+ return lightsLoading;
+}
+const scratch = (size: number) => { const canvas = document.createElement("canvas"); canvas.width = size; canvas.height = size; return canvas; };
+
+/** A picture of where it is night right now, as a blob URL the map can draw. */
+async function nightPicture(date: Date, lightsUrl?: string): Promise<string | null> {
+ if (typeof document === "undefined") return null;
+ const sun = sunPosition(date);
+ const shade = scratch(NIGHT_SIZE);
+ const shadeContext = shade.getContext("2d");
+ if (!shadeContext) return null;
+ shadeContext.putImageData(new ImageData(renderNightMask(sun, NIGHT_SIZE), NIGHT_SIZE, NIGHT_SIZE), 0, 0);
+ const lights = await loadLights(lightsUrl);
+ let picture = shade;
+ if (lights) {
+  // The shade, with the city lights on top wherever it is properly dark. Both masks are smooth, so the small ones are stretched up.
+  picture = scratch(LIGHTS_SIZE);
+  const context = picture.getContext("2d")!;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(shade, 0, 0, LIGHTS_SIZE, LIGHTS_SIZE);
+  const glow = scratch(LIGHTS_SIZE);
+  const glowContext = glow.getContext("2d")!;
+  glowContext.imageSmoothingQuality = "high";
+  glowContext.drawImage(lights, 0, 0, LIGHTS_SIZE, LIGHTS_SIZE);
+  const mask = scratch(NIGHT_SIZE);
+  mask.getContext("2d")!.putImageData(new ImageData(renderLightsMask(sun, NIGHT_SIZE), NIGHT_SIZE, NIGHT_SIZE), 0, 0);
+  glowContext.globalCompositeOperation = "destination-in";
+  glowContext.drawImage(mask, 0, 0, LIGHTS_SIZE, LIGHTS_SIZE);
+  context.drawImage(glow, 0, 0);
+ }
+ const blob = await new Promise<Blob | null>(resolve => picture.toBlob(resolve, lights ? "image/webp" : "image/png", 0.92));
+ return blob ? URL.createObjectURL(blob) : null;
+}
+
+type NightMap = Pick<Map, "getSource" | "getLayer" | "addSource" | "addLayer" | "setLayoutProperty">;
+
+/**
+ * The day and night sides of the Earth: a shadow laid over the globe from where the sun really is, darkest on the far side with a
+ * soft, warm edge where it is dusk or dawn, and the lights of the cities coming on wherever it is properly dark. Like the clouds it fades out as the camera comes in, a little later than they do, and is not drawn beyond zoom 8.
+ * Added after the clouds so the clouds on the night side go dark too.
+ */
+export async function applyNight(map: NightMap, visible: boolean, date = new Date(), lightsUrl?: string) {
+ if (!visible) { globeSun = null; if (map.getLayer(NIGHT_LAYER)) map.setLayoutProperty(NIGHT_LAYER, "visibility", "none"); repaintGlow(map as unknown as WeatherMap); return; }
+ const url = await nightPicture(date, lightsUrl);
+ if (!url) return;
+ globeSun = sunPosition(date);
+ const previous = nightUrl;
+ nightUrl = url;
+ const existing = map.getSource(NIGHT_LAYER) as unknown as { updateImage?: (options: { url: string; coordinates: typeof nightCoordinates }) => void } | undefined;
+ if (existing?.updateImage) existing.updateImage({ url, coordinates: nightCoordinates });
+ else if (!existing) map.addSource(NIGHT_LAYER, { type: "image", url, coordinates: nightCoordinates });
+ if (!map.getLayer(NIGHT_LAYER)) map.addLayer({
+  id: NIGHT_LAYER, type: "raster", source: NIGHT_LAYER, slot: "middle", maxzoom: 8,
+  // It stays well after the lighting preset has been switched (at about zoom 4.6), so the map darkens underneath it instead of flashing bright.
+  paint: { "raster-opacity": ["interpolate", ["linear"], ["zoom"], 0, 1, 3, 0.95, 4.5, 0.75, 6, 0.4, 7.5, 0], "raster-fade-duration": 0, "raster-resampling": "linear", "raster-emissive-strength": 1 },
+ });
+ map.setLayoutProperty(NIGHT_LAYER, "visibility", "visible");
+ repaintGlow(map as unknown as WeatherMap);
+ if (previous) setTimeout(() => URL.revokeObjectURL(previous), 5000);
 }
 
 export const TRAFFIC_COLORS = { moderate: "#f59e0b", heavy: "#ef4444", severe: "#991b1b" } as const;
@@ -130,21 +266,198 @@ export function setTrafficAppearance(map: Pick<Map, "getLayer" | "setLayoutPrope
  map.setPaintProperty("brava-traffic", "line-opacity", dimmed ? TRAFFIC_OPACITY_DIMMED : TRAFFIC_OPACITY);
 }
 
+/**
+ * How much of the local weather shows at this camera height: none from space (so the globe keeps its blue atmosphere, black sky and
+ * stars whatever the weather is where you are), fading in as the camera comes down, all of it near the ground. Rounded to a few
+ * steps so it only changes the map a handful of times during a flight.
+ */
+export function weatherStrength(zoom: number): number {
+ const t = Math.max(0, Math.min(1, (zoom - 6) / 5));
+ return Math.round(t * t * (3 - 2 * t) * 20) / 20;
+}
+
+type WeatherMap = Pick<Map, "setConfigProperty" | "setRain" | "setSnow" | "setFog" | "getCanvas"> & Partial<Pick<Map, "getLayer" | "setPaintProperty" | "getZoom" | "getCenter" | "on">>;
+/**
+ * What lights the map. Wherever the camera is looking, the map is lit for the real time of day at that place, so zooming into a place
+ * that is night shows it at night. Only near the car does the app's own choice (which also takes the weather into account, and
+ * any time of day you picked by hand) apply.
+ */
+export interface Lighting {
+ /** Where the car is; null when that is not known. */
+ anchor: [number, number] | null;
+ /** The time of day was chosen by hand (or by a test flag), so it applies wherever you look. */
+ forced: boolean;
+}
+const FORCED: () => Lighting = () => ({ anchor: null, forced: true });
+/** How near the camera has to be to the car for the car's own lighting and weather to apply. */
+const NEAR_KM = 250;
+const kilometres = ([lng1, lat1]: [number, number], [lng2, lat2]: [number, number]) => {
+ const rad = Math.PI / 180;
+ const h = Math.sin(((lat2 - lat1) * rad) / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lng2 - lng1) * rad) / 2) ** 2;
+ return 12742 * Math.asin(Math.min(1, Math.sqrt(h)));
+};
+
+/** The time of day at a place from the real sun, with the app's own limits: twilight is the sun within 6 degrees of the horizon. */
+export function skyPeriod(latitude: number, longitude: number, sun: Sun): TimeOfDay {
+ const altitude = solarAltitude(latitude, longitude, sun);
+ if (altitude > 6) return "day";
+ if (altitude < -6) return "night";
+ // East of the sun's longitude it is afternoon (the sun is moving west), so a low sun there is dusk.
+ return ((longitude - sun.longitude + 540) % 360) - 180 > 0 ? "dusk" : "dawn";
+}
+
+/** How long the light takes to change from one preset to the next (day to dusk, dusk to night...), so it eases instead of snapping. */
+export const PRESET_FADE_MS = 1800;
+const DEFAULT_TRANSITION = { duration: 300, delay: 0 };
+type Transitions = { style?: { setTransition?: (transition: { duration: number; delay: number }) => void } };
+const fadeTimers = new WeakMap<object, ReturnType<typeof setTimeout>>();
+
+/**
+ * Switches the map's lighting preset. Mapbox swaps presets instantly unless the style is told to transition, so for the length of the
+ * change the style's transition is stretched (and put back afterwards, so other changes such as route colours stay quick).
+ * `smooth` is false for the very first lighting, which should simply be there.
+ */
+export function setLightPreset(map: Pick<Map, "setConfigProperty">, preset: TimeOfDay, smooth = true) {
+ const style = (map as unknown as Transitions).style;
+ if (smooth && typeof style?.setTransition === "function") {
+  try {
+   style.setTransition({ duration: PRESET_FADE_MS, delay: 0 });
+   const previous = fadeTimers.get(map);
+   if (previous) clearTimeout(previous);
+   const timer = setTimeout(() => { try { style.setTransition?.(DEFAULT_TRANSITION); } catch { /* The map is gone. */ } }, PRESET_FADE_MS + 250);
+   (timer as { unref?: () => void }).unref?.();
+   fadeTimers.set(map, timer);
+  } catch { /* Fall back to the instant change. */ }
+ }
+ map.setConfigProperty("basemap", "lightPreset", preset);
+}
+
+interface Shown { period: TimeOfDay; effect: WeatherEffect; strength: number; space: number; preset: TimeOfDay; glow: number; view: TimeOfDay; near: boolean; lighting: () => Lighting }
+const shown = new WeakMap<object, Shown>();
+const listening = new WeakSet<object>();
+let cachedSun: { minute: number; sun: Sun } | null = null;
+/** The sun now, worked out once a minute. */
+function sunNow(): Sun {
+ const minute = Math.floor(Date.now() / 60000);
+ if (!cachedSun || cachedSun.minute !== minute) cachedSun = { minute, sun: sunPosition(new Date()) };
+ return cachedSun.sun;
+}
+
+/** The time of day to light the view for, and whether the view is near the car (so the car's weather applies). */
+function look(map: WeatherMap, period: TimeOfDay, lighting: Lighting): { view: TimeOfDay; near: boolean } {
+ if (lighting.forced || !map.getCenter) return { view: period, near: true };
+ const centre = map.getCenter();
+ const near = !lighting.anchor || kilometres([centre.lng, centre.lat], lighting.anchor) < NEAR_KM;
+ return { view: near ? period : skyPeriod(centre.lat, centre.lng, globeSun ?? sunNow()), near };
+}
+
+/**
+ * How much the camera is looking at the Earth from space, 1 on the globe, fading to 0 as it comes down to the ground (the globe
+ * becomes the flat map around zoom 5 to 6). Rounded to a few steps.
+ */
+export function spaceShare(zoom: number): number {
+ const t = Math.max(0, Math.min(1, (zoom - 3.5) / 3));
+ return Math.round((1 - t * t * (3 - 2 * t)) * 20) / 20;
+}
+
+/**
+ * Which lighting preset the map should use. The globe is always shown in full daylight, because its night side is drawn by the
+ * shadow layer from the real sun; the preset for the time of day at the place in view takes over once the camera has come down. The gap
+ * between the two zooms stops it flickering back and forth.
+ */
+export function presetFor(period: TimeOfDay, zoom: number, current: TimeOfDay, nightLayer: boolean, view: TimeOfDay = period): TimeOfDay {
+ if (!nightLayer) return view;
+ if (zoom < 4) return "day";
+ if (zoom > 4.6) return view;
+ return current;
+}
+
+/**
+ * How sunlit the part of the Earth under the camera is, 1 in full daylight down to 0 in the dark. Mapbox draws the atmosphere's glow evenly
+ * round the whole globe, so this is used to let it fade on the night side instead of glowing white over a dark Earth.
+ */
+export function glowLight(latitude: number, longitude: number, sun: Sun | null): number {
+ if (!sun) return 1;
+ const altitude = solarAltitude(latitude, longitude, sun);
+ const t = Math.max(0, Math.min(1, (altitude + 18) / 26));
+ return Math.round(t * t * (3 - 2 * t) * 20) / 20;
+}
+const NIGHT_GLOW = { color: "#16264d", high: "#0b1431" };
+
+/** Fog, rain, snow and the dimming of the whole picture, each scaled by how close to the ground the camera is. */
+function paintWeather(map: WeatherMap, period: TimeOfDay, effect: WeatherEffect, strength: number, space = 0, glow = 1) {
+ const scale = (precipitation: Precipitation | undefined) => (precipitation && strength > 0 ? { ...precipitation, opacity: precipitation.opacity * strength, vignette: precipitation.vignette * strength } : null);
+ // A dark vignette at the screen edges sells the gloomy, enclosed feel.
+ const rain = scale(effect.rain);
+ map.setRain(rain ? { ...rain, "vignette-color": "#1c222b" } : null);
+ map.setSnow(scale(effect.snow));
+ const fog = fogFor(period, effect.cloud * strength, effect.mist * strength);
+ // Space is dark and full of stars whatever the time of day where you are.
+ if (space > 0) fog["star-intensity"] = Math.max(Number(fog["star-intensity"] ?? 0), 0.55 * space);
+ // The glow follows the sun: bright over the day side, a faint blue over the night side.
+ const darkness = space * (1 - glow);
+ if (darkness > 0) {
+  fog.color = mixHex(String(fog.color), NIGHT_GLOW.color, 0.85 * darkness);
+  fog["high-color"] = mixHex(String(fog["high-color"]), NIGHT_GLOW.high, 0.85 * darkness);
+ }
+ map.setFog(fog);
+ // Fog only shows near the horizon, which the driving view hardly reaches, so cloud also mutes the whole picture.
+ const cloud = Math.max(effect.cloud, effect.mist) * strength;
+ const dim = period === "night" ? 0 : 0.14 * cloud;
+ map.getCanvas().style.filter = cloud > 0 ? `saturate(${(1 - 0.4 * cloud).toFixed(2)}) brightness(${(1 - dim).toFixed(2)})` : "";
+}
+
+/** Paints the atmosphere again after the sun or the night side changed. */
+function repaintGlow(map: WeatherMap) {
+ const current = shown.get(map);
+ if (!current || !map.getCenter || !map.getZoom) return;
+ current.glow = glowLight(map.getCenter().lat, map.getCenter().lng, globeSun);
+ paintWeather(map, current.view, current.effect, current.strength, current.space, current.glow);
+}
+
 export function applyMapAppearance(
- map: Pick<Map, "setConfigProperty" | "setRain" | "setSnow" | "setFog" | "getCanvas">,
+ map: WeatherMap,
  period: TimeOfDay,
  weather: AmbientWeather | null,
  now = Date.now(),
  appearance: WeatherAppearance = "auto",
+ lighting: () => Lighting = FORCED,
 ) {
- map.setConfigProperty("basemap", "lightPreset", period);
+ const zoom = map.getZoom ? map.getZoom() : 20;
+ const { view, near } = look(map, period, lighting());
+ const preset = presetFor(period, zoom, view, nightWanted(), view);
+ // The first lighting is simply there; every change after that fades.
+ setLightPreset(map, preset, shown.has(map));
+ if (map.getLayer && map.setPaintProperty) setCloudAppearance(map as Pick<Map, "getLayer" | "setPaintProperty">, period);
  const { effect } = resolveWeather(appearance, weather, now);
- // A dark vignette at the screen edges sells the gloomy, enclosed feel.
- map.setRain(effect.rain ? { ...effect.rain, "vignette-color": "#1c222b" } : null);
- map.setSnow(effect.snow ?? null);
- map.setFog(fogFor(period, effect.cloud, effect.mist));
- // Fog only shows near the horizon, which the driving view hardly reaches, so cloud also mutes the whole picture.
- const cloud = Math.max(effect.cloud, effect.mist);
- const dim = period === "night" ? 0 : 0.14 * cloud;
- map.getCanvas().style.filter = cloud > 0 ? `saturate(${(1 - 0.4 * cloud).toFixed(2)}) brightness(${(1 - dim).toFixed(2)})` : "";
+ const strength = map.getZoom && !near ? 0 : map.getZoom ? weatherStrength(zoom) : 1;
+ const space = map.getZoom ? spaceShare(zoom) : 0;
+ const glow = map.getCenter ? glowLight(map.getCenter().lat, map.getCenter().lng, globeSun) : 1;
+ shown.set(map, { period, effect, strength, space, preset, glow, view, near, lighting });
+ paintWeather(map, view, effect, strength, space, glow);
+ // As the camera climbs, descends or turns: fade the weather out or in, bring in the stars, follow the sun for the lighting preset
+ // and the glow. One listener per map, always painting the latest weather.
+ if (map.on && map.getZoom && !listening.has(map)) {
+  listening.add(map);
+  const onCamera = () => {
+   const current = shown.get(map);
+   if (!current) return;
+   const height = map.getZoom!();
+   const seen = look(map, current.period, current.lighting());
+   const next = seen.near ? weatherStrength(height) : 0, nextSpace = spaceShare(height);
+   const nextPreset = presetFor(current.period, height, current.preset, nightWanted(), seen.view);
+   if (nextPreset !== current.preset) { current.preset = nextPreset; setLightPreset(map, nextPreset); }
+   const nextGlow = nextSpace > 0 && map.getCenter ? glowLight(map.getCenter().lat, map.getCenter().lng, globeSun) : current.glow;
+   if (next === current.strength && nextSpace === current.space && nextGlow === current.glow && seen.view === current.view) return;
+   current.strength = next;
+   current.space = nextSpace;
+   current.glow = nextGlow;
+   current.view = seen.view;
+   current.near = seen.near;
+   paintWeather(map, seen.view, current.effect, next, nextSpace, nextGlow);
+  };
+  // Zooming changes the weather and the stars; turning the globe or flying somewhere changes the time of day and the glow.
+  map.on("zoom", onCamera);
+  map.on("move", onCamera);
+ }
 }

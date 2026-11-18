@@ -134,6 +134,15 @@ interface Props {
 	onGoToPlace?: (coords: Coordinates, name: string, buildingCoords?: Coordinates) => void;
 	/** Starts dock customising (parked only); the settings sheet closes first. */
 	onCustomiseDock?: () => void;
+	/** Clouds over the globe during the start-up flight. */
+	showClouds?: boolean;
+	/** The globe's day and night sides, from the real sun. */
+	showNight?: boolean;
+	/** The turning globe at start and when parked and idle. */
+	globeIdle?: boolean;
+	onGlobeIdleChange?: (value: boolean) => void;
+	onShowNightChange?: (value: boolean) => void;
+	onShowCloudsChange?: (value: boolean) => void;
 	/** Where the dock sits, and a way to move it (parked only). */
 	dockSide?: "bottom" | "left" | "right";
 	onDockSideChange?: (side: "bottom" | "left" | "right") => void;
@@ -177,7 +186,7 @@ export default function MapControls({
 	searchTitle,
 	onSetPlace,
 	savedPlaces = {}, favourites = [], onPlaceMarker, onRemoveFavourite, onGoToPlace,
-	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange,
+	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange, showClouds = true, onShowCloudsChange, showNight = true, onShowNightChange, globeIdle = true, onGlobeIdleChange,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
 	voiceVolume = 1, onVoiceVolumeChange, onTestVoice,
@@ -296,6 +305,15 @@ export default function MapControls({
 										{WEATHER_APPEARANCES.map((value) => <DriveButton key={value} className="settings-option" variant={weatherAppearance === value ? "contained" : "outlined"} aria-pressed={weatherAppearance === value} onClick={() => setWeatherAppearance(value)} sx={{ flexDirection: "column", gap: 0.5, py: 1, fontSize: "clamp(16px, 1.9vw, 21px)", lineHeight: 1.1, "& .MuiSvgIcon-root": { fontSize: "clamp(28px, 3.2vw, 38px)" } }}>{WEATHER_ICONS[value]}{value === "auto" ? "Auto" : WEATHER_SHORT[value]}</DriveButton>)}
 									</Box>
 								</Section>
+								{onShowCloudsChange && <Section title="Earth clouds" hint="Clouds over the globe during the start-up flight.">
+									<Options<boolean> label="Earth clouds" columns={2} value={showClouds} onChange={onShowCloudsChange} items={[[true, "Show"], [false, "Hide"]] as const} />
+								</Section>}
+								{onGlobeIdleChange && <Section title="Turning globe" hint="Starts on the Earth turning in space, then flies to your car when you use destinations or drive. Goes back to the globe after the car has been parked and untouched for five minutes.">
+									<Options<boolean> label="Turning globe" columns={2} value={globeIdle} onChange={onGlobeIdleChange} items={[[true, "Show"], [false, "Off"]] as const} />
+								</Section>}
+								{onShowNightChange && <Section title="Day and night on the globe" hint="Shows which side of the Earth is in daylight, dusk or night right now, from the real position of the sun.">
+									<Options<boolean> label="Day and night on the globe" columns={2} value={showNight} onChange={onShowNightChange} items={[[true, "Show"], [false, "Hide"]] as const} />
+								</Section>}
 								{onCustomiseDock && <Section title="Dock" hint="Choose where the dock sits, and which controls are in it, how big they are and in what order. Only while parked.">
 									{onDockSideChange && <Options<"bottom" | "left" | "right"> label="Dock position" columns={3} value={dockSide} onChange={(value) => { if (!isDriving) onDockSideChange(value); }} items={[["bottom", "Bottom"], ["left", "Left"], ["right", "Right"]] as const} />}
 									<DriveButton className="settings-option" variant="outlined" disabled={isDriving} onClick={() => { setPanel(null); onCustomiseDock(); }}>Customise dock</DriveButton>
@@ -345,6 +363,9 @@ export default function MapControls({
 							{tab === "system" && <>
 								<Section title="Routing" hint="Local routing requires Valhalla. Place search needs internet.">
 									<DriveButton className="settings-option" variant="outlined" onClick={onToggleProvider}>{provider === "mapbox" ? "Mapbox online" : "Valhalla local"}</DriveButton>
+								</Section>
+								<Section title="Credits">
+									<Typography sx={{ fontSize: 20, color: "text.secondary" }}>Globe clouds and night lights: Live Cloud Maps by Matt Eason (CC0), contains modified EUMETSAT data. Earth imagery by NASA.</Typography>
 								</Section>
 								<Section title="Application">
 									<DriveButton className="settings-option" color="error" variant="outlined" onClick={() => ipcRenderer.send("app-quit")}>Exit app</DriveButton>

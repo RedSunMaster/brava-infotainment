@@ -17,7 +17,7 @@ import {
 	type NormalizedRoute,
 	type RoutePreference,
 } from "./lib/routing";
-import { DEV_ORIGIN, RoutingProvider, ZOOM_LEVEL } from "./constants";
+import { DEV_ORIGIN, RoutingProvider } from "./constants";
 import { Alert, Box, Typography } from "@mui/material";
 import TripInfoCard from "./components/TripInfoCard";
 import ConfirmNavDialog from "./components/ConfirmNavDialog";
@@ -42,6 +42,11 @@ import { limitAt, speedSignState } from "./lib/speedSigns";
 import ClockWeatherChip from "./components/ClockWeatherChip";
 import ProfileDialog from "./components/ProfileDialog";
 import { SIDE_DOCK_WIDTH, isDockSide } from "./lib/dockLayout";
+import lightsUrl from "../public/textures/city-lights.webp";
+import { useCameraPadding } from "./hooks/useCameraPadding";
+import { useGlobeShowcase } from "./hooks/useGlobeShowcase";
+import { wantsLocation } from "./lib/showcase";
+import { CLOUDS_KEY, NIGHT_KEY, applyNight, presetFor, setCloudsVisible, setLightPreset } from "./lib/mapStyle";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
 import { recordFrequentPlace } from "./lib/frequentPlaces";
@@ -221,7 +226,6 @@ export default function App() {
 	const lastFixRef = useRef<LastFix | null>(null);
 	const navDestRef = useRef<[number, number] | null>(null);
 	const navBuildingRef = useRef<[number, number] | null>(null);
-	const bootComplete = useRef(false);
 	const navStopsRef = useRef<[number, number][]>([]);
 	const destinationClickInFlightRef = useRef(false);
 	const [provider, setProvider] = useState<RoutingProvider>("mapbox");
@@ -245,6 +249,9 @@ export default function App() {
 	const [favourites, setFavourites] = useState(readFavourites);
 	const [profilesOpen, setProfilesOpen] = useState(false);
 	const [dockEditing, setDockEditing] = useState(false);
+	const [showClouds, setShowClouds] = usePersistentState(CLOUDS_KEY, true, isBool);
+	const [showNight, setShowNight] = usePersistentState(NIGHT_KEY, true, isBool);
+	const [globeIdle, setGlobeIdle] = usePersistentState("brava-globe-idle", true, isBool);
 	const [dockSide, setDockSide] = usePersistentState("brava-dock-side", "bottom" as "bottom" | "left" | "right", isDockSide);
 	// Everything that is not the dock keeps clear of a dock at the left or right edge.
 	const insetLeft = 24 + (dockSide === "left" ? SIDE_DOCK_WIDTH : 0);
@@ -342,6 +349,15 @@ export default function App() {
 		});
 		return () => markers.forEach(marker => marker.remove());
 	}, [mapLoaded, savedPlaces, favourites]);
+	// The globe's clouds follow the setting (and are applied again whenever the style reloads, in useMapbox).
+	useEffect(() => { const map = mapRef.current; if (map && mapLoaded) setCloudsVisible(map, showClouds); }, [showClouds, mapLoaded]);
+	// The globe's night side follows its setting too, and the lighting preset goes with it (the globe is lit as day only while the night side is drawn).
+	useEffect(() => {
+		const map = mapRef.current;
+		if (!map || !mapLoaded) return;
+		void applyNight(map, showNight, new Date(), lightsUrl);
+		setLightPreset(map, presetFor(period, map.getZoom(), period, showNight));
+	}, [showNight, mapLoaded]); // eslint-disable-line
 	useDestinationHighlight(mapRef, mapLoaded, selectingBuilding ?? pendingDest?.buildingCoords ?? (navActive || arrivedAt ? navBuildingRef.current : null));
 	const {
 		coordsRef,
@@ -368,6 +384,8 @@ export default function App() {
 	} = useCameraMode(mapRef);
 
 	const mapOffset = useMapOcclusion(mapRef, mapLoaded);
+	// Centres the map (the globe when zoomed out, the car when driving) in the space the bars and docks leave free.
+	useCameraPadding(mapRef, mapLoaded, cameraMode);
 
 	// ── Puck — render loop drives both model and camera ────────────────────────
 	// smoothLocate is destructured here alongside updatePuck and resetCursor.
@@ -918,36 +936,22 @@ export default function App() {
 	}, [arrivedAt]);
 
 	function handleLocate() {
+		// On the globe, the locate button brings the camera down to the car.
+		if (showcase.approachIfAway()) return;
 		resumeFollowing();
 		smoothLocate();
 	}
 
-	useEffect(() => {
-		const map = mapRef.current;
-		if (!mapLoaded || !map || bootComplete.current || (!previewMode && gpsStatus !== "fix")) return;
-		bootComplete.current = true;
-		cameraTransitionRef.current = true;
-		map.flyTo({ center: lastPosRef.current, zoom: ZOOM_LEVEL, pitch: 45, bearing: lastBearingRef.current,
-			offset: [0, map.getContainer().clientHeight * 0.2], duration: 8000,
-			// Without this Mapbox skips the flight and the camera jumps straight to the end whenever the system has reduced motion on
-			// (Windows "Show animations" off, remote sessions, some kiosk setups). The boot flight is part of the product, so it always runs.
-			essential: true });
-		let finished = false;
-		const finish = () => {
-			if (finished) return;
-			finished = true;
-			window.clearTimeout(safety);
-			// The flight's own offset is not reliable (it can end with the car at the screen centre), and the follow loop
-			// only re-applies the offset when something changes, so set the resting camera explicitly: the car where the
-			// open or closed panels say it belongs.
-			map.easeTo({ center: lastPosRef.current, offset: [0, map.getContainer().clientHeight * mapOffset.current], duration: 0 });
-			cameraTransitionRef.current = false;
-		};
-		// If the flight is interrupted or never reports its end, do not leave the camera stuck in transition.
-		const safety = window.setTimeout(finish, 9000);
-		map.once("moveend", finish);
-		return () => { window.clearTimeout(safety); map.off("moveend", finish); cameraTransitionRef.current = false; };
-	}, [mapLoaded, gpsStatus === "fix", previewMode]);
+	// The turning globe at start and when idle; down to the car when destinations are used or the car moves.
+	if (process.env.NODE_ENV !== "production") (window as unknown as { __bravaWants?: unknown }).__bravaWants = { driving: isDriving, navigating: navActive, destinationPending: !!pendingDest, searchOpen: openPanel === "search", routing: routeBusy, choosingBuilding: !!selectingBuilding, openPanel, arrivedAt: !!arrivedAt };
+	const showcase = useGlobeShowcase({
+		mapRef, mapLoaded,
+		enabled: globeIdle,
+		hasPosition: previewMode || gpsStatus === "fix",
+		positionRef: lastPosRef, bearingRef: lastBearingRef, mapOffset, cameraTransitionRef,
+		wantsLocal: wantsLocation({ driving: isDriving, navigating: navActive, destinationPending: !!pendingDest, searchOpen: openPanel === "search", routing: routeBusy, choosingBuilding: !!selectingBuilding }),
+		parked: !isDriving && !navActive && !pendingDest && !arrivedAt && openPanel === null && !routeBusy && !selectingBuilding && !dockEditing && !profilesOpen,
+	});
 
 	// ── Speed signs ────────────────────────────────────────────────────────────
 	// Show your speed whenever the position is real or being estimated along the route, and the
@@ -1060,6 +1064,12 @@ export default function App() {
 					onGoToPlace={navActive ? undefined : handleQuickDestination}
 					hazardAlerts={hazardAlerts}
 					onCustomiseDock={() => setDockEditing(true)}
+					showClouds={showClouds}
+					showNight={showNight}
+					globeIdle={globeIdle}
+					onGlobeIdleChange={setGlobeIdle}
+					onShowNightChange={setShowNight}
+					onShowCloudsChange={setShowClouds}
 					dockSide={dockSide}
 					onDockSideChange={setDockSide}
 					onHazardAlertsChange={setHazardAlerts}

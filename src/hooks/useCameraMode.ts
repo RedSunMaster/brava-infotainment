@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import { type CameraMode, type Orientation } from "../constants";
+import { puckOffset } from "../lib/cameraPadding";
 
 export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 	const [cameraMode, setCameraMode] = useState<CameraMode>("following");
@@ -119,7 +120,7 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 				bearing: next === "north" ? 0 : currentBearing,
 				pitch: next === "north" ? 0 : 45,
 				zoom: map.getZoom(),
-				offset: [0, map.getContainer().clientHeight * 0.2],
+				offset: puckOffset(map, 0.2),
 				duration,
 				essential: true,
 			});

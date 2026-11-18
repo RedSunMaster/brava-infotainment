@@ -24,6 +24,10 @@ interface ThemeContextValue {
 	period: TimeOfDay;
 	preference: ThemePreference;
 	reason: string;
+	/** The time of day was chosen by hand or by a test flag, so it applies everywhere, not only where the car is. */
+	forced: boolean;
+	/** Where the car is, as longitude and latitude. */
+	position: [number, number];
 	weather: AmbientWeather | null;
 	weatherAppearance: WeatherAppearance;
 	setWeatherAppearance: (appearance: WeatherAppearance) => void;
@@ -197,6 +201,8 @@ export function AppThemeProvider({ children }: { children: React.ReactNode }) {
 				period,
 				preference,
 				reason,
+				forced: preference !== "auto" || previewPeriod !== null,
+				position,
 				weather: freshWeather,
 				weatherAppearance,
 				setWeatherAppearance,

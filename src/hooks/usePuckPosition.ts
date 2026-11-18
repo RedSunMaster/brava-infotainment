@@ -7,6 +7,7 @@ import textureUrl from "../../public/models/texture.jpg";
 import type { CameraMode, Orientation } from "../constants";
 import { ZOOM_LEVEL } from "../constants";
 import { lookAheadCamera, puckModelScale, smoothToward } from "../lib/cameraLookAhead";
+import { puckOffset, puckScreenPoint } from "../lib/cameraPadding";
 import { locateOnRoute, pointAtDistance, routeCache, segmentAtDistance } from "../lib/routeLocate";
 
 // How quickly the rendered bearing chases the target bearing.
@@ -79,6 +80,7 @@ export function usePositionPuck(
 	const lastCameraPosRef = useRef<[number, number]>(initialPos);
 	const lastCameraBearingRef = useRef<number>(0);
 	const lastCameraOffsetRef = useRef<number>(mapOffset.current);
+	const lastCameraPaddingRef = useRef<string>("");
 	const cameraZoomRef = useRef<number>(ZOOM_LEVEL);
 	const cameraPitchRef = useRef<number>(45);
 	const lastCameraZoomRef = useRef<number>(ZOOM_LEVEL);
@@ -286,7 +288,7 @@ export function usePositionPuck(
 							bearing: lerpBearing(recenter.bearing, goalBearing, e),
 							pitch: recenter.pitch + ((heading ? 45 : 0) - recenter.pitch) * e,
 							zoom: recenter.zoom + (cameraZoomRef.current - recenter.zoom) * e,
-							offset: [0, map.getContainer().clientHeight * mapOffset.current],
+							offset: puckOffset(map, mapOffset.current),
 							duration: 0,
 							essential: true,
 						});
@@ -311,7 +313,10 @@ export function usePositionPuck(
 					const targetZoom = cameraZoomRef.current;
 					const targetPitch = orientationRef.current === "heading" ? cameraPitchRef.current : 0;
 					const targetCenter = renderPosRef.current;
-					const cameraOffsetY = map.getContainer().clientHeight * mapOffset.current;
+					const cameraOffset = puckOffset(map, mapOffset.current);
+					// Padding changes too (a side dock appears, the screen resizes): the car has to be put back where it belongs.
+					const pad = map.getPadding();
+					const paddingKey = `${pad.left},${pad.right},${pad.top},${pad.bottom}`;
 
 					const posDelta = haversineMeters(
 						lastCameraPosRef.current,
@@ -324,7 +329,7 @@ export function usePositionPuck(
 					// The offset glides when a panel opens or closes; follow it frame by
 					// frame so the map slides instead of jumping.
 					const offsetMoved =
-						Math.abs(mapOffset.current - lastCameraOffsetRef.current) > 0.0005;
+						Math.abs(mapOffset.current - lastCameraOffsetRef.current) > 0.0005 || paddingKey !== lastCameraPaddingRef.current;
 
 					const lensMoved =
 						Math.abs(targetZoom - lastCameraZoomRef.current) > 0.01 ||
@@ -339,12 +344,13 @@ export function usePositionPuck(
 						lastCameraZoomRef.current = targetZoom;
 						lastCameraPitchRef.current = targetPitch;
 						lastCameraOffsetRef.current = mapOffset.current;
+						lastCameraPaddingRef.current = paddingKey;
 						map.easeTo({
 							center: targetCenter,
 							bearing: targetBearing,
 							pitch: targetPitch,
 							zoom: targetZoom,
-							offset: [0, cameraOffsetY],
+							offset: cameraOffset,
 							duration: 0,
 							essential: true,
 						});
@@ -449,11 +455,7 @@ export function usePositionPuck(
 		if (!map) return;
 		// Start from the point currently shown where the puck normally sits, so
 		// the first blended frame matches the view the driver is looking at.
-		const container = map.getContainer();
-		const anchor = map.unproject([
-			container.clientWidth / 2,
-			container.clientHeight * (0.5 + mapOffset.current),
-		]);
+		const anchor = map.unproject(puckScreenPoint(map, mapOffset.current));
 		recenterRef.current = {
 			started: performance.now(),
 			anchor: [anchor.lng, anchor.lat],
