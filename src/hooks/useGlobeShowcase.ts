@@ -231,5 +231,9 @@ export function useGlobeShowcase(options: Options) {
 	// Lets the dev tools (and UI tests) see which part of the showcase is running; never exposed in packaged builds.
 	if (process.env.NODE_ENV !== "production") (window as unknown as { __bravaShowcase?: () => string }).__bravaShowcase = () => phase.current;
 
-	return { approachIfAway: (fromFar = false) => controls.current?.approachIfAway(fromFar) ?? false };
+	return {
+		approachIfAway: (fromFar = false) => controls.current?.approachIfAway(fromFar) ?? false,
+		/** The camera is out at the globe or flying between it and the car, so the view buttons have nothing to turn yet. */
+		cameraAway: () => phase.current === "globe" || phase.current === "leaving" || phase.current === "approaching" || phase.current === "grabbed",
+	};
 }

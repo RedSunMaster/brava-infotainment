@@ -936,6 +936,13 @@ export default function App() {
 		return () => window.clearTimeout(timer);
 	}, [arrivedAt]);
 
+	// The heading-up / north-up button. Out at the globe it first brings the camera down to the car (turning the view there would snap
+	// the camera to the car at once), and during the flight it waits.
+	function handleViewButton() {
+		if (showcase.approachIfAway(true) || showcase.cameraAway()) return;
+		toggleOrientation(lastBearingRef.current, lastPosRef.current);
+	}
+
 	function handleLocate() {
 		// On the globe, the locate button brings the camera down to the car.
 		if (showcase.approachIfAway(true)) return;
@@ -1049,9 +1056,7 @@ export default function App() {
 					currentPosition={lastPosRef.current}
 					mapboxToken={process.env.MAPBOX_TOKEN}
 					onOverview={() => showOverview(coordsRef.current)}
-					onToggleOrientation={() =>
-						toggleOrientation(lastBearingRef.current, lastPosRef.current)
-					}
+					onToggleOrientation={handleViewButton}
 					onSearchSelect={
 						placeSlot
 							? async (coords, placeName, buildingCoords) => {
@@ -1168,9 +1173,7 @@ export default function App() {
 							voiceSupported={guidance.supported}
 							orientation={orientation}
 							canLocate={cameraMode !== "following"}
-							onToggleOrientation={() =>
-								toggleOrientation(lastBearingRef.current, lastPosRef.current)
-							}
+							onToggleOrientation={handleViewButton}
 						/>
 						</Box>
 					) : arrivedAt ? (
