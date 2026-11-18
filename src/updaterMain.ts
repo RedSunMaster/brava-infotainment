@@ -7,6 +7,8 @@ import { dirname, join } from "path";
 export interface UpdateState {
 	/** "idle" = up to date or not checked, "available" = a newer commit exists, "updating" = rebuilding, "failed" = the last update did not finish. */
 	phase: "idle" | "available" | "updating" | "failed";
+	/** True when this app can update itself (the packaged Linux app installed from a checkout), so the manual check is worth showing. */
+	supported?: boolean;
 	/** Short commit ids and the newest commit's title, when an update is available. */
 	current?: string;
 	latest?: string;
@@ -35,31 +37,35 @@ function findRepo(): string | null {
  */
 export function startUpdater(getWindow: () => BrowserWindow | null): void {
 	const repo = process.platform === "linux" && app.isPackaged ? findRepo() : null;
-	let state: UpdateState = { phase: "idle" };
+	let state: UpdateState = { phase: "idle", supported: !!repo };
 	const script = repo ? join(repo, "deploy/updater/update.sh") : "";
 
 	const publish = (next: UpdateState) => {
-		state = next;
+		state = { ...next, supported: !!repo };
 		getWindow()?.webContents.send("update-state", state);
 	};
 
 	ipcMain.handle("update:state", () => state);
 	if (!repo) return;
 
-	const check = () => {
-		if (state.phase === "updating") return;
+	/** Looks for a newer commit; calls back with "available", "up-to-date" or "failed" (offline etc.). */
+	const check = (done?: (result: "available" | "up-to-date" | "failed") => void) => {
+		if (state.phase === "updating") return done?.("available");
 		execFile(script, ["--check"], { cwd: repo, timeout: 60_000 }, (error, stdout) => {
-			if (error) return;
+			if (error) return done?.("failed");
 			const [current, latest, ...rest] = stdout.trim().split(" ");
 			if (!latest) {
 				if (state.phase !== "idle") publish({ phase: "idle" });
-				return;
+				return done?.("up-to-date");
 			}
 			const subject = rest.join(" ");
-			if (state.phase === "available" && state.latest === latest) return;
-			publish({ phase: "available", current, latest, subject });
+			if (!(state.phase === "available" && state.latest === latest)) publish({ phase: "available", current, latest, subject });
+			done?.("available");
 		});
 	};
+
+	// The manual "check now" button: answers once the check has finished.
+	ipcMain.handle("update:check", () => new Promise<string>(resolve => check(resolve)));
 
 	ipcMain.on("update:apply", () => {
 		if (state.phase === "updating") return;
@@ -76,6 +82,6 @@ export function startUpdater(getWindow: () => BrowserWindow | null): void {
 		}, 5000);
 	});
 
-	setTimeout(check, FIRST_CHECK_MS);
-	setInterval(check, CHECK_EVERY_MS);
+	setTimeout(() => check(), FIRST_CHECK_MS);
+	setInterval(() => check(), CHECK_EVERY_MS);
 }

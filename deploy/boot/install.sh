@@ -23,6 +23,15 @@ sudo plymouth-set-default-theme -R brava      # also rebuilds the boot image, wh
 # 2. Quiet boot with no menu: Fedora already boots "rhgb quiet" with the menu hidden; make sure of both.
 sudo grubby --update-kernel=ALL --args="quiet splash" >/dev/null
 sudo grub2-editenv - set menu_auto_hide=1
+# 2b. Play the animation straight through. Without this Plymouth starts on the firmware's temporary screen (simpledrm), and the
+# graphics driver (i915) taking over a second or two later restarts or blanks it mid-way. So: load i915 inside the boot image and tell
+# Plymouth to wait for it. Also never show the GRUB menu (Fedora only hides it after a boot that ran 2 minutes, otherwise it waits 5 s).
+echo 'add_drivers+=" i915 "' | sudo tee /etc/dracut.conf.d/brava-i915.conf >/dev/null
+sudo grubby --update-kernel=ALL --args="plymouth.use-simpledrm=0" >/dev/null
+sudo sed -i -e 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=0/' /etc/default/grub
+grep -q '^GRUB_TIMEOUT_STYLE=' /etc/default/grub && sudo sed -i 's/^GRUB_TIMEOUT_STYLE=.*/GRUB_TIMEOUT_STYLE=hidden/' /etc/default/grub || echo 'GRUB_TIMEOUT_STYLE=hidden' | sudo tee -a /etc/default/grub >/dev/null
+sudo grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1
+sudo dracut --force --regenerate-all
 
 # 3. The early desktop splash that covers the gap before the app opens.
 mkdir -p ~/.local/share/brava ~/.config/autostart

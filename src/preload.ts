@@ -24,6 +24,7 @@ import { ipcRenderer } from "electron";
 (window as any).electronUpdate = {
 	getState: () => ipcRenderer.invoke("update:state"),
 	apply: () => ipcRenderer.send("update:apply"),
+	check: () => ipcRenderer.invoke("update:check"),
 	onState: (cb: (state: unknown) => void) => {
 		const handler = (_event: Electron.IpcRendererEvent, state: unknown) => cb(state);
 		ipcRenderer.on("update-state", handler);

@@ -80,7 +80,7 @@ export default function ClockWeatherChip({ gpsStatus, estimating = false, previe
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
 	const { weather } = useThemeMode();
-	const { state: update, apply: applyUpdate } = useAppUpdate();
+	const { state: update, apply: applyUpdate, checkNow, checking, lastResult } = useAppUpdate();
 
 	// The clock only shows minutes, so it only needs to tick when the minute changes.
 	useEffect(() => {
@@ -115,6 +115,19 @@ export default function ClockWeatherChip({ gpsStatus, estimating = false, previe
 		>
 			<Typography sx={text}>{clock}</Typography>
 			<Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+				{update.phase === "idle" && update.supported && (
+					<>
+						<Box
+							component="button" type="button" disabled={checking} onClick={checkNow}
+							aria-label="Check for updates"
+							sx={{ display: "flex", alignItems: "center", gap: 0.75, height: 44, px: 1.25, border: `1px solid ${alpha(theme.palette.text.primary, 0.16)}`, borderRadius: 8, bgcolor: "transparent", color: "text.secondary", cursor: checking ? "default" : "pointer", font: "inherit", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}
+						>
+							{checking ? <CircularProgress size={24} color="inherit" /> : <SystemUpdateAltRounded sx={{ fontSize: 28 }} />}
+							<Typography sx={{ ...text, color: "inherit" }}>{checking ? "Checking…" : lastResult === "up-to-date" ? "Up to date" : lastResult === "failed" ? "Check failed" : "Check for updates"}</Typography>
+						</Box>
+						<Divider />
+					</>
+				)}
 				{update.phase !== "idle" && (() => {
 					const busy = update.phase === "updating";
 					const failed = update.phase === "failed";
