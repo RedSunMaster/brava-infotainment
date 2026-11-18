@@ -23,10 +23,11 @@ test("a dock still stored as the first version's default becomes the new default
 
 test("stored layouts are cleaned: unknown, repeated, oversize and missing hazards", () => {
 	assert.deepEqual(L.normaliseLayout(null), L.DEFAULT_LAYOUT);
-	assert.deepEqual(L.normaliseLayout([{ id: "fan", span: 9 }, { id: "fan", span: 3 }, { id: "bogus", span: 1 }, { id: "ac", span: 7 }]), [{ id: "fan", span: 5 }, { id: "ac", span: 1 }, { id: "hazards", span: 1 }]);
+	assert.deepEqual(L.normaliseLayout([{ id: "fan", span: 9 }, { id: "fan", span: 3 }, { id: "bogus", span: 1 }, { id: "ac", span: 7 }]), [{ id: "fan", span: 6 }, { id: "ac", span: 4 }, { id: "hazards", span: 1 }]); // sizes snap to the nearest the tile has
+	// Too big once hazards are added: the widest tile shrinks rather than anything being dropped.
 	const full = L.normaliseLayout([{ id: "fan", span: 5 }, { id: "warmth", span: 4 }, { id: "volume", span: 4 }]);
-	assert.equal(full.at(-1).id, "hazards"); // made room by dropping the last tile
-	assert.deepEqual(ids(full), ["fan", "warmth", "hazards"]);
+	assert.deepEqual(ids(full), ["fan", "warmth", "volume", "hazards"]);
+	assert.deepEqual(full.map(i => i.span), [4, 4, 4, 1]);
 	assert.ok(L.usedCells(full) <= L.DOCK_COLUMNS);
 });
 
@@ -53,7 +54,7 @@ test("resizing only to supported sizes and only when there is room", () => {
 	assert.equal(L.stepWidgetSize(smaller, "warmth", 1).find(i => i.id === "warmth").span, 5);
 	assert.equal(L.canStep(L.stepWidgetSize(smaller, "warmth", 1), "fan", 1), false);
 	assert.equal(L.canStep(smaller, "fan", -1), false); // smallest size
-	assert.equal(L.canStep(L.DEFAULT_LAYOUT, "ac", 1), false); // 1x1 only
+	assert.equal(L.canStep(L.DEFAULT_LAYOUT, "ac", 1), false); // the dock is full
 });
 
 test("dragging: swaps when half covered, never jumps at the start, easy snap to either end", () => {
@@ -79,4 +80,56 @@ test("moving", () => {
 	const moved = L.moveWidget(L.DEFAULT_LAYOUT, "ac", 0);
 	assert.deepEqual(ids(moved).slice(0, 3), ["ac", "fan", "airflow"]);
 	assert.equal(L.moveWidget(L.DEFAULT_LAYOUT, "fan", 0), L.DEFAULT_LAYOUT);
+});
+
+test("a side dock: cells from the screen height, and a big layout shrinks to fit before anything is lost", () => {
+	assert.equal(L.sideColumns(1870), 13); // portrait car screen
+	assert.equal(L.sideColumns(672), 8); // short landscape screen
+	assert.equal(L.sideColumns(100), 6); // never absurdly small
+	assert.ok(L.isDockSide("left") && L.isDockSide("right") && L.isDockSide("bottom") && !L.isDockSide("top"));
+	const eight = L.normaliseLayout(L.DEFAULT_LAYOUT, 8);
+	assert.ok(L.usedCells(eight) <= 8);
+	assert.equal(eight.at(-1).id, "hazards");
+	assert.deepEqual(ids(eight).slice(0, 4), ["fan", "airflow", "recirculate", "demist"]);
+	assert.equal(eight[0].span, 3); // fan shrank first
+	const tiny = L.normaliseLayout(L.DEFAULT_LAYOUT, 6);
+	assert.ok(L.usedCells(tiny) <= 6);
+	assert.ok(ids(tiny).includes("hazards"));
+	// The same stored layout still fills a full-height dock.
+	assert.deepEqual(L.normaliseLayout(L.DEFAULT_LAYOUT, 13), L.DEFAULT_LAYOUT);
+});
+
+test("editing and dragging respect the dock's own number of cells", () => {
+	const eight = L.normaliseLayout(L.DEFAULT_LAYOUT, 8);
+	assert.equal(L.freeCells(eight, 8), 0);
+	assert.equal(L.addWidget(eight, "playPause", 8), eight);
+	assert.equal(L.canStep(eight, "fan", 1, 8), false);
+	assert.equal(L.canStep(eight, "fan", 1, 13), true);
+	// Snap to the far end uses the dock's own length.
+	const moved = L.dragWidget(eight, "airflow", 6.4, 1, 8);
+	assert.equal(moved.at(-1).id, "airflow");
+});
+
+test("every function can be made bigger, hazard lights included", () => {
+	for (const id of L.WIDGET_IDS) assert.ok(L.WIDGETS[id].sizes.length > 1, `${id} has more than one size`);
+	// The default dock is full: shrink the fan and warmth to free cells, then grow the hazard lights step by step.
+	let layout = L.stepWidgetSize(L.DEFAULT_LAYOUT, "fan", -1);
+	layout = L.stepWidgetSize(layout, "warmth", -1);
+	assert.equal(L.freeCells(layout), 2);
+	layout = L.stepWidgetSize(layout, "hazards", 1);
+	assert.equal(layout.find(i => i.id === "hazards").span, 2);
+	layout = L.stepWidgetSize(layout, "hazards", 1);
+	assert.equal(layout.find(i => i.id === "hazards").span, 3);
+	assert.equal(L.canStep(layout, "hazards", 1), false); // no free cell left
+	assert.equal(L.canStep(layout, "hazards", -1), true);
+	assert.equal(L.usedCells(layout), 13);
+	// They cannot go past their largest size even with room.
+	let roomy = [{ id: "ac", span: 3 }, { id: "hazards", span: 1 }];
+	roomy = L.stepWidgetSize(roomy, "ac", 1);
+	assert.equal(L.canStep(roomy, "ac", 1), false);
+	// Bigger tiles still shrink to fit a short side dock, hazard lights last.
+	const big = [{ id: "hazards", span: 4 }, { id: "ac", span: 4 }, { id: "fan", span: 6 }];
+	const fitted = L.normaliseLayout(big, 8);
+	assert.ok(L.usedCells(fitted) <= 8);
+	assert.ok(fitted.some(i => i.id === "hazards"));
 });

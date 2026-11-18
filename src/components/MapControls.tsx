@@ -134,6 +134,9 @@ interface Props {
 	onGoToPlace?: (coords: Coordinates, name: string, buildingCoords?: Coordinates) => void;
 	/** Starts dock customising (parked only); the settings sheet closes first. */
 	onCustomiseDock?: () => void;
+	/** Where the dock sits, and a way to move it (parked only). */
+	dockSide?: "bottom" | "left" | "right";
+	onDockSideChange?: (side: "bottom" | "left" | "right") => void;
 	hazardAlerts?: boolean;
 	onHazardAlertsChange?: (value: boolean) => void;
 	/** One-line description of which guidance voice is in use. */
@@ -174,7 +177,7 @@ export default function MapControls({
 	searchTitle,
 	onSetPlace,
 	savedPlaces = {}, favourites = [], onPlaceMarker, onRemoveFavourite, onGoToPlace,
-	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock,
+	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
 	voiceVolume = 1, onVoiceVolumeChange, onTestVoice,
@@ -293,7 +296,8 @@ export default function MapControls({
 										{WEATHER_APPEARANCES.map((value) => <DriveButton key={value} className="settings-option" variant={weatherAppearance === value ? "contained" : "outlined"} aria-pressed={weatherAppearance === value} onClick={() => setWeatherAppearance(value)} sx={{ flexDirection: "column", gap: 0.5, py: 1, fontSize: "clamp(16px, 1.9vw, 21px)", lineHeight: 1.1, "& .MuiSvgIcon-root": { fontSize: "clamp(28px, 3.2vw, 38px)" } }}>{WEATHER_ICONS[value]}{value === "auto" ? "Auto" : WEATHER_SHORT[value]}</DriveButton>)}
 									</Box>
 								</Section>
-								{onCustomiseDock && <Section title="Dock" hint="Choose which controls sit in the bottom dock, how big they are and where. Only while parked.">
+								{onCustomiseDock && <Section title="Dock" hint="Choose where the dock sits, and which controls are in it, how big they are and in what order. Only while parked.">
+									{onDockSideChange && <Options<"bottom" | "left" | "right"> label="Dock position" columns={3} value={dockSide} onChange={(value) => { if (!isDriving) onDockSideChange(value); }} items={[["bottom", "Bottom"], ["left", "Left"], ["right", "Right"]] as const} />}
 									<DriveButton className="settings-option" variant="outlined" disabled={isDriving} onClick={() => { setPanel(null); onCustomiseDock(); }}>Customise dock</DriveButton>
 								</Section>}
 							</>}

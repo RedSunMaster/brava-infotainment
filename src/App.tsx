@@ -41,6 +41,7 @@ import SpeedSigns from "./components/SpeedSigns";
 import { limitAt, speedSignState } from "./lib/speedSigns";
 import ClockWeatherChip from "./components/ClockWeatherChip";
 import ProfileDialog from "./components/ProfileDialog";
+import { SIDE_DOCK_WIDTH, isDockSide } from "./lib/dockLayout";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
 import { recordFrequentPlace } from "./lib/frequentPlaces";
@@ -244,6 +245,10 @@ export default function App() {
 	const [favourites, setFavourites] = useState(readFavourites);
 	const [profilesOpen, setProfilesOpen] = useState(false);
 	const [dockEditing, setDockEditing] = useState(false);
+	const [dockSide, setDockSide] = usePersistentState("brava-dock-side", "bottom" as "bottom" | "left" | "right", isDockSide);
+	// Everything that is not the dock keeps clear of a dock at the left or right edge.
+	const insetLeft = 24 + (dockSide === "left" ? SIDE_DOCK_WIDTH : 0);
+	const insetRight = 24 + (dockSide === "right" ? SIDE_DOCK_WIDTH : 0);
 	const [hazardAlerts, setHazardAlerts] = usePersistentState("brava-hazard-alerts", true, isBool);
 	const [arrivedAt, setArrivedAt] = useState<string | null>(null);
 	const navDestNameRef = useRef<string | null>(null);
@@ -923,7 +928,10 @@ export default function App() {
 		bootComplete.current = true;
 		cameraTransitionRef.current = true;
 		map.flyTo({ center: lastPosRef.current, zoom: ZOOM_LEVEL, pitch: 45, bearing: lastBearingRef.current,
-			offset: [0, map.getContainer().clientHeight * 0.2], duration: 8000 });
+			offset: [0, map.getContainer().clientHeight * 0.2], duration: 8000,
+			// Without this Mapbox skips the flight and the camera jumps straight to the end whenever the system has reduced motion on
+			// (Windows "Show animations" off, remote sessions, some kiosk setups). The boot flight is part of the product, so it always runs.
+			essential: true });
 		let finished = false;
 		const finish = () => {
 			if (finished) return;
@@ -977,7 +985,7 @@ export default function App() {
 						top: 0,
 						left: 0,
 						right: 0,
-						p: "16px 24px",
+						pt: "16px", pb: "16px", pl: `${insetLeft}px`, pr: `${insetRight}px`,
 						pointerEvents: "none",
 						"& > *": { pointerEvents: "auto" },
 						zIndex: 10,
@@ -987,7 +995,7 @@ export default function App() {
 				>
 					<Box
 						// Pulls the status bar out to the screen edges, past the overlay's own padding.
-						sx={{ m: "-16px -24px 0" }}
+						sx={{ m: `-16px -${insetRight}px 0 -${insetLeft}px` }}
 					>
 						<ClockWeatherChip
 							position={lastPosRef.current}
@@ -1052,6 +1060,8 @@ export default function App() {
 					onGoToPlace={navActive ? undefined : handleQuickDestination}
 					hazardAlerts={hazardAlerts}
 					onCustomiseDock={() => setDockEditing(true)}
+					dockSide={dockSide}
+					onDockSideChange={setDockSide}
 					onHazardAlertsChange={setHazardAlerts}
 					voiceStatus={voiceStatus}
 					voiceEngine={guidance.engine}
@@ -1169,7 +1179,7 @@ export default function App() {
 				/>
 
 			</Box>
-			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} editing={dockEditing} onEditingChange={setDockEditing} />
+			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} editing={dockEditing} onEditingChange={setDockEditing} side={dockSide} />
 		</Box>
 	);
 }

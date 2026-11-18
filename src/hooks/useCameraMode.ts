@@ -62,12 +62,17 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		const topEdge = edge("[data-top-overlay]", "bottom");
 		const dockEdge = edge("[data-dock]", "top");
 		const margin = 48;
+		// A dock at the left or right edge takes that much width off the free map.
+		const sideDock = typeof document === "undefined" ? undefined : document.querySelector("[data-dock-side]")?.getBoundingClientRect();
+		const width = mapRef.current.getContainer().clientWidth;
+		const sideLeft = sideDock && sideDock.left < width / 2 ? sideDock.right + 24 : 0;
+		const sideRight = sideDock && sideDock.left >= width / 2 ? width - sideDock.left + 24 : 0;
 		mapRef.current.fitBounds(bounds, {
 			padding: {
 				top: topEdge != null ? topEdge + margin : height * 0.28,
 				bottom: dockEdge != null ? height - dockEdge + margin : height * 0.25,
-				left: 60,
-				right: 60,
+				left: Math.max(60, sideLeft),
+				right: Math.max(60, sideRight),
 			},
 			pitch: 0,
 			bearing: 0,
