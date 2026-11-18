@@ -1,5 +1,5 @@
-# FIAT Brava boot splash: a flat dark background with the logo in the middle. The app's own opening screen (src/index.html) draws the same
-# picture in the same place and size, so the hand-over from boot to app cannot be seen. Pictures come from tools/make-brand.mjs.
+# FIAT Brava boot splash: the Traccia still (full canvas, already on the background colour), centred. The early desktop splash and the
+# app's opening screen show the same picture, so the hand-over from boot to app cannot be seen. Pictures come from tools/make-brand.mjs.
 #
 # The screen changes shape during boot (the firmware's framebuffer first, then the real graphics driver takes over), so the layout is
 # worked out again whenever the size changes, not once at the start.
@@ -8,15 +8,11 @@
 Window.SetBackgroundTopColor(0.0235, 0.0392, 0.0784);
 Window.SetBackgroundBottomColor(0.0235, 0.0392, 0.0784);
 
-# The monitor is mounted on its side, but the boot framebuffer is the panel's own landscape shape, so on that shape the picture is used
-# already turned a quarter turn (logo-turned.png). If the logo comes up upside down, swap which way it is turned in tools/make-brand.mjs.
-
-source_logo = Image("logo.png");
-source_glow = Image("glow.png");
-turned_logo = Image("logo-turned.png");
-turned_glow = Image("glow-turned.png");
-glow = Sprite();
-logo = Sprite();
+# The monitor is mounted on its side, but the boot framebuffer is the panel's own landscape shape, so on a landscape screen the picture
+# used is the one already turned a quarter turn clockwise (splash-landscape.png, 1920x1080). Plymouth's runtime Rotate would cut it.
+portrait_image = Image("splash-portrait.png");
+landscape_image = Image("splash-landscape.png");
+splash = Sprite();
 
 state = [];
 state.width = 0;
@@ -30,32 +26,22 @@ fun layout() {
 	state.width = screen_w;
 	state.height = screen_h;
 
-	short_side = Math.Min(screen_w, screen_h);
-	logo_w = short_side * 0.9;
-	logo_h = logo_w * source_logo.GetHeight() / source_logo.GetWidth();
-	if (screen_w > screen_h) {
-		logo_image = turned_logo.Scale(logo_h, logo_w);
-		glow_image = turned_glow.Scale(logo_h, logo_w);
-	}
-	else {
-		logo_image = source_logo.Scale(logo_w, logo_h);
-		glow_image = source_glow.Scale(logo_w, logo_h);
-	}
-	x = (screen_w - logo_image.GetWidth()) / 2;
-	y = (screen_h - logo_image.GetHeight()) / 2;
-	glow.SetImage(glow_image);
-	glow.SetPosition(x, y, 10);
-	logo.SetImage(logo_image);
-	logo.SetPosition(x, y, 11);
+	if (screen_w > screen_h) source = landscape_image;
+	else source = portrait_image;
+
+	# Fit the whole picture inside the screen without changing its shape (native size when the screen is 1080x1920 / 1920x1080).
+	scale = Math.Min(screen_w / source.GetWidth(), screen_h / source.GetHeight());
+	if (scale == 1) shown = source;
+	else shown = source.Scale(source.GetWidth() * scale, source.GetHeight() * scale);
+	splash.SetImage(shown);
+	splash.SetPosition((screen_w - shown.GetWidth()) / 2, (screen_h - shown.GetHeight()) / 2, 10);
 }
 
 # A short fade in, then it holds perfectly still.
 fun refresh() {
 	layout();
 	state.frame++;
-	opacity = Math.Min(1, state.frame / 25);
-	glow.SetOpacity(opacity);
-	logo.SetOpacity(opacity);
+	splash.SetOpacity(Math.Min(1, state.frame / 25));
 }
 Plymouth.SetRefreshFunction(refresh);
 layout();

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, components, ipcMain, safeStorage, session, screen } from "electron";
-import { chmodSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "fs";
 import { join } from "path";
 import { createConnection } from "net";
 import { exec } from "child_process";
@@ -221,7 +221,17 @@ ipcMain.handle("spotify-refresh-set", (_event, token: string | null) => {
 		}
 		const encrypted = safeStorage.isEncryptionAvailable();
 		const body = encrypted ? safeStorage.encryptString(token) : Buffer.from(token, "utf8");
-		writeFileSync(file, Buffer.concat([Buffer.from([encrypted ? 1 : 0]), body]), { mode: 0o600 });
+		// Write a temp file, flush it to disk, then swap it in: the car can lose power at any moment, and a
+		// half-written file would mean signing in again.
+		const tmp = `${file}.tmp`;
+		const fd = openSync(tmp, "w", 0o600);
+		try {
+			writeSync(fd, Buffer.concat([Buffer.from([encrypted ? 1 : 0]), body]));
+			fsyncSync(fd);
+		} finally {
+			closeSync(fd);
+		}
+		renameSync(tmp, file);
 		try { chmodSync(file, 0o600); } catch { /* Not supported everywhere. */ }
 	} catch (error) {
 		console.warn("[Spotify] could not save the token:", error);

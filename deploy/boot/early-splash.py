@@ -38,27 +38,18 @@ class Splash(Gtk.Application):
         self.window.add_css_class("brava-splash")
         self.window.set_decorated(False)
         self.picture = Gtk.Picture.new_for_filename(PICTURE)
+        # The picture is the full Traccia canvas, fitted to the screen and centred, exactly as in the boot splash and the app.
         self.picture.set_can_shrink(True)
-        self.picture.set_halign(Gtk.Align.CENTER)
-        self.picture.set_valign(Gtk.Align.CENTER)
+        self.picture.set_hexpand(True)
+        self.picture.set_vexpand(True)
+        if hasattr(self.picture, "set_content_fit"):
+            self.picture.set_content_fit(Gtk.ContentFit.CONTAIN)
         self.window.set_child(self.picture)
         self.window.fullscreen()
         self.window.present()
-        # The logo is 90 % of the short side of the screen, exactly as in the boot splash and the app.
-        GLib.timeout_add(50, self.size_picture)
         GLib.timeout_add(100, self.check_ready)
         GLib.timeout_add_seconds(GIVE_UP_S, self.finish)
         self.ready_seen = False
-
-    def size_picture(self):
-        width, height = self.window.get_width(), self.window.get_height()
-        if width < 50 or height < 50:
-            return True
-        target = 0.9 * min(width, height)
-        texture = self.picture.get_paintable()
-        ratio = texture.get_intrinsic_height() / texture.get_intrinsic_width()
-        self.picture.set_size_request(int(target), int(target * ratio))
-        return False
 
     def check_ready(self):
         if not self.ready_seen and os.path.exists(FLAG):

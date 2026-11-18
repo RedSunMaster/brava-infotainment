@@ -96,9 +96,12 @@ async function saveRefreshToken(token: string | null): Promise<void> {
 
 /** One renewal at a time: Spotify may replace the refresh token on every use, so two at once would break it. */
 let renewal: Promise<string | null> | null = null;
+/** True when the last renewal failed for a reason that may pass (no network yet at boot, a server error). */
+let renewalRetryable = false;
 /** Swaps the saved refresh token for a new access token. Resolves null if there is none or it was refused. */
 function renewAccessToken(): Promise<string | null> {
 	if (renewal) return renewal;
+	renewalRetryable = false;
 	renewal = (async () => {
 		const refresh = await readRefreshToken();
 		if (!refresh) return null;
@@ -115,9 +118,11 @@ function renewAccessToken(): Promise<string | null> {
 				return data.access_token as string;
 			}
 			// Spotify said no (revoked or expired): forget it so the next connect starts clean.
-			if (res.status === 400 || res.status === 401) await saveRefreshToken(null);
+			if (res.status === 400 && data?.error === "invalid_grant") await saveRefreshToken(null);
+			else renewalRetryable = true;
 		} catch {
 			// Offline: keep the saved token and try again later.
+			renewalRetryable = true;
 		}
 		return null;
 	})().finally(() => { renewal = null; });
@@ -280,7 +285,15 @@ export function useSpotify(): UseSpotifyReturn {
 		let cancelled = false;
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		if (!token) {
-			void renewAccessToken().then((renewed) => { if (!cancelled && renewed) setToken(renewed); });
+			// No network yet at boot is normal in a car, so a failed try is repeated until it works.
+			const attempt = (delay: number) => {
+				void renewAccessToken().then((renewed) => {
+					if (cancelled) return;
+					if (renewed) setToken(renewed);
+					else if (renewalRetryable) timer = setTimeout(() => attempt(Math.min(delay * 2, 60_000)), delay);
+				});
+			};
+			attempt(5_000);
 		} else {
 			const expiry = parseInt(localStorage.getItem(EXPIRY_KEY) ?? "0", 10);
 			timer = setTimeout(() => {
