@@ -84,7 +84,7 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 		setVolumeState(clamped);
 		try { localStorage.setItem("brava-voice-volume", String(clamped)); } catch { /* Keep the level for this session. */ }
 	}, []);
-	useEffect(() => { kokoroVoice.setVolume(volume); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+	useEffect(() => { kokoroVoice.setVolume(volume); }, []);
 
 	// Load the natural voice shortly after startup so it is ready before the first trip.
 	useEffect(() => {

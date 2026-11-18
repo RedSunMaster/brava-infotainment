@@ -300,16 +300,26 @@ export default function App() {
 		}
 		return () => markers.forEach(marker => marker.remove());
 	}, [mapLoaded, activeRoute, routePosition]);
+	// Hazard pins are made once per route and removed as the car passes them, not rebuilt on every position update.
+	const hazardPins = useRef(new Map<string, mapboxgl.Marker>());
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded || !activeRoute) return;
-		const markers = routeHazards.filter(item => item.index >= routePosition).map(item => {
+		const pins = hazardPins.current;
+		for (const item of routeHazards) {
 			const marker = new mapboxgl.Marker({ element: pinElement(item.kind === "hazard" || item.kind === "level_crossing" ? "\u26A0\uFE0F" : "\uD83D\uDCF7", "#f59e0b", () => marker.togglePopup()) }).setLngLat(item.coords).setPopup(new mapboxgl.Popup().setText(item.label)).addTo(map);
 			marker.getElement().setAttribute("aria-label", item.label);
-			return marker;
-		});
-		return () => markers.forEach(marker => marker.remove());
-	}, [mapLoaded, activeRoute, routePosition, routeHazards]);
+			pins.set(item.id, marker);
+		}
+		return () => { pins.forEach(marker => marker.remove()); pins.clear(); };
+	}, [mapLoaded, activeRoute, routeHazards]);
+	useEffect(() => {
+		for (const item of routeHazards) {
+			if (item.index >= routePosition) continue;
+			hazardPins.current.get(item.id)?.remove();
+			hazardPins.current.delete(item.id);
+		}
+	}, [routePosition, routeHazards]);
 	// Tapping a pin starts navigation there, but only while parked and idle, like the Home and Work buttons.
 	const goToPlaceRef = useRef<(coords: [number, number], name: string, building?: [number, number]) => void>(() => {});
 	goToPlaceRef.current = (coords, name, building) => { if (!navActive && !isDriving && !routeBusy) handleQuickDestination(coords, name, building); };
@@ -537,7 +547,7 @@ export default function App() {
 		const alert = routeAlerts.find(item => (item.kind === "closure" || item.kind === "incident" || item.kind === "camera" || item.kind === "hazard") && !announcedAlerts.current.has(item.id) && (item.aheadM ?? 0) <= (item.kind === "camera" || item.kind === "hazard" ? Math.min(HAZARD_ALERT_M, 800) : 3000));
 		if (!alert) return;
 		announcedAlerts.current.add(alert.id);
-		guidance.announce(alert.kind === "closure" ? "There is a road closure on your route." : alert.kind === "camera" ? "Speed camera ahead." : alert.kind === "hazard" ? `${alert.title} ahead.` : "There is a traffic incident ahead.");
+		guidance.announce(alert.kind === "closure" ? "There is a road closure on your route." : alert.kind === "camera" || alert.kind === "hazard" ? `${alert.title} ahead.` : "There is a traffic incident ahead.");
 	}, [routeAlerts, navActive]); // eslint-disable-line
 	// Developer aid: braveSay("Turn left onto Papanui Rd") in the console speaks it the way guidance would.
 	useEffect(() => { (window as unknown as { braveSay?: (text: string) => void }).braveSay = guidance.sample; }, [guidance.sample]);

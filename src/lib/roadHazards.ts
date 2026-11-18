@@ -6,8 +6,11 @@ export interface RouteHazard extends RoadHazard { /** Route vertex nearest the h
 
 export const HAZARD_LABELS: Record<HazardKind, string> = { speed_camera: "Speed camera", red_light_camera: "Red light camera", level_crossing: "Railway crossing", hazard: "Road hazard" };
 
-/** A mapped camera or hazard counts as being on the route within this many metres of it. */
-const ON_ROUTE_M = 35;
+/**
+ * A mapped camera or hazard counts as being on the route within this many metres of it. Kept tight on purpose: on a divided road the
+ * cameras for the other direction sit only a few lanes away, and OpenStreetMap's direction tags are too inconsistent to filter by.
+ */
+const ON_ROUTE_M = 18;
 const CHUNK_M = 20_000;
 const MAX_CHUNKS = 8;
 const PAD_DEG = 0.0007;

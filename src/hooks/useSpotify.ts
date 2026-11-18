@@ -607,25 +607,6 @@ export function useSpotify(): UseSpotifyReturn {
 		return () => { cancelled = true; ownDeviceRef.current = null; playerRef.current = null; player?.disconnect(); };
 	}, [hasToken, playerEpoch, inApp]);
 
-	// ── Optional: carry on with the last music a few seconds after start-up (Settings > Music on start) ──
-	// Once per launch, and never takes over a phone or other device that is already playing.
-	useEffect(() => {
-		if (!ownReady || resumedThisLaunch) return;
-		let wanted = false;
-		try { wanted = localStorage.getItem(RESUME_KEY) === "true"; } catch { /* Off. */ }
-		if (!wanted) return;
-		const timer = setTimeout(() => {
-			resumedThisLaunch = true;
-			void (async () => {
-				const current = await spotifyFetch("/me/player");
-				if (current?.is_playing) return;
-				const id = await findCarDevice();
-				if (id) await spotifyFetch("/me/player", "PUT", { device_ids: [id], play: true }).catch((): void => undefined);
-			})();
-		}, 3000);
-		return () => clearTimeout(timer);
-	}, [ownReady, spotifyFetch]);
-
 	// ── The car's own player ─────────────────────────────────────────────────
 	// Nothing is "active" on a fresh start, and Spotify then refuses every command. So when nothing is
 	// playing, start on the car's player by name instead of asking the user to open Spotify somewhere.
@@ -660,6 +641,26 @@ export function useSpotify(): UseSpotifyReturn {
 		const id = await findCarDevice();
 		return id ? withDevice(id) : path;
 	}, [track, findCarDevice, findRealCar]);
+
+	// ── Optional: carry on with the last music a few seconds after start-up (Settings > Music on start) ──
+	// Once per launch, and never takes over a phone or other device that is already playing.
+	useEffect(() => {
+		// With the in-app player, wait until it has registered; with the car's own player (spotifyd) there is nothing to wait for.
+		if (resumedThisLaunch || (inApp ? !ownReady : !hasToken)) return;
+		let wanted = false;
+		try { wanted = localStorage.getItem(RESUME_KEY) === "true"; } catch { /* Off. */ }
+		if (!wanted) return;
+		const timer = setTimeout(() => {
+			resumedThisLaunch = true;
+			void (async () => {
+				const current = await spotifyFetch("/me/player");
+				if (current?.is_playing) return;
+				const id = await findCarDevice();
+				if (id) await spotifyFetch("/me/player", "PUT", { device_ids: [id], play: true }).catch((): void => undefined);
+			})();
+		}, 3000);
+		return () => clearTimeout(timer);
+	}, [ownReady, hasToken, inApp, spotifyFetch, findCarDevice]);
 
 	/** True when this app is the active Spotify player, so controls can run locally and instantly. */
 	const localPlayer = useCallback(async (): Promise<boolean> => !!playerRef.current && !!(await playerRef.current.getCurrentState().catch((): null => null)), []);

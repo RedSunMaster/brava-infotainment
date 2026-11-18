@@ -13,6 +13,7 @@ import ExploreRounded from "@mui/icons-material/ExploreRounded";
 import MyLocationRounded from "@mui/icons-material/MyLocationRounded";
 import NavigationRounded from "@mui/icons-material/NavigationRounded";
 import RouteRounded from "@mui/icons-material/RouteRounded";
+import PlaceRounded from "@mui/icons-material/PlaceRounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import SettingsRounded from "@mui/icons-material/SettingsRounded";
 import { useThemeMode } from "../ThemeContext";
@@ -42,11 +43,12 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
 	{ id: "drive", label: "Driving", icon: <RouteRounded /> },
+	{ id: "places", label: "Places", icon: <PlaceRounded /> },
 	{ id: "system", label: "System", icon: <TuneRounded /> },
 ];
 const WEATHER_ICONS: Record<WeatherAppearance, React.ReactNode> = {
@@ -67,11 +69,14 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 }
 
 /** One saved place: its map pin (tap to change), its name, and what can be done with it. */
-function PlaceRow({ marker, name, label, onMarker, onGo, onEdit, editLabel, onRemove }: { marker: string; name: string; label: string; onMarker?: () => void; onGo?: () => void; onEdit?: () => void; editLabel?: string; onRemove?: () => void }) {
+function PlaceRow({ marker, title, subtitle, label, onMarker, onGo, onEdit, editLabel, onRemove }: { marker: string; title: string; subtitle?: string; label: string; onMarker?: () => void; onGo?: () => void; onEdit?: () => void; editLabel?: string; onRemove?: () => void }) {
 	return (
 		<Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
 			<DriveButton color="inherit" variant="outlined" disabled={!onMarker} aria-label={`Change ${label} pin`} onClick={onMarker} sx={{ minWidth: 72, fontSize: 32, p: 0 }}>{marker}</DriveButton>
-			<Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 24, fontWeight: onGo ? 700 : 400, color: onGo ? "text.primary" : "text.secondary" }}>{name}</Typography>
+			<Box sx={{ flex: 1, minWidth: 0 }}>
+				<Typography noWrap sx={{ fontSize: 24, fontWeight: 700, color: onGo || onEdit ? "text.primary" : "text.secondary" }}>{title}</Typography>
+				{subtitle && <Typography noWrap sx={{ fontSize: 19, color: "text.secondary" }}>{subtitle}</Typography>}
+			</Box>
 			{onGo && <DriveButton color="inherit" variant="outlined" aria-label={`Navigate to ${label}`} onClick={onGo}>Go</DriveButton>}
 			{onEdit && <DriveButton color="inherit" variant="outlined" onClick={onEdit}>{editLabel}</DriveButton>}
 			{onRemove && <DriveButton color="error" variant="outlined" aria-label={`Remove ${label}`} onClick={onRemove}>Remove</DriveButton>}
@@ -288,6 +293,9 @@ export default function MapControls({
 										{WEATHER_APPEARANCES.map((value) => <DriveButton key={value} className="settings-option" variant={weatherAppearance === value ? "contained" : "outlined"} aria-pressed={weatherAppearance === value} onClick={() => setWeatherAppearance(value)} sx={{ flexDirection: "column", gap: 0.5, py: 1, fontSize: "clamp(16px, 1.9vw, 21px)", lineHeight: 1.1, "& .MuiSvgIcon-root": { fontSize: "clamp(28px, 3.2vw, 38px)" } }}>{WEATHER_ICONS[value]}{value === "auto" ? "Auto" : WEATHER_SHORT[value]}</DriveButton>)}
 									</Box>
 								</Section>
+								{onCustomiseDock && <Section title="Dock" hint="Choose which controls sit in the bottom dock, how big they are and where. Only while parked.">
+									<DriveButton className="settings-option" variant="outlined" disabled={isDriving} onClick={() => { setPanel(null); onCustomiseDock(); }}>Customise dock</DriveButton>
+								</Section>}
 							</>}
 							{tab === "sound" && <>
 								{onVoiceEngineChange && <Section title="Guidance voice" hint={voiceStatus}>
@@ -311,20 +319,19 @@ export default function MapControls({
 								{onHazardAlertsChange && <Section title="Cameras and hazards" hint="Warns about speed cameras, red light cameras, railway crossings and mapped hazards on your route. Data from OpenStreetMap; needs internet.">
 									<Options<boolean> label="Cameras and hazards" columns={2} value={hazardAlerts} onChange={onHazardAlertsChange} items={[[true, "Warn me"], [false, "Off"]] as const} />
 								</Section>}
-								{onCustomiseDock && <Section title="Dock" hint="Choose which controls sit in the bottom dock, how big they are and where. Only while parked.">
-									<DriveButton className="settings-option" variant="outlined" disabled={isDriving} onClick={() => { setPanel(null); onCustomiseDock(); }}>Customise dock</DriveButton>
-								</Section>}
+							</>}
+							{tab === "places" && <>
 								<Section title="Saved places" hint="Tap a pin to change how it looks on the map.">
 									{(["home", "work"] as const).map(slot => {
 										const place = savedPlaces[slot];
-										return <PlaceRow key={slot} marker={place?.marker ?? defaultMarker(slot)} name={place ? place.name : `No ${slot} address yet`} label={slot === "home" ? "Home" : "Work"}
+										return <PlaceRow key={slot} marker={place?.marker ?? defaultMarker(slot)} title={slot === "home" ? "Home" : "Work"} subtitle={place ? place.name : "Not set yet"} label={slot === "home" ? "Home" : "Work"}
 											onMarker={place && onPlaceMarker ? () => onPlaceMarker(slot) : undefined}
 											onGo={place && onGoToPlace ? () => onGoToPlace(place.coords, place.name, place.buildingCoords) : undefined}
 											onEdit={onSetPlace ? () => onSetPlace(slot) : undefined} editLabel={place ? "Change" : "Set"} />;
 									})}
 								</Section>
 								<Section title="Favourites" hint="Each favourite gets its own pin on the building. Tap a pin to choose another.">
-									{favourites.map(item => <PlaceRow key={item.id} marker={item.marker} name={item.name} label={item.name}
+									{favourites.map(item => <PlaceRow key={item.id} marker={item.marker} title={item.name.split(",")[0]} subtitle={item.name.split(",").slice(1).join(",").trim()} label={item.name}
 										onMarker={onPlaceMarker ? () => onPlaceMarker({ favourite: item.id }) : undefined}
 										onGo={onGoToPlace ? () => onGoToPlace(item.coords, item.name, item.buildingCoords) : undefined}
 										onRemove={onRemoveFavourite ? () => onRemoveFavourite(item.id) : undefined} />)}

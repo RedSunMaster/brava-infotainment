@@ -250,7 +250,7 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
     <DriveButton color="inherit" sx={{ minWidth: 0, flex: "0 0 52px" }} aria-label="Increase volume" disabled={spotify.volume >= 100} onClick={() => mediaAction(() => spotify.setVolume(Math.min(100, Math.floor(spotify.volume / 10) * 10 + 10)))}><ChevronRightRounded /></DriveButton>
    </> : <DriveButton color="inherit" aria-label="Open music player" onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); }} sx={{ justifyContent: "flex-start", gap: 1, fontSize: 24 }}><MusicNoteRounded /> Connect Spotify</DriveButton>}
   </Box>}
-  {editing && <Box role="region" data-map-obstruction aria-label="Customise dock" sx={{ mx: 2, mb: 1.5, p: 2, display: "grid", gap: 1.5, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 8 }}>
+  {editing && <Box role="region" data-map-obstruction aria-label="Customise dock" sx={{ mx: 2, mb: 1.5, p: 2, display: "grid", gap: 1.5, maxHeight: "min(45vh, 460px)", overflowY: "auto", bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 8 }}>
    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
     <Box sx={{ flex: 1, minWidth: 0 }}>
      <Typography sx={{ fontSize: 28, fontWeight: 800 }}>Customise dock</Typography>
@@ -288,7 +288,14 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
     return <Box key={item.id} data-dock-tile={item.id} sx={{ gridColumn: `${start} / span ${item.span}`, gridRow: 1, display: "flex", minWidth: 0, position: "relative", ...(dragging ? { transform: `translateX(${drag!.offsetPx}px)`, zIndex: 6, bgcolor: "background.paper", boxShadow: 8, borderRadius: 2 } : {}) }}>
      {tile(item.id, className)}
      {editing && <>
-      <Box role="button" aria-label={`${WIDGETS[item.id].label}. Drag to move, tap to select`} aria-pressed={selected === item.id} onPointerDown={(event) => tilePointerDown(event, item.id)} onPointerMove={tilePointerMove} onPointerUp={tilePointerEnd} onPointerCancel={tilePointerEnd}
+      <Box role="button" tabIndex={0} aria-label={`${WIDGETS[item.id].label}. Drag to move, tap to select. Arrow keys move it${WIDGETS[item.id].pinned ? "" : ", Delete removes it"}`} aria-pressed={selected === item.id}
+       onFocus={() => setSelected(item.id)}
+       onKeyDown={(event) => {
+        const at = layoutRef.current.findIndex(entry => entry.id === item.id);
+        if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); change(moveWidget(layoutRef.current, item.id, at + (event.key === "ArrowLeft" ? -1 : 1))); }
+        else if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(item.id); }
+        else if ((event.key === "Delete" || event.key === "Backspace") && !WIDGETS[item.id].pinned) { event.preventDefault(); change(removeWidget(layoutRef.current, item.id)); setSelected(null); }
+       }} onPointerDown={(event) => tilePointerDown(event, item.id)} onPointerMove={tilePointerMove} onPointerUp={tilePointerEnd} onPointerCancel={tilePointerEnd}
        sx={{ position: "absolute", inset: 3, zIndex: 3, borderRadius: 2, cursor: dragging ? "grabbing" : "grab", touchAction: "none", userSelect: "none", border: "3px solid", borderColor: selected === item.id ? "primary.main" : "transparent", outline: selected === item.id ? "none" : `2px dashed ${"rgba(127,127,127,0.55)"}`, outlineOffset: -3, bgcolor: (theme) => alpha(theme.palette.background.paper, selected === item.id ? 0.35 : 0.2) }} />
       {!WIDGETS[item.id].pinned && <DriveButton color="inherit" aria-label={`Remove ${WIDGETS[item.id].label}`} onClick={() => { change(removeWidget(layoutRef.current, item.id)); if (selected === item.id) setSelected(null); }} sx={{ position: "absolute", top: 2, right: 2, zIndex: 4, minWidth: 0, width: 36, height: 36, minHeight: 36, p: 0, borderRadius: "50%", bgcolor: "error.main", color: "#fff", "&:hover": { bgcolor: "error.dark" }, "& .MuiSvgIcon-root": { fontSize: 22 } }}><CloseRounded /></DriveButton>}
      </>}

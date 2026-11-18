@@ -2,7 +2,6 @@ import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
 import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
-	Alert,
 	Box,
 	CircularProgress,
 	InputBase,
@@ -415,7 +414,10 @@ const SpotifyLibrary = ({
 								<Typography sx={{ fontSize: 22, fontWeight: 700, color: "text.secondary", px: 1 }}>Continue listening</Typography>
 								{continueList.map(episode => <EpisodeRow key={episode.id} episode={episode} onPlay={() => void playItem(() => playEpisodes([episode], 0), true)} />)}
 							</Box>}
-							{list.length === 0 ? <EmptyState text={tab === "podcasts" ? "Follow podcasts in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it." : "Save audiobooks in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it."} />
+							{list.length === 0 ? <Box sx={{ display: "grid", justifyItems: "center", gap: 2, pt: 1 }}>
+									<EmptyState text={tab === "podcasts" ? "Follow podcasts in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it." : "Save audiobooks in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it."} />
+									<DriveButton variant="outlined" color="inherit" disabled={isDriving} onClick={() => void spotify.connect()} sx={{ px: 4 }}>Reconnect Spotify</DriveButton>
+								</Box>
 								: <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>{list.map(show => <ShowRow key={show.id} show={show} onOpen={() => setOpenShow(show)} />)}</Box>}
 						</>;
 					})()
