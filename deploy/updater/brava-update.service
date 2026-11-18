@@ -1,0 +1,7 @@
+[Unit]
+Description=Check for a new Brava build and install it
+
+[Service]
+Type=oneshot
+ExecStart=%h/brava-build/deploy/updater/update.sh
+Nice=10
