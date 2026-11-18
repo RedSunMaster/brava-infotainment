@@ -385,7 +385,8 @@ export default function App() {
 
 	const mapOffset = useMapOcclusion(mapRef, mapLoaded);
 	// Centres the map (the globe when zoomed out, the car when driving) in the space the bars and docks leave free.
-	useCameraPadding(mapRef, mapLoaded, cameraMode);
+	const paddingHold = useRef(false);
+	const cameraPadding = useCameraPadding(mapRef, mapLoaded, cameraMode, paddingHold);
 
 	// ── Puck — render loop drives both model and camera ────────────────────────
 	// smoothLocate is destructured here alongside updatePuck and resetCursor.
@@ -948,6 +949,7 @@ export default function App() {
 		enabled: globeIdle,
 		hasPosition: previewMode || gpsStatus === "fix",
 		positionRef: lastPosRef, bearingRef: lastBearingRef, mapOffset, cameraTransitionRef,
+		paddingHold, paddingAt: cameraPadding.paddingAt, refreshPadding: cameraPadding.refresh,
 		wantsLocal: wantsLocation({ driving: isDriving, navigating: navActive, destinationPending: !!pendingDest, searchOpen: openPanel === "search", routing: routeBusy, choosingBuilding: !!selectingBuilding }),
 		parked: !isDriving && !navActive && !pendingDest && !arrivedAt && openPanel === null && !routeBusy && !selectingBuilding && !dockEditing && !profilesOpen,
 	});

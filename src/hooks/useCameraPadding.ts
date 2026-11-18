@@ -8,7 +8,8 @@ import type { CameraMode } from "../constants";
  * zoomed out, and the car when driving) is the middle of the space you can actually see: clear of a dock at the left or right
  * and, when zoomed out, of the status bar and the dock at the bottom.
  */
-export function useCameraPadding(mapRef: React.RefObject<mapboxgl.Map | null>, loaded: boolean, cameraMode: CameraMode) {
+export function useCameraPadding(mapRef: React.RefObject<mapboxgl.Map | null>, loaded: boolean, cameraMode: CameraMode, hold?: React.RefObject<boolean>) {
+	const insetsRef = useRef<Insets>({ top: 0, bottom: 0, left: 0, right: 0 });
 	// The overview fits a route inside its own padding; leave that alone until the camera is following again.
 	const paused = useRef(cameraMode === "overview");
 	paused.current = cameraMode === "overview";
@@ -17,7 +18,7 @@ export function useCameraPadding(mapRef: React.RefObject<mapboxgl.Map | null>, l
 		const map = mapRef.current;
 		if (!map || !loaded) return;
 		let frame = 0;
-		let insets: Insets = { top: 0, bottom: 0, left: 0, right: 0 };
+		let insets: Insets = insetsRef.current;
 		const measure = () => {
 			const bounds = map.getContainer().getBoundingClientRect();
 			if (!bounds.height || !bounds.width) return;
@@ -32,9 +33,12 @@ export function useCameraPadding(mapRef: React.RefObject<mapboxgl.Map | null>, l
 				left: side && onLeft ? Math.max(0, side.right - bounds.left) : 0,
 				right: side && !onLeft ? Math.max(0, bounds.right - side.left) : 0,
 			};
+			insetsRef.current = insets;
 		};
 		const apply = () => {
 			frame = 0;
+			// A flight that carries its own padding (the globe showcase) is in charge until it ends: two writers made it flicker.
+			if (hold?.current) return;
 			const zoom = map.getZoom();
 			// A route overview close in has fitted itself inside its own padding; leave it. Zoomed out it is the Earth, which is centred.
 			if (paused.current && zoom >= CLOSE_ZOOM) return;
@@ -72,4 +76,10 @@ export function useCameraPadding(mapRef: React.RefObject<mapboxgl.Map | null>, l
 	useEffect(() => {
 		if (cameraMode !== "overview") rerun.current();
 	}, [cameraMode]);
+	return {
+		/** The padding the camera will have at this zoom, for flights to carry with them. */
+		paddingAt: (zoom: number): Insets => paddingFor(insetsRef.current, zoom),
+		/** Re-apply the padding now (after a flight that held it has ended or been interrupted). */
+		refresh: () => rerun.current(),
+	};
 }

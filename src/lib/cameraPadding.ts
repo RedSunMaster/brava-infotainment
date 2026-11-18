@@ -68,8 +68,11 @@ export function setCameraPitch(map: Pick<Map, "setPitch" | "triggerRepaint">, pi
  * Sideways there is no offset: the padded middle is already the middle of the free space.
  */
 export function puckOffset(map: PaddedMap, fraction: number): [number, number] {
-	const height = map.getContainer().clientHeight;
-	const pad = whole(map.getPadding());
+	return puckOffsetFor(map.getContainer().clientHeight, whole(map.getPadding()), fraction);
+}
+
+/** The same, for a padding the camera does not have yet (a flight that ends with different padding). */
+export function puckOffsetFor(height: number, pad: Insets, fraction: number): [number, number] {
 	const middle = pad.top + (height - pad.top - pad.bottom) / 2;
 	return [0, height * (0.5 + fraction) - middle];
 }

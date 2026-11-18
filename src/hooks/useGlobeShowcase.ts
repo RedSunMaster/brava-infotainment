@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type mapboxgl from "mapbox-gl";
 import { ZOOM_LEVEL } from "../constants";
-import { puckOffset } from "../lib/cameraPadding";
+import { puckOffset, puckOffsetFor, type Insets } from "../lib/cameraPadding";
 import { driftClouds } from "../lib/mapStyle";
 import { CLOUD_DRIFT_DEG_PER_S, GLOBE_LATITUDE, GLOBE_ZOOM, SPIN_STEP_MS, idleLongEnough, nextSpinCentre } from "../lib/showcase";
 
@@ -21,6 +21,11 @@ interface Options {
 	mapOffset: React.RefObject<number>;
 	/** The follow camera stands aside while the globe turns or the camera is flying. */
 	cameraTransitionRef: React.RefObject<boolean>;
+	/** Set while a flight runs, so the zoom-driven padding stands aside: the flight carries its own padding to the end. */
+	paddingHold: React.RefObject<boolean>;
+	/** The padding the camera will have at a zoom, and a way to apply it again once a flight is over. */
+	paddingAt: (zoom: number) => Insets;
+	refreshPadding: () => void;
 	/** The driver is using destinations, or the car is moving: come down to the car. */
 	wantsLocal: boolean;
 	/** Nothing is going on: parked, no route, no panels open. */
@@ -45,6 +50,9 @@ export function useGlobeShowcase(options: Options) {
 		const map = options.mapRef.current;
 		if (!map || !options.mapLoaded) return;
 		const transition = (on: boolean) => { latest.current.cameraTransitionRef.current = on; };
+		// While a flight runs the zoom-driven padding stands aside, and the flight carries the padding to its end itself (Mapbox then also
+		// keeps the car at the right spot as that padding changes); both writing at once made the view flicker and land in the wrong place.
+		const hold = (on: boolean) => { latest.current.paddingHold.current = on; if (!on) latest.current.refreshPadding(); };
 
 		function startGlobe() {
 			const my = ++generation.current;
@@ -65,9 +73,11 @@ export function useGlobeShowcase(options: Options) {
 			const my = ++generation.current;
 			phase.current = "approaching";
 			transition(true);
+			const padding = o.paddingAt(ZOOM_LEVEL);
+			hold(true);
 			map!.flyTo({
 				center: o.positionRef.current, zoom: ZOOM_LEVEL, pitch: 45, bearing: o.bearingRef.current,
-				offset: puckOffset(map!, 0.2), duration: APPROACH_MS,
+				padding, offset: puckOffsetFor(map!.getContainer().clientHeight, padding, 0.2), duration: APPROACH_MS,
 				// Without this Mapbox skips the flight when the system has reduced motion on (Windows "Show animations" off, remote
 				// sessions, kiosks). The flight is part of the product, so it always runs.
 				essential: true,
@@ -78,6 +88,7 @@ export function useGlobeShowcase(options: Options) {
 				done = true;
 				window.clearTimeout(safety);
 				map!.off("moveend", finish);
+				hold(false);
 				// The flight's own offset is not reliable (it can end with the car at the screen centre), so set the resting camera
 				// explicitly: the car where the open or closed panels say it belongs.
 				map!.easeTo({ center: latest.current.positionRef.current, offset: puckOffset(map!, latest.current.mapOffset.current), duration: 0 });
@@ -95,8 +106,9 @@ export function useGlobeShowcase(options: Options) {
 			const my = ++generation.current;
 			phase.current = "leaving";
 			transition(true);
-			map!.flyTo({ center: [o.positionRef.current[0], GLOBE_LATITUDE], zoom: GLOBE_ZOOM, pitch: 0, bearing: 0, offset: [0, 0], duration: LEAVE_MS, essential: true });
-			map!.once("moveend", () => { if (my === generation.current) startGlobe(); });
+			hold(true);
+			map!.flyTo({ center: [o.positionRef.current[0], GLOBE_LATITUDE], zoom: GLOBE_ZOOM, pitch: 0, bearing: 0, padding: o.paddingAt(GLOBE_ZOOM), offset: [0, 0], duration: LEAVE_MS, essential: true });
+			map!.once("moveend", () => { if (my === generation.current) { hold(false); startGlobe(); } });
 		}
 
 		const approachIfAway = (): boolean => {
@@ -113,6 +125,7 @@ export function useGlobeShowcase(options: Options) {
 				generation.current++;
 				phase.current = "manual";
 				transition(false);
+				hold(false);
 			}
 		};
 		const onUserZoom = (event: { originalEvent?: unknown }) => { if (event.originalEvent) manual(); };
@@ -130,6 +143,7 @@ export function useGlobeShowcase(options: Options) {
 			const was = phase.current;
 			if (was !== "globe" && was !== "approaching" && was !== "leaving") return;
 			map.stop();
+			hold(false);
 			const my = ++generation.current;
 			phase.current = "grabbed";
 			window.clearTimeout(resumeTimer);
@@ -178,6 +192,7 @@ export function useGlobeShowcase(options: Options) {
 			canvas.removeEventListener("pointerdown", grab, { capture: true });
 			canvas.removeEventListener("wheel", grab, { capture: true });
 			stopResume();
+			latest.current.paddingHold.current = false;
 			map.off("dragstart", manual);
 			map.off("zoomstart", onUserZoom);
 			map.off("rotatestart", onUserZoom);

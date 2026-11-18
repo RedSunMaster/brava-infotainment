@@ -88,6 +88,7 @@ export function usePositionPuck(
 
 	// ── Easing lock: suppresses jumpTo while smoothLocate's easeTo is running ─
 	const isEasingRef = useRef<boolean>(false);
+	const wasFollowingRef = useRef<boolean>(true);
 
 	// ── Recentre blend ────────────────────────────────────────────────────────
 	// Set by smoothLocate. The render loop blends the camera from this captured
@@ -272,7 +273,12 @@ export function usePositionPuck(
 				// Guard 1: skip entirely while smoothLocate's easeTo is animating.
 				// Guard 2: skip if position/bearing haven't meaningfully changed —
 				//          prevents 60fps jumpTo calls blocking Wayland gestures.
-					if (followingRef.current !== "following") recenterRef.current = null;
+					const following = followingRef.current === "following";
+					if (!following) recenterRef.current = null;
+					// However the camera comes back to following (a button, the auto-return after browsing, a route starting), glide
+					// back to the car instead of snapping: only a deliberate smoothLocate used to do that.
+					else if (!wasFollowingRef.current && !recenterRef.current && !cameraTransitionRef.current) smoothLocate();
+					if (!cameraTransitionRef.current) wasFollowingRef.current = following;
 					const recenter = recenterRef.current;
 					if (recenter && !cameraTransitionRef.current) {
 						const t = Math.min(1, (now - recenter.started) / RECENTER_MS);
