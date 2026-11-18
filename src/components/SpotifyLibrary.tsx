@@ -10,21 +10,26 @@ import {
 } from "@mui/material";
 import React, { useEffect, useRef, useState } from "react";
 import {
+	SpotifyEpisode,
 	SpotifyPlaylist,
 	SpotifyQueueItem,
+	SpotifyShow,
 	UseSpotifyReturn,
 } from "../hooks/useSpotify";
+import { describeProgress } from "../lib/spotifyShows";
 import QuietNotice from "./QuietNotice";
 import DriveButton from "./DriveButton";
 import { useKeyboard } from "../contexts/KeyboardContext";
 
 const SPOTIFY_GREEN = "#1DB954";
 
-type LibraryTab = "queue" | "playlists" | "search";
+type LibraryTab = "queue" | "playlists" | "podcasts" | "books" | "search";
 
 const TABS: { id: LibraryTab; label: string }[] = [
 	{ id: "queue", label: "Queue" },
 	{ id: "playlists", label: "Playlists" },
+	{ id: "podcasts", label: "Podcasts" },
+	{ id: "books", label: "Books" },
 	{ id: "search", label: "Search" },
 ];
 
@@ -136,6 +141,25 @@ const PlaylistRow = ({ playlist, onPlay }: { playlist: SpotifyPlaylist; onPlay: 
  </Box>
 );
 
+const ShowRow = ({ show, onOpen }: { show: SpotifyShow; onOpen: () => void }) => (
+ <Box component="button" type="button" onClick={onOpen} sx={{ display: "flex", alignItems: "center", gap: 2, width: "100%", minWidth: 0, minHeight: "var(--car-target)", p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 3, bgcolor: "background.default", color: "text.primary", textAlign: "left", cursor: "pointer", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}>
+  <ArtBox src={show.imageUrl} alt="" size={120} />
+  <Box sx={{ minWidth: 0 }}><Typography sx={{ fontSize: 24, fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{show.name}</Typography><Typography noWrap sx={{ color: "text.secondary", fontSize: 20 }}>{show.publisher}</Typography></Box>
+ </Box>
+);
+
+/** An episode or chapter, with how much is left and a thin bar showing how far you got. */
+const EpisodeRow = ({ episode, onPlay }: { episode: SpotifyEpisode; onPlay: () => void }) => (
+	<Box component="button" type="button" sx={{ ...rowSx, width: "100%", border: 0, bgcolor: "transparent", textAlign: "left", font: "inherit", opacity: episode.fullyPlayed ? 0.6 : 1 }} onClick={onPlay}>
+		<ArtBox src={episode.imageUrl} alt="" />
+		<Box sx={{ flex: 1, minWidth: 0 }}>
+			<Typography sx={{ color: "text.primary", fontSize: 24, fontWeight: 500, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{episode.name}</Typography>
+			<Typography noWrap sx={{ color: episode.resumeMs > 0 ? SPOTIFY_GREEN : "text.secondary", fontSize: 22, fontWeight: episode.resumeMs > 0 ? 700 : 400 }}>{episode.showName && episode.resumeMs > 0 ? `${episode.showName} · ` : ""}{describeProgress(episode)}</Typography>
+			{episode.resumeMs > 0 && episode.durationMs > 0 && <Box aria-hidden sx={{ mt: 0.5, height: 4, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)" }}><Box sx={{ height: "100%", width: `${Math.min(100, (episode.resumeMs / episode.durationMs) * 100)}%`, borderRadius: 2, bgcolor: SPOTIFY_GREEN }} /></Box>}
+		</Box>
+	</Box>
+);
+
 const EmptyState = ({ text }: { text: string }) => (
 	<Typography
 		sx={{
@@ -171,6 +195,13 @@ const SpotifyLibrary = ({
 		search,
 		playTrack,
 		playContext,
+		shows,
+		audiobooks,
+		fetchShows,
+		fetchAudiobooks,
+		fetchEpisodes,
+		fetchContinueListening,
+		playEpisodes,
 	} = spotify;
 
 	const { showKeyboard, hideKeyboard } = useKeyboard();
@@ -181,6 +212,26 @@ const SpotifyLibrary = ({
 		if (thenGoBack) { hideKeyboard(); onBack(); } // Back to the player at once; its own banner reports a failure.
 		try { await action(); } catch (error) { setActionError(error instanceof Error ? error.message : "Playback unavailable. Try again."); }
 	}
+	// Podcasts and books: a list of shows, and one opened to see its episodes or chapters.
+	const [openShow, setOpenShow] = useState<SpotifyShow | null>(null);
+	const [episodes, setEpisodes] = useState<SpotifyEpisode[]>([]);
+	const [continueList, setContinueList] = useState<SpotifyEpisode[]>([]);
+	const [episodesLoading, setEpisodesLoading] = useState(false);
+	useEffect(() => { setOpenShow(null); }, [tab]);
+	useEffect(() => {
+		if (!openShow) return;
+		let cancelled = false;
+		setEpisodes([]);
+		setEpisodesLoading(true);
+		fetchEpisodes(openShow).then(list => { if (!cancelled) setEpisodes(list); }).finally(() => { if (!cancelled) setEpisodesLoading(false); });
+		return () => { cancelled = true; };
+	}, [openShow, fetchEpisodes]);
+	useEffect(() => {
+		if (tab !== "podcasts") return;
+		let cancelled = false;
+		fetchContinueListening().then(list => { if (!cancelled) setContinueList(list); }).catch((): void => undefined);
+		return () => { cancelled = true; };
+	}, [tab]); // eslint-disable-line
 	const [searchQuery, setSearchQuery] = useState("");
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -192,8 +243,10 @@ const SpotifyLibrary = ({
 		}
 		if (tab === "queue") fetchQueue();
 		else if (tab === "playlists") fetchPlaylists();
+		else if (tab === "podcasts") fetchShows();
+		else if (tab === "books") fetchAudiobooks();
 		else if (tab !== "search") hideKeyboard();
-	}, [tab, fetchQueue, fetchPlaylists, hideKeyboard, isDriving]);
+	}, [tab, fetchQueue, fetchPlaylists, fetchShows, fetchAudiobooks, hideKeyboard, isDriving]);
 
 	useEffect(() => {
 		if (tab !== "search") return;
@@ -347,6 +400,25 @@ const SpotifyLibrary = ({
 							/>
 						))}</Box>
 					)
+				) : tab === "podcasts" || tab === "books" ? (
+					openShow ? (
+						<Box>
+							<DriveButton color="inherit" onClick={() => setOpenShow(null)} startIcon={<ArrowBackRounded />} sx={{ mb: 1, minHeight: 56, justifyContent: "flex-start", maxWidth: "100%" }}><Typography noWrap sx={{ fontSize: 22, fontWeight: 700 }}>{openShow.name}</Typography></DriveButton>
+							{episodesLoading ? <Box sx={{ display: "flex", justifyContent: "center", pt: 4 }}><CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} /></Box>
+								: episodes.length === 0 ? <EmptyState text="Nothing to play here" />
+								: episodes.map((episode, i) => <EpisodeRow key={episode.id} episode={episode} onPlay={() => void playItem(() => (openShow.kind === "audiobook" ? playEpisodes(episodes, i) : playEpisodes([episode], 0)), true)} />)}
+						</Box>
+					) : (() => {
+						const list = tab === "podcasts" ? shows : audiobooks;
+						return <>
+							{tab === "podcasts" && continueList.length > 0 && <Box sx={{ mb: 1.5 }}>
+								<Typography sx={{ fontSize: 22, fontWeight: 700, color: "text.secondary", px: 1 }}>Continue listening</Typography>
+								{continueList.map(episode => <EpisodeRow key={episode.id} episode={episode} onPlay={() => void playItem(() => playEpisodes([episode], 0), true)} />)}
+							</Box>}
+							{list.length === 0 ? <EmptyState text={tab === "podcasts" ? "Follow podcasts in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it." : "Save audiobooks in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it."} />
+								: <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>{list.map(show => <ShowRow key={show.id} show={show} onOpen={() => setOpenShow(show)} />)}</Box>}
+						</>;
+					})()
 				) : !searchQuery.trim() ? (
 					<EmptyState text="Type to search" />
 				) : searchResults.length === 0 ? (

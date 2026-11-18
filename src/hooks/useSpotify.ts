@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { inProgress, parseAudiobooks, parseEpisodes, parseShows, playBody, type SpotifyEpisode, type SpotifyShow } from "../lib/spotifyShows";
+export type { SpotifyEpisode, SpotifyShow } from "../lib/spotifyShows";
 
 // Use SPOTIFY_CLIENT_ID — set this in your .env (no NEXT_PUBLIC_ prefix in Electron)
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID!;
@@ -12,6 +14,8 @@ const SCOPES = [
 	"user-read-currently-playing",
 	"playlist-read-private",
 	"playlist-read-collaborative",
+	"user-library-read", // saved podcasts and audiobooks
+	"user-read-playback-position", // where each episode was left
 	"streaming", // the in-app player (Web Playback SDK)
 	"user-read-email",
 	"user-read-private",
@@ -176,6 +180,16 @@ export interface UseSpotifyReturn {
 	search: (query: string) => Promise<void>; // ← new
 	playTrack: (uri: string) => Promise<void>; // ← new
 	playContext: (contextUri: string, offsetTrackUri?: string) => Promise<void>; // ← new
+	/** Saved podcasts and audiobooks. They need the extra permissions, so an older sign-in has to reconnect once. */
+	shows: SpotifyShow[];
+	audiobooks: SpotifyShow[];
+	fetchShows: () => Promise<void>;
+	fetchAudiobooks: () => Promise<void>;
+	fetchEpisodes: (show: SpotifyShow) => Promise<SpotifyEpisode[]>;
+	/** Started-but-unfinished episodes across the saved podcasts. */
+	fetchContinueListening: () => Promise<SpotifyEpisode[]>;
+	/** Plays episodes[index] from where it was left; audiobook chapters carry on to the next one. */
+	playEpisodes: (episodes: SpotifyEpisode[], index: number) => Promise<void>;
 	volume: number; // ← new
 	setVolume: (pct: number) => Promise<void>; // ← new
 }
@@ -374,6 +388,8 @@ export function useSpotify(): UseSpotifyReturn {
 						? "No Spotify playback device is active."
 						: res.status === 429
 							? "Spotify is busy. Try again shortly."
+							: res.status === 403
+							? "Spotify needs more permission for this. Reconnect when parked."
 							: "Spotify could not complete this action.",
 				);
 			} catch (cause) {
@@ -395,8 +411,8 @@ export function useSpotify(): UseSpotifyReturn {
 				(data.queue as any[]).slice(0, 30).map((item) => ({
 					id: item.id,
 					name: item.name,
-					artists: item.artists.map((a: { name: string }) => a.name).join(", "),
-					albumArt: item.album?.images?.[0]?.url ?? "",
+					artists: item.show?.publisher ?? (item.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+					albumArt: (item.album ?? item.show ?? item)?.images?.[0]?.url ?? "",
 					durationMs: item.duration_ms,
 					uri: item.uri,
 				})),
@@ -451,6 +467,28 @@ export function useSpotify(): UseSpotifyReturn {
 		[spotifyFetch],
 	);
 
+	// ── Podcasts and audiobooks ──────────────────────────────────────────────
+	const [shows, setShows] = useState<SpotifyShow[]>([]);
+	const [audiobooks, setAudiobooks] = useState<SpotifyShow[]>([]);
+	const fetchShows = useCallback(async () => {
+		setIsLibraryLoading(true);
+		try { setShows(parseShows(await spotifyFetch("/me/shows?limit=50"))); } finally { setIsLibraryLoading(false); }
+	}, [spotifyFetch]);
+	const fetchAudiobooks = useCallback(async () => {
+		setIsLibraryLoading(true);
+		try { setAudiobooks(parseAudiobooks(await spotifyFetch("/me/audiobooks?limit=50"))); } finally { setIsLibraryLoading(false); }
+	}, [spotifyFetch]);
+	const fetchEpisodes = useCallback(async (show: SpotifyShow): Promise<SpotifyEpisode[]> => {
+		const path = show.kind === "audiobook" ? `/audiobooks/${show.id}/chapters?limit=50` : `/shows/${show.id}/episodes?limit=50`;
+		return parseEpisodes(await spotifyFetch(path), show.name);
+	}, [spotifyFetch]);
+	const fetchContinueListening = useCallback(async (): Promise<SpotifyEpisode[]> => {
+		// Spotify has no "continue listening" call, so look at the newest episodes of the first few saved podcasts.
+		const list = shows.length ? shows : parseShows(await spotifyFetch("/me/shows?limit=50"));
+		const batches = await Promise.all(list.slice(0, 8).map(show => fetchEpisodes(show)));
+		return batches.flatMap(batch => inProgress(batch)).slice(0, 10);
+	}, [shows, spotifyFetch, fetchEpisodes]);
+
 	// ── Polling: fetch current playback every 3 s ────────────────────────────
 
 	const fetchPlayback = useCallback(async () => {
@@ -461,7 +499,7 @@ export function useSpotify(): UseSpotifyReturn {
 			if (!volumeSettleRef.current) void playerRef.current!.getVolume().then((v) => { if (!volumeSettleRef.current && typeof v === "number") setVolumeState(Math.round(v * 100)); }).catch((): void => undefined);
 			return;
 		}
-		const data = await spotifyFetch("/me/player");
+		const data = await spotifyFetch("/me/player?additional_types=episode");
 		if (!data?.item) {
 			setTrack(null);
 			return;
@@ -469,11 +507,11 @@ export function useSpotify(): UseSpotifyReturn {
 		setTrack({
 			id: data.item.id,
 			name: data.item.name,
-			artists: data.item.artists
+			artists: data.item.show ? data.item.show.publisher ?? "" : (data.item.artists ?? [])
 				.map((a: { name: string }) => a.name)
 				.join(", "),
-			albumName: data.item.album.name,
-			albumArt: data.item.album.images?.[0]?.url ?? "",
+			albumName: (data.item.album ?? data.item.show)?.name ?? "",
+			albumArt: (data.item.album ?? data.item.show ?? data.item)?.images?.[0]?.url ?? "",
 			durationMs: data.item.duration_ms,
 			progressMs: data.progress_ms ?? 0,
 			isPlaying: data.is_playing,
@@ -702,8 +740,26 @@ export function useSpotify(): UseSpotifyReturn {
 		[spotifyFetch, fetchPlayback, onCarDevice],
 	);
 
+	const playEpisodes = useCallback(
+		async (episodes: SpotifyEpisode[], index: number) => {
+			if (!episodes[index]) return;
+			await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", playBody(episodes, index));
+			setTimeout(() => {
+				void fetchPlayback().catch(() => setTrack(null));
+			}, 600);
+		},
+		[spotifyFetch, fetchPlayback, onCarDevice],
+	);
+
 	return {
 		error,
+		shows,
+		audiobooks,
+		fetchShows,
+		fetchAudiobooks,
+		fetchEpisodes,
+		fetchContinueListening,
+		playEpisodes,
 		track,
 		isConnected: !!token,
 		isLoading,
