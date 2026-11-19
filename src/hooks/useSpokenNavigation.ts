@@ -145,6 +145,10 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 	// Plays a sample so the volume and voice can be judged from Settings, even when not navigating.
 	const test = useCallback(() => { void say(["In 200 metres,", "Turn left onto Millstream Drive."]); }, [say]);
 
+	// Reads text aloud on request (a phone message the driver tapped), at the Messages volume, whether or not guidance is muted.
+	const readAloud = useCallback((text: string) => { if (text.trim()) void say([text], "messages"); }, [say]);
+	const testMessage = useCallback(() => { void say(["Message from Sam: running ten minutes late."], "messages"); }, [say]);
+
 	// The same, for an alert, so its own volume can be judged.
 	const testAlert = useCallback(() => { void say([toSpeech("There is a road closure on your route.")], "alerts"); }, [say]);
 
@@ -194,5 +198,5 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 
 	useEffect(() => () => { request.current++; stopSpeaking(); }, []);
 
-	return { muted, supported, engine, setEngine, test, testAlert, speak, announce, finish, sample, toggleMute: () => setMuted((value) => !value) };
+	return { muted, supported, engine, setEngine, test, testAlert, readAloud, testMessage, speak, announce, finish, sample, toggleMute: () => setMuted((value) => !value) };
 }

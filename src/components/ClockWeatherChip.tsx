@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import SystemUpdateAltRounded from "@mui/icons-material/SystemUpdateAltRounded";
+import PhoneAndroidRounded from "@mui/icons-material/PhoneAndroidRounded";
+import PhonelinkOffRounded from "@mui/icons-material/PhonelinkOffRounded";
+import { usePhoneLink } from "../hooks/usePhoneLink";
 import { useAppUpdate } from "../hooks/useAppUpdate";
 import { alpha, useTheme, type Theme } from "@mui/material/styles";
 import WbSunnyRounded from "@mui/icons-material/WbSunnyRounded";
@@ -63,6 +66,8 @@ interface Props {
 	previewMode?: boolean;
 	/** Tapping the driver's icon at the right end opens the profile switcher. */
 	onProfile?: () => void;
+	/** Tapping the phone button opens the list of phone notifications. */
+	onPhone?: () => void;
 }
 
 /** A thin rule between the strip's three parts. */
@@ -75,7 +80,8 @@ function Divider() {
  * of the screen. Everything shares one size of text and icon; the only colour is the GPS status, so
  * a problem stands out, and the bar's lower edge picks up that colour too.
  */
-export default function ClockWeatherChip({ gpsStatus, estimating = false, previewMode = false, onProfile }: Props) {
+export default function ClockWeatherChip({ gpsStatus, estimating = false, previewMode = false, onProfile, onPhone }: Props) {
+	const phone = usePhoneLink();
 	const { active } = useProfiles();
 	const theme = useTheme();
 	const [time, setTime] = useState(new Date());
@@ -144,6 +150,19 @@ export default function ClockWeatherChip({ gpsStatus, estimating = false, previe
 						<Divider />
 					</>;
 				})()}
+				{onPhone && phone.visible && (
+					<>
+						<Box
+							component="button" type="button" onClick={onPhone}
+							aria-label={`Phone: ${phone.connection.connected ? "connected" : "not connected"}${phone.unread ? `, ${phone.unread} new notification${phone.unread === 1 ? "" : "s"}` : ""}. Open notifications`}
+							sx={{ display: "flex", alignItems: "center", gap: 0.75, height: 44, px: 1.25, border: `1px solid ${phone.unread ? theme.palette.primary.main : alpha(theme.palette.text.primary, 0.16)}`, borderRadius: 8, bgcolor: phone.unread ? alpha(theme.palette.primary.main, 0.14) : "transparent", color: phone.connection.connected ? (phone.unread ? "primary.main" : "text.primary") : "text.disabled", cursor: "pointer", font: "inherit" }}
+						>
+							{phone.connection.connected ? <PhoneAndroidRounded sx={{ fontSize: 28 }} /> : <PhonelinkOffRounded sx={{ fontSize: 28 }} />}
+							{phone.unread > 0 && <Typography sx={{ ...text, color: "inherit" }}>{phone.unread > 9 ? "9+" : phone.unread}</Typography>}
+						</Box>
+						<Divider />
+					</>
+				)}
 				{weather && (
 					<>
 						<Box sx={{ display: "flex", alignItems: "center", gap: 0.75, color: "text.secondary" }}>

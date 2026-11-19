@@ -70,7 +70,7 @@ test("a mixer that is not there leaves the app in charge", async () => {
 test("voice levels default, clamp and persist per kind", () => {
 	const store = memory({ "brava-voice-volume": "0.5", "brava-duck-level": "7" });
 	const levels = createVoiceLevels(store);
-	assert.deepEqual(levels.get(), { guidance: 0.5, alerts: VOICE_DEFAULTS.alerts, music: 1 });
+	assert.deepEqual(levels.get(), { guidance: 0.5, alerts: VOICE_DEFAULTS.alerts, messages: VOICE_DEFAULTS.messages, music: 1 });
 	levels.set("alerts", 0.2);
 	assert.equal(store.data["brava-voice-volume-alerts"], "0.2");
 	assert.equal(createVoiceLevels(store).get().alerts, 0.2);

@@ -10,6 +10,7 @@ import {
 
 import { startUpdater } from "./updaterMain";
 import { registerAudioIpc } from "./audioMain";
+import { startPhoneLink } from "./phoneLinkMain";
 import { startGps } from "./gpsMain";
 import { registerBluetoothIpc } from "./bluetoothMain";
 
@@ -143,6 +144,7 @@ ipcMain.on("osk-hide", () => {
 
 startUpdater(() => mainWindow);
 registerAudioIpc();
+startPhoneLink(() => mainWindow);
 registerBluetoothIpc();
 
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────

@@ -7,14 +7,16 @@ export interface VoiceLevels {
 	guidance: number;
 	/** Warnings and notices (road closures, cameras, faster route, rerouting), 0 to 1. */
 	alerts: number;
+	/** Phone messages and notifications read aloud on request, 0 to 1. */
+	messages: number;
 	/** How loud the music stays while a prompt is spoken, 0 to 1 of its normal level. */
 	music: number;
 }
-export type VoiceKind = "guidance" | "alerts";
+export type VoiceKind = "guidance" | "alerts" | "messages";
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 
-export const VOICE_KEYS: Record<keyof VoiceLevels, string> = { guidance: "brava-voice-volume", alerts: "brava-voice-volume-alerts", music: "brava-duck-level" };
-export const VOICE_DEFAULTS: VoiceLevels = { guidance: 1, alerts: 1, music: 0.3 };
+export const VOICE_KEYS: Record<keyof VoiceLevels, string> = { guidance: "brava-voice-volume", alerts: "brava-voice-volume-alerts", messages: "brava-voice-volume-messages", music: "brava-duck-level" };
+export const VOICE_DEFAULTS: VoiceLevels = { guidance: 1, alerts: 1, messages: 1, music: 0.3 };
 
 const clamp = (value: number) => Math.min(1, Math.max(0, Math.round(value * 100) / 100));
 

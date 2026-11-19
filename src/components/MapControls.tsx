@@ -33,6 +33,8 @@ import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
 import AirRounded from "@mui/icons-material/AirRounded";
 import SatelliteAltRounded from "@mui/icons-material/SatelliteAltRounded";
 import VoiceVolumes from "./VoiceVolumes";
+import PhoneSettings from "./PhoneSettings";
+import PhoneAndroidRounded from "@mui/icons-material/PhoneAndroidRounded";
 import GpsDebugPanel from "./GpsDebugPanel";
 import BluetoothPanel from "./BluetoothPanel";
 import BluetoothRounded from "@mui/icons-material/BluetoothRounded";
@@ -45,7 +47,7 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "places" | "gps" | "bluetooth" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "gps" | "bluetooth" | "phone" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
@@ -53,6 +55,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[]
 	{ id: "places", label: "Places", icon: <PlaceRounded /> },
 	{ id: "gps", label: "GPS", icon: <SatelliteAltRounded /> },
 	{ id: "bluetooth", label: "Bluetooth", icon: <BluetoothRounded /> },
+	{ id: "phone", label: "Phone", icon: <PhoneAndroidRounded /> },
 	{ id: "system", label: "System", icon: <TuneRounded /> },
 ];
 const WEATHER_ICONS: Record<WeatherAppearance, React.ReactNode> = {
@@ -158,6 +161,7 @@ interface Props {
 	onVoiceEngineChange?: (engine: "natural" | "system") => void;
 	onTestVoice?: () => void;
 	onTestAlert?: () => void;
+	onTestMessage?: () => void;
 	routePreferences?: RoutePreference[];
 	showTraffic?: boolean;
 	/** Stop category chosen with the quick-stop icons. */
@@ -194,7 +198,7 @@ export default function MapControls({
 	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange, showClouds = true, onShowCloudsChange, showNight = true, onShowNightChange, globeIdle = true, onGlobeIdleChange,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
-	onTestVoice, onTestAlert,
+	onTestVoice, onTestAlert, onTestMessage,
 	routePreferences = [], onRoutePreferencesChange,
 	showTraffic = true, onShowTrafficChange,
 	stopCategory, onStopCategoryChange,
@@ -328,7 +332,7 @@ export default function MapControls({
 							{tab === "sound" && <>
 								{onVoiceEngineChange && <Section title="Guidance voice" hint={`${voiceStatus ?? ""} The master volume is on the music player.`.trim()}>
 									<Options label="Guidance voice" columns={2} value={voiceEngine} onChange={onVoiceEngineChange} items={[["natural", "Natural"], ["system", "System"]] as const} />
-									<VoiceVolumes onTestGuidance={onTestVoice} onTestAlert={onTestAlert} />
+									<VoiceVolumes onTestGuidance={onTestVoice} onTestAlert={onTestAlert} onTestMessage={onTestMessage} />
 								</Section>}
 								<Section title="Music on start" hint="Carry on with your last music a few seconds after the app starts. Never interrupts another device that is already playing.">
 									<Options<boolean> label="Music on start" columns={2} value={resumeMusic} onChange={setResumeMusic} items={[[true, "Resume"], [false, "Wait for me"]] as const} />
@@ -368,6 +372,7 @@ export default function MapControls({
 							</>}
 							{tab === "gps" && <GpsDebugPanel active status={gpsStatus} />}
 							{tab === "bluetooth" && <BluetoothPanel active />}
+							{tab === "phone" && <PhoneSettings />}
 							{tab === "system" && <>
 								<Section title="Routing" hint="Local routing requires Valhalla. Place search needs internet.">
 									<DriveButton className="settings-option" variant="outlined" onClick={onToggleProvider}>{provider === "mapbox" ? "Mapbox online" : "Valhalla local"}</DriveButton>

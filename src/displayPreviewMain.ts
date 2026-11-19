@@ -53,7 +53,9 @@ function applyWindowPreview(win: BrowserWindow, resize: boolean): void {
 			win.center();
 		}
 		const [width] = win.getContentSize();
-		win.webContents.setZoomFactor((width * settings.uiScale) / settings.width);
+		// A minimized or hidden window reports no width; a zoom of 0 is an error, so keep the zoom it has.
+		const zoom = (width * settings.uiScale) / settings.width;
+		if (Number.isFinite(zoom) && zoom > 0) win.webContents.setZoomFactor(zoom);
 		win.setTitle(
 			`Brava Preview — ${settings.width} × ${settings.height} · ${settings.ppi} PPI · ${Math.round(settings.uiScale * 100)}%`,
 		);

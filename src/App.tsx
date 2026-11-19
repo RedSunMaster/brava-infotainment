@@ -41,6 +41,7 @@ import type { LastFix } from "./lib/deadReckoning";
 import SpeedSigns from "./components/SpeedSigns";
 import { limitAt, speedSignState } from "./lib/speedSigns";
 import ClockWeatherChip from "./components/ClockWeatherChip";
+import PhoneNotifications from "./components/PhoneNotifications";
 import ProfileDialog from "./components/ProfileDialog";
 import { SIDE_DOCK_WIDTH, isDockSide } from "./lib/dockLayout";
 import lightsUrl from "../public/textures/city-lights.webp";
@@ -250,6 +251,7 @@ export default function App() {
 	const [placeSlot, setPlaceSlot] = useState<PlaceTarget | null>(null);
 	const [favourites, setFavourites] = useState(readFavourites);
 	const [profilesOpen, setProfilesOpen] = useState(false);
+	const [phoneOpen, setPhoneOpen] = useState(false);
 	const [dockEditing, setDockEditing] = useState(false);
 	const [showClouds, setShowClouds] = usePersistentState(CLOUDS_KEY, true, isBool);
 	const [showNight, setShowNight] = usePersistentState(NIGHT_KEY, true, isBool);
@@ -1034,7 +1036,9 @@ export default function App() {
 							estimating={estimating}
 							previewMode={previewMode}
 							onProfile={() => setProfilesOpen(true)}
+							onPhone={() => setPhoneOpen((open) => !open)}
 						/>
+						<PhoneNotifications open={phoneOpen} onOpen={() => setPhoneOpen(true)} onClose={() => setPhoneOpen(false)} quiet={navActive && isDriving} onRead={guidance.readAloud} />
 						<ProfileDialog open={profilesOpen} onClose={() => setProfilesOpen(false)} lockSwitch={navActive || isDriving} lockEdit={isDriving} />
 					</Box>
 					{navActive && (
@@ -1104,6 +1108,7 @@ export default function App() {
 					onVoiceEngineChange={guidance.setEngine}
 					onTestVoice={guidance.test}
 					onTestAlert={guidance.testAlert}
+					onTestMessage={guidance.testMessage}
 					onCancelRouting={() => {
 						routeRequest.current++;
 						setSelectingBuilding(null);

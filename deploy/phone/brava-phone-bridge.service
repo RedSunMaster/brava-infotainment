@@ -1,0 +1,10 @@
+[Unit]
+Description=Brava phone link (Bluetooth side)
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/share/brava/phone-bridge.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
