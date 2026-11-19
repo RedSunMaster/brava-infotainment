@@ -33,6 +33,7 @@ import { usePositionPuck } from "./hooks/usePuckPosition";
 import CarControls from "./components/CarControls";
 import { useMapStyle } from "./hooks/useMapStyle";
 import { useGps } from "./hooks/useGps";
+import { isUsableMapPoint } from "./lib/mapTapZone";
 import { useKeyboard } from "./contexts/KeyboardContext";
 import { locateOnRoute, routeCache } from "./lib/routeLocate";
 import { useDeadReckoning } from "./hooks/useDeadReckoning";
@@ -748,12 +749,19 @@ export default function App() {
 		// A tap sets a destination only while parked, so a stray touch on the
 		// move does nothing.
 		let ignoreClickUntil = 0;
+		// Touches on or near the controls, or in the gaps between them, are not meant for the map.
+		const onUsableMap = (point: mapboxgl.Point) => {
+			const container = map.getContainer();
+			const bounds = container.getBoundingClientRect();
+			return isUsableMapPoint(bounds.left + point.x, bounds.top + point.y, container);
+		};
 		const handleMapClick = (event: mapboxgl.MapMouseEvent) => {
 			// Only the primary button picks a place; right and middle clicks do nothing.
 			if (event.originalEvent.button !== 0) return;
 			// With a menu open, a tap on the map just closes it and carries on; it never picks a place.
 			if (menuRef.current.open) { menuRef.current.close(); return; }
 			if (isDriving || Date.now() < ignoreClickUntil) return;
+			if (!onUsableMap(event.point)) return;
 			void pickLocation(event.lngLat, event.point);
 		};
 
@@ -772,6 +780,7 @@ export default function App() {
 			if (menuRef.current.open) return;
 			if (isDriving && !navActive) return;
 			const { lngLat, point } = event;
+			if (!onUsableMap(point)) return;
 			holdStart = point;
 			holdTimer = window.setTimeout(() => {
 				holdTimer = 0;
