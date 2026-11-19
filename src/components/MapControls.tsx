@@ -7,7 +7,6 @@ import {
 	Typography,
 } from "@mui/material";
 import type { CameraMode, Orientation, RoutingProvider } from "../constants";
-import { alpha } from "@mui/material/styles";
 import CloseRounded from "@mui/icons-material/CloseRounded";
 import ExploreRounded from "@mui/icons-material/ExploreRounded";
 import MyLocationRounded from "@mui/icons-material/MyLocationRounded";
@@ -32,9 +31,7 @@ import WaterDropRounded from "@mui/icons-material/WaterDropRounded";
 import ThunderstormRounded from "@mui/icons-material/ThunderstormRounded";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
 import AirRounded from "@mui/icons-material/AirRounded";
-import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
-import ChevronLeftRounded from "@mui/icons-material/ChevronLeftRounded";
-import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
+import VoiceVolumes from "./VoiceVolumes";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import DriveButton from "./DriveButton";
 import DestinationSearch, { topSheetSx } from "./DestinationSearch";
@@ -152,9 +149,8 @@ interface Props {
 	voiceStatus?: string;
 	voiceEngine?: "natural" | "system";
 	onVoiceEngineChange?: (engine: "natural" | "system") => void;
-	voiceVolume?: number;
-	onVoiceVolumeChange?: (volume: number) => void;
 	onTestVoice?: () => void;
+	onTestAlert?: () => void;
 	routePreferences?: RoutePreference[];
 	showTraffic?: boolean;
 	/** Stop category chosen with the quick-stop icons. */
@@ -189,7 +185,7 @@ export default function MapControls({
 	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange, showClouds = true, onShowCloudsChange, showNight = true, onShowNightChange, globeIdle = true, onGlobeIdleChange,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
-	voiceVolume = 1, onVoiceVolumeChange, onTestVoice,
+	onTestVoice, onTestAlert,
 	routePreferences = [], onRoutePreferencesChange,
 	showTraffic = true, onShowTrafficChange,
 	stopCategory, onStopCategoryChange,
@@ -320,9 +316,9 @@ export default function MapControls({
 								</Section>}
 							</>}
 							{tab === "sound" && <>
-								{onVoiceEngineChange && <Section title="Guidance voice" hint={voiceStatus}>
+								{onVoiceEngineChange && <Section title="Guidance voice" hint={`${voiceStatus ?? ""} The master volume is on the music player.`.trim()}>
 									<Options label="Guidance voice" columns={2} value={voiceEngine} onChange={onVoiceEngineChange} items={[["natural", "Natural"], ["system", "System"]] as const} />
-									{onVoiceVolumeChange && <Box role="group" aria-label="Guidance volume" sx={{ display: "flex", alignItems: "center", gap: 0.5 }}><DriveButton color="inherit" aria-label="Volume down" disabled={voiceVolume <= 0.1} onClick={() => onVoiceVolumeChange(Math.max(0.1, Math.round((voiceVolume - 0.1) * 10) / 10))} sx={{ minWidth: 0, flex: "0 0 64px", minHeight: 72, color: "text.secondary" }}><ChevronLeftRounded /></DriveButton><Box aria-live="polite" sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, minWidth: 140 }}><VolumeUpRounded aria-hidden sx={{ fontSize: 32, color: "text.secondary" }} /><Typography sx={{ fontSize: 30, fontWeight: 600 }}>{Math.round(voiceVolume * 100)}%</Typography></Box><DriveButton color="inherit" aria-label="Volume up" disabled={voiceVolume >= 1} onClick={() => onVoiceVolumeChange(Math.min(1, Math.round((voiceVolume + 0.1) * 10) / 10))} sx={{ minWidth: 0, flex: "0 0 64px", minHeight: 72, color: "text.secondary" }}><ChevronRightRounded /></DriveButton>{onTestVoice && <DriveButton color="inherit" onClick={onTestVoice} sx={{ ml: "auto", minHeight: 64, px: 3, borderRadius: 8, fontSize: 22, fontWeight: 600, bgcolor: (theme) => alpha(theme.palette.text.primary, 0.07) }}>Test voice</DriveButton>}</Box>}
+									<VoiceVolumes onTestGuidance={onTestVoice} onTestAlert={onTestAlert} />
 								</Section>}
 								<Section title="Music on start" hint="Carry on with your last music a few seconds after the app starts. Never interrupts another device that is already playing.">
 									<Options<boolean> label="Music on start" columns={2} value={resumeMusic} onChange={setResumeMusic} items={[[true, "Resume"], [false, "Wait for me"]] as const} />

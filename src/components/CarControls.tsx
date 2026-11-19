@@ -28,6 +28,9 @@ import QuietNotice from "./QuietNotice";
 import { useSpotify } from "../hooks/useSpotify";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import { audioDucking, duckedVolume } from "../lib/audioDucking";
+import { useMasterVolume, voiceLevels } from "../hooks/useMasterVolume";
+import MasterVolume from "./MasterVolume";
+import VolumeOffRounded from "@mui/icons-material/VolumeOffRounded";
 import RearDefrostIcon from "../../public/icons/rearWindshieldDefrost.svg";
 import AirflowFaceIcon from "../../public/icons/airflowFace.svg";
 import AirflowFaceFeetIcon from "../../public/icons/airflowFaceFeet.svg";
@@ -167,21 +170,31 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
  const spotify = useSpotify();
  const spotifyRef = useRef(spotify);
  spotifyRef.current = spotify;
- // The level the music was at before a spoken prompt lowered it; null when it is not lowered.
- const duckedFrom = useRef<number | null>(null);
- // Lower the music while navigation speaks, then put it back exactly where it was.
- useEffect(() => audioDucking.subscribe((ducked: boolean): void => {
+ const master = useMasterVolume();
+ // The level Spotify itself should play at. With the system output as the master, Spotify stays at full and the system volume
+ // does the work (so it also works when Spotify is not connected); without one, Spotify's own volume is the master.
+ const musicTarget = master.system ? 100 : master.muted ? 0 : master.level;
+ const musicTargetRef = useRef(musicTarget);
+ musicTargetRef.current = musicTarget;
+ // True while a spoken prompt has the music lowered.
+ const ducked = useRef(false);
+ // Lower the music while navigation speaks, then put it back at the level the master volume calls for.
+ useEffect(() => audioDucking.subscribe((duck: boolean): void => {
   const music = spotifyRef.current;
-  if (ducked) {
-   if (duckedFrom.current !== null || !music.isConnected || !music.track?.isPlaying || music.volume <= 0) return;
-   duckedFrom.current = music.volume;
-   void music.setVolume(duckedVolume(music.volume)).catch(() => { duckedFrom.current = null; });
-  } else if (duckedFrom.current !== null) {
-   const restore = duckedFrom.current;
-   duckedFrom.current = null;
-   void music.setVolume(restore).catch((): void => { /* Keep playing at the lowered level. */ });
+  if (duck) {
+   if (ducked.current || !music.isConnected || !music.track?.isPlaying || music.volume <= 0) return;
+   ducked.current = true;
+   void music.setVolume(duckedVolume(music.volume, voiceLevels.get().music)).catch(() => { ducked.current = false; });
+  } else if (ducked.current) {
+   ducked.current = false;
+   void music.setVolume(musicTargetRef.current).catch((): void => { /* Keep playing at the lowered level. */ });
   }
  }), []);
+ // Keep Spotify at the level the master volume calls for, including after it connects or another device changes it.
+ useEffect(() => {
+  if (!spotify.isConnected || ducked.current || spotify.volume === musicTarget) return;
+  void spotify.setVolume(musicTarget).catch((): void => { /* Tried again when something changes. */ });
+ }, [spotify.isConnected, spotify.volume, musicTarget]);
  const { hideKeyboard } = useKeyboard();
  // Climate settings are remembered between drives (hazards deliberately are not).
  const [temp, setTemp] = usePersistentState("brava-climate-temp", 5, isNumberIn(0, 100));
@@ -280,7 +293,7 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
   switch (id) {
    case "fan": return <StepControl vertical={vertical} className={className} label="Fan" icon={AirRounded} grow={1} value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} meter={vertical ? <VerticalSlider kind="fan" label="Fan speed" value={fan} maximum={10} onChange={setFan} /> : <FanMeter value={fan} />} />;
    case "warmth": return <StepControl vertical={vertical} className={className} label="Warmth" icon={DeviceThermostatRounded} grow={1} value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} meter={vertical ? <VerticalSlider kind="warmth" label="Warmth" value={temp} maximum={10} onChange={setTemp} /> : <WarmthMeter value={temp} />} />;
-   case "volume": return <StepControl vertical={vertical} className={className} label="Volume" icon={VolumeUpRounded} grow={1} value={spotify.volume} step={10} maximum={100} disabled={!spotify.isConnected} displayValue={spotify.isConnected ? String(spotify.volume) : "—"} meter={vertical ? <VerticalSlider kind="level" label="Volume" value={spotify.volume} maximum={100} step={5} disabled={!spotify.isConnected} onChange={(value) => void mediaAction(() => spotify.setVolume(value))} /> : undefined} onChange={(value) => void mediaAction(() => spotify.setVolume(value))} />;
+   case "volume": return <StepControl vertical={vertical} className={className} label="Volume" icon={master.muted ? VolumeOffRounded : VolumeUpRounded} grow={1} value={master.muted ? 0 : master.level} step={10} maximum={100} displayValue={master.muted ? "Mute" : String(master.level)} meter={vertical ? <VerticalSlider kind="level" label="Volume" value={master.muted ? 0 : master.level} maximum={100} step={5} onChange={master.setLevel} /> : undefined} onChange={master.setLevel} />;
    case "airflow": return <Switch bar={barEdge} caption={caption("Airflow")} className={className} label={`Airflow direction: ${AIRFLOW_MODES[airflow].name}${suffix}`} onClick={() => { const next = (airflow + 1) % AIRFLOW_MODES.length; setAirflow(next); setAirflowNote(AIRFLOW_MODES[next].name); }}>{React.createElement(AIRFLOW_MODES[airflow].Icon, { width: 46, height: 46, fill: "currentColor", "aria-hidden": true })}</Switch>;
    case "recirculate": return <Switch bar={barEdge} caption={caption("Recirculate")} className={className} label={`Recirculate cabin air${suffix}`} pressed={recirculate} onClick={() => setRecirculate(!recirculate)}><RecirculateIcon width={46} height={46} fill="currentColor" /></Switch>;
    case "demist": return <Switch bar={barEdge} caption={caption("Demist")} className={className} label={`Rear demist${suffix}`} pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)}><RearDefrostIcon width={46} height={46} fill="currentColor" /></Switch>;
@@ -333,11 +346,9 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
     <DriveButton color="inherit" disabled={!spotify.isConnected} aria-label={spotify.track?.isPlaying ? "Pause music" : "Play music"} onClick={() => mediaAction(spotify.track?.isPlaying ? spotify.pause : spotify.play)}>{spotify.track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
     <DriveButton color="inherit" disabled={!ready} aria-label="Next track" onClick={() => mediaAction(spotify.next)}><SkipNextRounded /></DriveButton>
     <Box sx={{ width: "1px", alignSelf: "stretch", my: 1.5, bgcolor: "divider", mx: 0.5 }} />
-    <DriveButton color="inherit" sx={{ minWidth: 0, flex: "0 0 52px" }} aria-label="Decrease volume" disabled={spotify.volume <= 0} onClick={() => mediaAction(() => spotify.setVolume(Math.max(0, Math.ceil(spotify.volume / 10) * 10 - 10)))}><ChevronLeftRounded /></DriveButton>
-    <Box aria-live="polite" sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, minWidth: 92 }}><VolumeUpRounded sx={{ fontSize: 30, color: "text.secondary" }} /><Typography sx={{ fontSize: 28, fontWeight: 500 }}>{spotify.volume}</Typography></Box>
-    <DriveButton color="inherit" sx={{ minWidth: 0, flex: "0 0 52px" }} aria-label="Increase volume" disabled={spotify.volume >= 100} onClick={() => mediaAction(() => spotify.setVolume(Math.min(100, Math.floor(spotify.volume / 10) * 10 + 10)))}><ChevronRightRounded /></DriveButton>
+    <MasterVolume />
     <DriveButton color="inherit" aria-label="Open full music player" onClick={() => { hideKeyboard(); setTab("media"); }} sx={{ minWidth: 0, flex: "0 0 72px" }}><ExpandLessRounded /></DriveButton>
-   </> : <DriveButton color="inherit" aria-label="Open music player" onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); }} sx={{ justifyContent: "flex-start", gap: 1, fontSize: 24 }}><MusicNoteRounded /> Connect Spotify</DriveButton>}
+   </> : <><DriveButton color="inherit" aria-label="Open music player" onClick={() => { hideKeyboard(); setTab(tab === "media" ? null : "media"); }} sx={{ justifyContent: "flex-start", gap: 1, fontSize: 24 }}><MusicNoteRounded /> Connect Spotify</DriveButton><Box sx={{ flex: 1 }} /><MasterVolume /></>}
   </Box>}
   {editing && <Box role="region" data-map-obstruction aria-label="Customise dock" sx={{ mx: 2, mb: 1.5, p: 2, display: "grid", gap: 1.5, maxHeight: "min(45vh, 460px)", overflowY: "auto", bgcolor: (theme) => alpha(theme.palette.background.paper, 0.95), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 8 }}>
    <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>

@@ -18,7 +18,7 @@ export const MAX_NAME = 16;
 const PROFILES_KEY = "brava-profiles";
 const DATA_PREFIX = "brava-profile-data:";
 /** Settings that describe the car or the Spotify account rather than the driver, so every profile sees the same ones. */
-export const SHARED_KEYS: readonly string[] = [PROFILES_KEY, "brava-spotify-volume", "brava-inapp-player", "brava-resume-music"];
+export const SHARED_KEYS: readonly string[] = [PROFILES_KEY, "brava-spotify-volume", "brava-master-volume", "brava-master-muted", "brava-inapp-player", "brava-resume-music"];
 const isScoped = (key: string) => (key.startsWith("brava-") || key.startsWith("brava.")) && !SHARED_KEYS.includes(key) && !key.startsWith(DATA_PREFIX);
 
 const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

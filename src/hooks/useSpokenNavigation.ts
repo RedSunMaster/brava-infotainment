@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { kokoroVoice } from "../lib/kokoroVoice";
+import { masterVolume, voiceLevels } from "./useMasterVolume";
+import { appScale } from "../lib/masterVolume";
+import type { VoiceKind } from "../lib/voiceLevels";
 import { audioDucking, DUCK_LEAD_S } from "../lib/audioDucking";
 import { announcementParts, type GuidanceStep, type Stage } from "../lib/spokenGuidance";
 import { toSpeech } from "../lib/spokenText";
@@ -32,15 +35,6 @@ function stopSpeaking() {
 	if ("speechSynthesis" in window) window.speechSynthesis.cancel();
 }
 
-export function readVolume(): number {
-	try {
-		const saved = Number(localStorage.getItem("brava-voice-volume"));
-		return localStorage.getItem("brava-voice-volume") !== null && Number.isFinite(saved) ? Math.min(1, Math.max(0, saved)) : 1;
-	} catch {
-		return 1;
-	}
-}
-
 function readEngine(): VoiceEngine {
 	try {
 		return localStorage.getItem("brava-voice-engine") === "system" ? "system" : "natural";
@@ -56,8 +50,8 @@ function readEngine(): VoiceEngine {
 export function useSpokenNavigation(steps: GuidanceStep[], distance: number | null, active: boolean, speedMs = 0) {
 	const [muted, setMuted] = useState(() => localStorage.getItem("brava-guidance-muted") === "true");
 	const [engine, setEngineState] = useState<VoiceEngine>(readEngine);
-	const [volume, setVolumeState] = useState(readVolume);
-	const volumeRef = useRef(volume);
+	// Which kind of prompt is being spoken now, so a volume change mid-sentence moves the right one.
+	const speakingKind = useRef<VoiceKind>("guidance");
 	// The last stage spoken for the turn ahead, so each stage is said once as the car closes in.
 	const lastSpoken = useRef<{ key: string; band: Band } | null>(null);
 	const lastTurnSpokenAt = useRef(0);
@@ -77,14 +71,14 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 		try { localStorage.setItem("brava-voice-engine", next); } catch { /* Keep the choice for this session. */ }
 	}, []);
 
-	const setVolume = useCallback((next: number) => {
-		const clamped = Math.min(1, Math.max(0, next));
-		volumeRef.current = clamped;
-		kokoroVoice.setVolume(clamped);
-		setVolumeState(clamped);
-		try { localStorage.setItem("brava-voice-volume", String(clamped)); } catch { /* Keep the level for this session. */ }
+	/** How loud a prompt of this kind is right now: its own level, under the master volume where the app has to apply that itself. */
+	const levelFor = (kind: VoiceKind) => voiceLevels.get()[kind] * appScale(masterVolume.get());
+	useEffect(() => {
+		const apply = () => kokoroVoice.setVolume(levelFor(speakingKind.current));
+		apply();
+		const stops = [voiceLevels.subscribe(apply), masterVolume.subscribe(apply)];
+		return () => stops.forEach((stop) => stop());
 	}, []);
-	useEffect(() => { kokoroVoice.setVolume(volume); }, []);
 
 	// Load the natural voice shortly after startup so it is ready before the first trip.
 	useEffect(() => {
@@ -108,9 +102,11 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 		kokoroVoice.prepareAll([...new Set(phrases.filter(Boolean))]);
 	}, [active, engine, steps]);
 
-	const say = useCallback(async (parts: string[]) => {
+	const say = useCallback(async (parts: string[], kind: VoiceKind = "guidance") => {
 		const token = ++request.current;
 		stopSpeaking();
+		speakingKind.current = kind;
+		kokoroVoice.setVolume(levelFor(kind));
 		const text = parts.join(" ");
 		if (engine === "natural" && kokoroVoice.status === "ready") {
 			const wait = kokoroVoice.device === "webgpu" ? WAIT_GPU_MS : WAIT_CPU_MS;
@@ -128,14 +124,14 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 		} else if (engine === "natural") {
 			console.info(`[voice] natural voice is ${kokoroVoice.status}, using the system voice: ${text}`);
 		}
-		systemSpeak(text, volumeRef.current);
+		systemSpeak(text, levelFor(kind));
 	}, [engine]);
 
 	// Speaks something other than a turn instruction, unless the driver has muted guidance.
 	// Said when it will not talk over a turn; otherwise held for up to 30 seconds and said at the next quiet moment.
 	const announce = useCallback((text: string) => {
 		if (!active || muted) return;
-		if (quietForNotice(distanceRef.current, Date.now() - lastTurnSpokenAt.current)) void say([toSpeech(text)]);
+		if (quietForNotice(distanceRef.current, Date.now() - lastTurnSpokenAt.current)) void say([toSpeech(text)], "alerts");
 		else pendingNotice.current = { text, expires: Date.now() + 30_000 };
 	}, [active, muted, say]);
 
@@ -148,6 +144,9 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 
 	// Plays a sample so the volume and voice can be judged from Settings, even when not navigating.
 	const test = useCallback(() => { void say(["In 200 metres,", "Turn left onto Millstream Drive."]); }, [say]);
+
+	// The same, for an alert, so its own volume can be judged.
+	const testAlert = useCallback(() => { void say([toSpeech("There is a road closure on your route.")], "alerts"); }, [say]);
 
 	// Says any text exactly as guidance would, for tuning pronunciation from the developer console.
 	const sample = useCallback((text: string) => { void say(text.split(/(?<=[.!?])\s+/).map(toSpeech).filter(Boolean)); }, [say]);
@@ -189,11 +188,11 @@ export function useSpokenNavigation(steps: GuidanceStep[], distance: number | nu
 		const waiting = pendingNotice.current;
 		if (waiting) {
 			if (Date.now() > waiting.expires) pendingNotice.current = null;
-			else if (quietForNotice(distance, Date.now() - lastTurnSpokenAt.current)) { pendingNotice.current = null; void say([toSpeech(waiting.text)]); }
+			else if (quietForNotice(distance, Date.now() - lastTurnSpokenAt.current)) { pendingNotice.current = null; void say([toSpeech(waiting.text)], "alerts"); }
 		}
 	}, [steps, distance, active, muted, speakFor, say]);
 
 	useEffect(() => () => { request.current++; stopSpeaking(); }, []);
 
-	return { muted, supported, engine, setEngine, volume, setVolume, test, speak, announce, finish, sample, toggleMute: () => setMuted((value) => !value) };
+	return { muted, supported, engine, setEngine, test, testAlert, speak, announce, finish, sample, toggleMute: () => setMuted((value) => !value) };
 }

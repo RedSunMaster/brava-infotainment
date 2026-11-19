@@ -8,15 +8,13 @@ import PauseRounded from "@mui/icons-material/PauseRounded";
 import ShuffleRounded from "@mui/icons-material/ShuffleRounded";
 import RepeatRounded from "@mui/icons-material/RepeatRounded";
 import RepeatOneRounded from "@mui/icons-material/RepeatOneRounded";
-import ChevronLeftRounded from "@mui/icons-material/ChevronLeftRounded";
-import ChevronRightRounded from "@mui/icons-material/ChevronRightRounded";
-import VolumeUpRounded from "@mui/icons-material/VolumeUpRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import LibraryMusicRounded from "@mui/icons-material/LibraryMusicRounded";
 import { UseSpotifyReturn } from "../hooks/useSpotify";
 import DriveButton from "./DriveButton";
 import SpotifyLibrary from "./SpotifyLibrary";
+import MasterVolume from "./MasterVolume";
 import { useKeyboard } from "../contexts/KeyboardContext";
 
 interface Props { spotify: UseSpotifyReturn; isDriving: boolean; /** Closes the player; shown as an arrow in the header. */ onClose?: () => void }
@@ -72,12 +70,8 @@ export default function SpotifyPopup({ spotify, isDriving, onClose }: Props) {
      <DriveButton variant="contained" aria-label={track?.isPlaying ? "Pause music" : "Play music"} onClick={() => void run(track?.isPlaying ? spotify.pause : spotify.play)} sx={{ ...TRANSPORT, flex: "0 0 150px" }}>{track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
      <DriveButton color="inherit" disabled={!track} aria-label="Next track" onClick={() => void run(spotify.next)} sx={{ ...STEP_BUTTON, ...TRANSPORT, flex: "0 0 112px" }}><SkipNextRounded /></DriveButton>
      <DriveButton color={track?.repeat !== "off" && track ? "primary" : "inherit"} disabled={!track} aria-label={`Repeat ${track?.repeat ?? "off"}`} onClick={() => void run(spotify.cycleRepeat)} sx={{ ...STEP_BUTTON, flex: "0 0 72px", minHeight: 64, minWidth: 0 }}>{track?.repeat === "track" ? <RepeatOneRounded /> : <RepeatRounded />}</DriveButton>
-     {/* Volume, small and at the end of the row, in the same form as the music card. */}
-     <Box role="group" aria-label={`Spotify volume ${spotify.volume}%`} sx={{ display: "flex", alignItems: "center", ml: 1, pl: 1.5, borderLeft: "1px solid", borderColor: "divider" }}>
-      <DriveButton color="inherit" disabled={!track || spotify.volume <= 0} aria-label="Decrease Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.max(0, Math.ceil(spotify.volume / 10) * 10 - 10)))} sx={{ minWidth: 0, flex: "0 0 52px", minHeight: 64 }}><ChevronLeftRounded /></DriveButton>
-      <Box aria-live="polite" sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0.5, minWidth: 92 }}><VolumeUpRounded aria-hidden sx={{ fontSize: 30, color: "text.secondary" }} /><Typography sx={{ fontSize: 28, fontWeight: 500 }}>{spotify.volume}</Typography></Box>
-      <DriveButton color="inherit" disabled={!track || spotify.volume >= 100} aria-label="Increase Spotify volume" onClick={() => void run(() => spotify.setVolume(Math.min(100, Math.floor(spotify.volume / 10) * 10 + 10)))} sx={{ minWidth: 0, flex: "0 0 52px", minHeight: 64 }}><ChevronRightRounded /></DriveButton>
-     </Box>
+     {/* The master volume, small and at the end of the row, in the same form as the music card. */}
+     <Box sx={{ ml: 1, pl: 1.5, borderLeft: "1px solid", borderColor: "divider" }}><MasterVolume /></Box>
     </Box>
    </>}
   </>}

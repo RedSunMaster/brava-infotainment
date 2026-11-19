@@ -117,7 +117,7 @@ test("expanded music player presents artwork and playback controls", () => {
  const Media = load("src/components/SpotifyPopup.tsx").default;
  const track = { name: "A song", artists: "An artist", albumName: "An album", albumArt: "https://example.com/art.jpg", durationMs: 180000, progressMs: 30000, isPlaying: true, shuffle: true, repeat: "track" };
  const html = renderToStaticMarkup(React.createElement(Media, { spotify: { isConnected: true, track, volume: 50 }, isDriving: false }));
- for (const value of ["A song", "An artist", "An album", "art.jpg", "0:30", "3:00", 'aria-label="Pause music"', 'aria-label="Previous track"', 'aria-label="Next track"', 'aria-label="Shuffle"', 'aria-label="Repeat track"', 'aria-label="Spotify volume 50%"', 'aria-label="Browse library"']) assert.ok(html.includes(value), value);
+ for (const value of ["A song", "An artist", "An album", "art.jpg", "0:30", "3:00", 'aria-label="Pause music"', 'aria-label="Previous track"', 'aria-label="Next track"', 'aria-label="Shuffle"', 'aria-label="Repeat track"', 'aria-label="Master volume 50%"', 'aria-label="Browse library"']) assert.ok(html.includes(value), value);
 });
 
 test("camera offset keeps the puck the same distance above an open panel as above the dock", () => {

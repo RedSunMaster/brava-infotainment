@@ -10,8 +10,9 @@ export const DUCK_FACTOR = 0.3;
 /** Speech starts this long after the duck is requested, so the music has begun to drop. */
 export const DUCK_LEAD_S = 0.3;
 
-export function duckedVolume(percent: number): number {
-	return Math.max(0, Math.round(percent * DUCK_FACTOR));
+/** `factor` is how much of the level stays while speaking; Settings lets the driver change it. */
+export function duckedVolume(percent: number, factor: number = DUCK_FACTOR): number {
+	return Math.max(0, Math.round(percent * factor));
 }
 
 export function createDucking(releaseMs = 800, maxHoldMs = 20_000) {

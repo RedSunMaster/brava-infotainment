@@ -1092,9 +1092,8 @@ export default function App() {
 					voiceStatus={voiceStatus}
 					voiceEngine={guidance.engine}
 					onVoiceEngineChange={guidance.setEngine}
-					voiceVolume={guidance.volume}
-					onVoiceVolumeChange={guidance.setVolume}
 					onTestVoice={guidance.test}
+					onTestAlert={guidance.testAlert}
 					onCancelRouting={() => {
 						routeRequest.current++;
 						setSelectingBuilding(null);

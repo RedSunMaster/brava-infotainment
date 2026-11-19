@@ -37,3 +37,10 @@ import { ipcRenderer } from "electron";
 	show: () => ipcRenderer.send("osk-show"),
 	hide: () => ipcRenderer.send("osk-hide"),
 };
+
+// ── Master volume (system output; see audioMain.ts) ──────────────────────────
+(window as any).electronAudio = {
+	get: () => ipcRenderer.invoke("audio:get"),
+	setLevel: (level: number) => ipcRenderer.invoke("audio:set-level", level),
+	setMuted: (muted: boolean) => ipcRenderer.invoke("audio:set-muted", muted),
+};
