@@ -11,6 +11,7 @@ import {
 import { startUpdater } from "./updaterMain";
 import { registerAudioIpc } from "./audioMain";
 import { startGps } from "./gpsMain";
+import { registerBluetoothIpc } from "./bluetoothMain";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -142,6 +143,7 @@ ipcMain.on("osk-hide", () => {
 
 startUpdater(() => mainWindow);
 registerAudioIpc();
+registerBluetoothIpc();
 
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────
 ipcMain.on("app-quit", () => app.quit());

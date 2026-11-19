@@ -34,6 +34,8 @@ import AirRounded from "@mui/icons-material/AirRounded";
 import SatelliteAltRounded from "@mui/icons-material/SatelliteAltRounded";
 import VoiceVolumes from "./VoiceVolumes";
 import GpsDebugPanel from "./GpsDebugPanel";
+import BluetoothPanel from "./BluetoothPanel";
+import BluetoothRounded from "@mui/icons-material/BluetoothRounded";
 import type { GpsStatus } from "../hooks/useGps";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import DriveButton from "./DriveButton";
@@ -43,13 +45,14 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "places" | "gps" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "gps" | "bluetooth" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
 	{ id: "drive", label: "Driving", icon: <RouteRounded /> },
 	{ id: "places", label: "Places", icon: <PlaceRounded /> },
 	{ id: "gps", label: "GPS", icon: <SatelliteAltRounded /> },
+	{ id: "bluetooth", label: "Bluetooth", icon: <BluetoothRounded /> },
 	{ id: "system", label: "System", icon: <TuneRounded /> },
 ];
 const WEATHER_ICONS: Record<WeatherAppearance, React.ReactNode> = {
@@ -364,6 +367,7 @@ export default function MapControls({
 								</Section>
 							</>}
 							{tab === "gps" && <GpsDebugPanel active status={gpsStatus} />}
+							{tab === "bluetooth" && <BluetoothPanel active />}
 							{tab === "system" && <>
 								<Section title="Routing" hint="Local routing requires Valhalla. Place search needs internet.">
 									<DriveButton className="settings-option" variant="outlined" onClick={onToggleProvider}>{provider === "mapbox" ? "Mapbox online" : "Valhalla local"}</DriveButton>
