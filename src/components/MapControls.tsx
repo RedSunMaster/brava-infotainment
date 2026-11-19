@@ -31,7 +31,10 @@ import WaterDropRounded from "@mui/icons-material/WaterDropRounded";
 import ThunderstormRounded from "@mui/icons-material/ThunderstormRounded";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
 import AirRounded from "@mui/icons-material/AirRounded";
+import SatelliteAltRounded from "@mui/icons-material/SatelliteAltRounded";
 import VoiceVolumes from "./VoiceVolumes";
+import GpsDebugPanel from "./GpsDebugPanel";
+import type { GpsStatus } from "../hooks/useGps";
 import { useKeyboard } from "../contexts/KeyboardContext";
 import DriveButton from "./DriveButton";
 import DestinationSearch, { topSheetSx } from "./DestinationSearch";
@@ -40,12 +43,13 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "places" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "gps" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
 	{ id: "drive", label: "Driving", icon: <RouteRounded /> },
 	{ id: "places", label: "Places", icon: <PlaceRounded /> },
+	{ id: "gps", label: "GPS", icon: <SatelliteAltRounded /> },
 	{ id: "system", label: "System", icon: <TuneRounded /> },
 ];
 const WEATHER_ICONS: Record<WeatherAppearance, React.ReactNode> = {
@@ -159,6 +163,8 @@ interface Props {
 	onShowTrafficChange?: (value: boolean) => void;
 	onRoutePreferencesChange?: (values: RoutePreference[]) => void;
 	route?: [number, number][];
+	/** The app's own view of the GPS, shown beside gpsd's details in Settings → GPS. */
+	gpsStatus?: GpsStatus;
 }
 export default function MapControls({
 	panel, setPanel,
@@ -190,6 +196,7 @@ export default function MapControls({
 	showTraffic = true, onShowTrafficChange,
 	stopCategory, onStopCategoryChange,
 	route,
+	gpsStatus = "disconnected",
 }: Props) {
 	const [tab, setTab] = useState<SettingsTab>("display");
 	const [resumeMusic, setResumeMusic] = usePersistentState(RESUME_KEY, false, isBool);
@@ -356,6 +363,7 @@ export default function MapControls({
 									{onSetPlace && <DriveButton className="settings-option" variant="outlined" onClick={() => onSetPlace("favourite")}>Add favourite</DriveButton>}
 								</Section>
 							</>}
+							{tab === "gps" && <GpsDebugPanel active status={gpsStatus} />}
 							{tab === "system" && <>
 								<Section title="Routing" hint="Local routing requires Valhalla. Place search needs internet.">
 									<DriveButton className="settings-option" variant="outlined" onClick={onToggleProvider}>{provider === "mapbox" ? "Mapbox online" : "Valhalla local"}</DriveButton>

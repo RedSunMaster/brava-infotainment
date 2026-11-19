@@ -1,7 +1,6 @@
 import { app, BrowserWindow, components, ipcMain, safeStorage, session, screen } from "electron";
 import { chmodSync, closeSync, existsSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from "fs";
 import { join } from "path";
-import { createConnection } from "net";
 import { exec } from "child_process";
 import {
 	configureDisplayPreview,
@@ -11,6 +10,7 @@ import {
 
 import { startUpdater } from "./updaterMain";
 import { registerAudioIpc } from "./audioMain";
+import { startGps } from "./gpsMain";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -37,47 +37,6 @@ let mainWindow: BrowserWindow | null = null;
 
 function hasArg(name: string) {
 	return process.argv.includes(name);
-}
-
-// ── GPS ───────────────────────────────────────────────────────────────────────
-function startGps(win: BrowserWindow) {
-	const client = createConnection({ port: 2947, host: "localhost" });
-	let buffer = "";
-
-	client.on("data", (chunk) => {
-		buffer += chunk.toString();
-		const lines = buffer.split("\n");
-		buffer = lines.pop() ?? "";
-
-		for (const line of lines) {
-			if (!line.trim()) continue;
-			try {
-				const msg = JSON.parse(line);
-				if (msg.class === "VERSION") {
-					client.write('?WATCH={"enable":true,"json":true}\n');
-					continue;
-				}
-				if (msg.class === "TPV") {
-					win.webContents.send("gps-update", {
-						lat: msg.lat ?? null,
-						lon: msg.lon ?? null,
-						speed: msg.speed ?? 0,
-						track: msg.track ?? null,
-						mode: msg.mode ?? 0,
-					});
-				}
-			} catch {
-				// Do nothing
-			}
-		}
-	});
-
-	client.on("error", () => {
-		win.webContents.send("gps-update", { error: true });
-		setTimeout(() => startGps(win), 5000);
-	});
-
-	app.on("before-quit", () => client.destroy());
 }
 
 // ── Main window ───────────────────────────────────────────────────────────────

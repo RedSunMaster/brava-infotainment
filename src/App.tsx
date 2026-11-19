@@ -1042,6 +1042,7 @@ export default function App() {
 					<Box ref={setTurnsSlot} sx={{ display: "contents" }} />
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
+						gpsStatus={gpsStatus}
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
 					stopCategory={stopCategory}
