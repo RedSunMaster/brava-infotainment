@@ -52,6 +52,9 @@ class Profile(dbus.service.Object):
     @dbus.service.method("org.bluez.Profile1", in_signature="oha{sv}", out_signature="")
     def NewConnection(self, device, fd, properties):
         bluetooth = socket.socket(fileno=fd.take())
+        # BlueZ hands over a non-blocking socket; the relay threads need blocking reads, or the first recv() fails at once
+        # with EAGAIN and the link closes the moment it opens.
+        bluetooth.setblocking(True)
         try:
             app = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             app.connect(APP_SOCKET)
@@ -98,6 +101,9 @@ def main():
     manager.RegisterProfile(PROFILE_PATH, UUID, {
         "Name": "Brava Phone Link",
         "Role": "server",
+        # BlueZ only opens an RFCOMM listener for a custom UUID when given a channel; without one the published record has
+        # no RFCOMM entry and the phone's connect fails ("read failed, socket might closed"). The phone finds it by UUID.
+        "Channel": dbus.UInt16(22),
         "RequireAuthentication": True,   # the phone must be paired with this computer
         "RequireAuthorization": False,   # and then no prompt on each connection
         "AutoConnect": False,
