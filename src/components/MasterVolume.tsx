@@ -8,7 +8,7 @@ import DriveButton from "./DriveButton";
 import { useMasterVolume } from "../hooks/useMasterVolume";
 
 /** Steps the master volume moves by from the buttons. */
-export const VOLUME_STEP = 10;
+export const VOLUME_STEP = 5;
 
 /** Quieter / louder buttons with a mute toggle between them. The master volume works with or without Spotify. */
 export default function MasterVolume({ buttonHeight = 64 }: { buttonHeight?: number }) {

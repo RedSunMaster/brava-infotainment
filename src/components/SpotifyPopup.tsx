@@ -11,6 +11,8 @@ import RepeatOneRounded from "@mui/icons-material/RepeatOneRounded";
 import KeyboardArrowDownRounded from "@mui/icons-material/KeyboardArrowDownRounded";
 import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 import LibraryMusicRounded from "@mui/icons-material/LibraryMusicRounded";
+import FavoriteRounded from "@mui/icons-material/FavoriteRounded";
+import FavoriteBorderRounded from "@mui/icons-material/FavoriteBorderRounded";
 import { UseSpotifyReturn } from "../hooks/useSpotify";
 import DriveButton from "./DriveButton";
 import SpotifyLibrary from "./SpotifyLibrary";
@@ -30,7 +32,6 @@ export default function SpotifyPopup({ spotify, isDriving, onClose }: Props) {
  const [error, setError] = useState<string | null>(null);
  const { hideKeyboard } = useKeyboard();
  useEffect(() => () => hideKeyboard(), [hideKeyboard]);
- useEffect(() => { if (isDriving) setLibraryOpen(false); }, [isDriving]);
  async function run(action: () => Promise<void>) {
   setError(null);
   try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Playback unavailable. Try again."); }
@@ -48,7 +49,8 @@ export default function SpotifyPopup({ spotify, isDriving, onClose }: Props) {
      <Typography noWrap sx={{ fontSize: 30, fontWeight: 800, lineHeight: 1.2 }}>{track?.name ?? "Your music"}</Typography>
      <Typography noWrap sx={{ fontSize: 24, color: "text.secondary" }}>{track ? [track.artists, track.albumName].filter(Boolean).join(" · ") : spotify.isConnected ? "Nothing playing. Press play, or pick something in Library." : "Connect Spotify while parked"}</Typography>
     </Box>
-    {spotify.isConnected && <DriveButton disabled={isDriving} aria-label="Browse library" onClick={() => setLibraryOpen(true)} startIcon={<LibraryMusicRounded />} sx={{ ...STEP_BUTTON, flexShrink: 0, minHeight: 72, px: 2, fontSize: 22, fontWeight: 700 }}>Library</DriveButton>}
+    {spotify.isConnected && track && spotify.trackLiked !== null && <DriveButton color={spotify.trackLiked ? "primary" : "inherit"} aria-label={spotify.trackLiked ? "Remove from Liked Songs" : "Add to Liked Songs"} aria-pressed={spotify.trackLiked} onClick={() => void run(spotify.toggleLikeCurrent)} sx={{ ...STEP_BUTTON, flexShrink: 0, minHeight: 72, minWidth: 72 }}>{spotify.trackLiked ? <FavoriteRounded /> : <FavoriteBorderRounded />}</DriveButton>}
+    {spotify.isConnected && <DriveButton aria-label="Browse library" onClick={() => setLibraryOpen(true)} startIcon={<LibraryMusicRounded />} sx={{ ...STEP_BUTTON, flexShrink: 0, minHeight: 72, px: 2, fontSize: 22, fontWeight: 700 }}>Library</DriveButton>}
     {onClose && <DriveButton color="inherit" aria-label="Close music player" onClick={onClose} sx={{ ...STEP_BUTTON, flexShrink: 0, minHeight: 72, minWidth: 72 }}><KeyboardArrowDownRounded /></DriveButton>}
    </Box>
    {/* Problems are a quiet line under the header, with a way to fix them when parked. */}

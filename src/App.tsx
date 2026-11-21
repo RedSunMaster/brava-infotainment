@@ -339,7 +339,7 @@ export default function App() {
 	}, [routePosition, routeHazards]);
 	// Tapping a pin starts navigation there, but only while parked and idle, like the Home and Work buttons.
 	const goToPlaceRef = useRef<(coords: [number, number], name: string, building?: [number, number]) => void>(() => {});
-	goToPlaceRef.current = (coords, name, building) => { if (!navActive && !isDriving && !routeBusy) handleQuickDestination(coords, name, building); };
+	goToPlaceRef.current = (coords, name, building) => { if (!navActive && !routeBusy) handleQuickDestination(coords, name, building); };
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded) return;
@@ -549,14 +549,6 @@ export default function App() {
 		}, 120000);
 		return () => { cancelled = true; window.clearInterval(timer); };
 	}, [navActive, activeRoute, provider, pendingDest, routePreferences]);
-	useEffect(() => {
-		if (isDriving && !navActive) {
-			routeRequest.current++;
-			setSelectingBuilding(null);
-			setRouteBusy(false);
-			setPendingDest(null);
-		}
-	}, [isDriving, navActive]);
 	// The manoeuvre ahead and the ones after it, with what the voice needs to word them well.
 	const guidanceSteps = useMemo<GuidanceStep[]>(() => maneuvers.slice(currentStep + 1, currentStep + 8).map((step, offset) => ({
 		id: step.begin_shape_index,
@@ -676,9 +668,7 @@ export default function App() {
 
 	const handleSearchSelect = useCallback(
 		async (coords: [number, number], placeName: string, buildingCoords = coords, details?: PlaceDetails) => {
-			// A new destination needs the car parked; a stop can be added on the move.
-			if (isDriving && !navActive)
-				throw new Error("Choose a destination when parked.");
+			// A passenger can search and choose a destination while the car is moving.
 			const request = ++routeRequest.current;
 			setSelectingBuilding(buildingCoords);
 			setRouteBusy(true);
@@ -845,7 +835,7 @@ export default function App() {
 	}
 
 	async function handleConfirmNav() {
-		if (!pendingDest || (isDriving && pendingDest.action !== "stop")) return;
+		if (!pendingDest) return;
 		recordFrequentPlace(pendingDest.placeName, pendingDest.coords, pendingDest.buildingCoords);
 		stopSimulation();
 		applyRoute(pendingDest.route);
@@ -1119,7 +1109,7 @@ export default function App() {
 					provider={provider}
 					onToggleProvider={handleToggleProvider}
 					isDriving={isDriving}
-					quickPlaces={!pendingDest && !arrivedAt && !isDriving && <QuickDestinations saved={savedPlaces} onGo={handleQuickDestination} onSet={handleSetPlace} disabled={routeBusy} />}
+					quickPlaces={!pendingDest && !arrivedAt && <QuickDestinations saved={savedPlaces} onGo={handleQuickDestination} onSet={handleSetPlace} disabled={routeBusy} />}
 					quickStops={navActive ? <QuickStops selected={openPanel === "search" ? stopCategory : null} onSelect={handleQuickStop} /> : undefined}
 				/>
 					</Box>
@@ -1170,7 +1160,7 @@ export default function App() {
 							}
 							onConfirm={handleConfirmNav}
 							onCancel={handleCancelSearch}
-							disabled={isDriving && pendingDest.action !== "stop"}
+							disabled={false}
 						/>
 					) : navActive ? (
 						<Box sx={{ display: "grid", gap: 1 }}>

@@ -17,9 +17,11 @@ const BEARING_LERP_SPEED = 2.5;
 // ── Camera follow thresholds ──────────────────────────────────────────────────
 // jumpTo is skipped when the camera hasn't meaningfully changed.
 // This prevents 60fps jumpTo calls from fighting Wayland's gesture recogniser.
-const CAMERA_POS_THRESHOLD_M = 0.5; // skip if puck moved < 0.5 m
-const CAMERA_BEARING_THRESHOLD_DEG = 0.3; // skip if bearing changed < 0.3°
+// Kept tiny: at a few m/s a larger threshold made the camera advance in visible steps while the puck moved every frame.
+const CAMERA_POS_THRESHOLD_M = 0.01;
+const CAMERA_BEARING_THRESHOLD_DEG = 0.05;
 const RECENTER_MS = 800; // duration of the recentre blend
+const METERS_PER_DEGREE = 111_320;
 
 function haversineMeters(
 	[lon1, lat1]: [number, number],
@@ -68,6 +70,9 @@ export function usePositionPuck(
 
 	const gpsPosRef = useRef<[number, number]>(initialPos);
 	const gpsBearingRef = useRef<number>(0);
+	const gpsFixTimeRef = useRef<number>(performance.now());
+	// Speed as the camera sees it: smoothed, so a GPS speed that steps down does not step the zoom.
+	const smoothSpeedRef = useRef<number>(0);
 
 	const targetBearingRef = useRef<number>(0);
 	const renderPosRef = useRef<[number, number]>(initialPos);
@@ -107,6 +112,7 @@ export function usePositionPuck(
 		gpsPosRef.current = pos;
 		gpsBearingRef.current = bearing;
 		speedMsRef.current = speedMs;
+		gpsFixTimeRef.current = performance.now();
 		targetBearingRef.current = bearing;
 		renderBearingRef.current = bearing;
 		renderPosRef.current = [...pos] as [number, number];
@@ -243,12 +249,21 @@ export function usePositionPuck(
 						targetBearingRef.current = here.bearing;
 					}
 				} else {
-					const posAlpha = 1 - Math.exp(-5 * dt);
+					// No route: dead-reckon. Glide along the heading at the current speed every frame, and only gently pull toward where the GPS says the car is by now,
+					// so the 1 Hz fixes do not show up as stop-start movement.
+					const speed = speedMsRef.current > 0.5 ? speedMsRef.current : 0;
+					const headingRad = (gpsBearingRef.current * Math.PI) / 180;
+					const cosLat = Math.max(0.01, Math.cos((renderPosRef.current[1] * Math.PI) / 180));
+					const vLon = (speed * Math.sin(headingRad)) / (METERS_PER_DEGREE * cosLat);
+					const vLat = (speed * Math.cos(headingRad)) / METERS_PER_DEGREE;
+					const fixAge = Math.min(3, (now - gpsFixTimeRef.current) / 1000);
+					const predicted: [number, number] = [gpsPosRef.current[0] + vLon * fixAge, gpsPosRef.current[1] + vLat * fixAge];
+					let next: [number, number] = [renderPosRef.current[0] + vLon * dt, renderPosRef.current[1] + vLat * dt];
+					if (haversineMeters(next, predicted) > 60) next = predicted;
+					const posAlpha = 1 - Math.exp(-dt / (speed > 0 ? 0.9 : 0.25));
 					renderPosRef.current = [
-						renderPosRef.current[0] +
-							(gpsPosRef.current[0] - renderPosRef.current[0]) * posAlpha,
-						renderPosRef.current[1] +
-							(gpsPosRef.current[1] - renderPosRef.current[1]) * posAlpha,
+						next[0] + (predicted[0] - next[0]) * posAlpha,
+						next[1] + (predicted[1] - next[1]) * posAlpha,
 					];
 					if (speedMsRef.current > 0.5) {
 						targetBearingRef.current = gpsBearingRef.current;
@@ -315,11 +330,13 @@ export function usePositionPuck(
 					const targetBearing =
 						orientationRef.current === "heading" ? renderBearingRef.current : 0;
 					const lookAhead = lookAheadRef?.current;
+					// Smooth the speed itself: GPS speed steps down in chunks, and the zoom followed those steps.
+					smoothSpeedRef.current = smoothToward(smoothSpeedRef.current, speedMsRef.current, dt * 1000, 1500);
 					const desired = lookAhead?.enabled
-						? lookAheadCamera({ speedMs: speedMsRef.current, distanceToNextM: lookAhead.distanceToNextM, significantTurn: lookAhead.significantTurn })
+						? lookAheadCamera({ speedMs: smoothSpeedRef.current, distanceToNextM: lookAhead.distanceToNextM, significantTurn: lookAhead.significantTurn })
 						: { zoom: ZOOM_LEVEL, pitch: 45 };
 					// Close in fairly quickly for a turn, but ease back out slowly so back-to-back turns do not make the map breathe.
-					cameraZoomRef.current = smoothToward(cameraZoomRef.current, desired.zoom, dt * 1000, desired.zoom > cameraZoomRef.current ? 1000 : 3500);
+					cameraZoomRef.current = smoothToward(cameraZoomRef.current, desired.zoom, dt * 1000, desired.zoom > cameraZoomRef.current ? 1200 : 3500);
 					cameraPitchRef.current = smoothToward(cameraPitchRef.current, desired.pitch, dt * 1000, 1500);
 					const targetZoom = cameraZoomRef.current;
 					const targetPitch = orientationRef.current === "heading" ? cameraPitchRef.current : 0;
@@ -343,8 +360,8 @@ export function usePositionPuck(
 						Math.abs(mapOffset.current - lastCameraOffsetRef.current) > 0.0005 || paddingKey !== lastCameraPaddingRef.current;
 
 					const lensMoved =
-						Math.abs(targetZoom - lastCameraZoomRef.current) > 0.01 ||
-						Math.abs(targetPitch - lastCameraPitchRef.current) > 0.2;
+						Math.abs(targetZoom - lastCameraZoomRef.current) > 0.0005 ||
+						Math.abs(targetPitch - lastCameraPitchRef.current) > 0.02;
 
 					if (
 						posDelta > CAMERA_POS_THRESHOLD_M ||
@@ -425,6 +442,7 @@ export function usePositionPuck(
 		gpsPosRef.current = pos;
 		gpsBearingRef.current = bearing;
 		speedMsRef.current = speedMs;
+		gpsFixTimeRef.current = performance.now();
 
 		const coords = coordsRef.current;
 

@@ -219,7 +219,7 @@ export default function MapControls({
 	}
 	useEffect(() => {
 		// A stop can still be added while moving, so that panel stays open.
-		if (isDriving && !(isNavActive && panel === "search")) {
+		if (isDriving && panel !== "search") {
 			setPanel(null);
 			hideKeyboard();
 		}
@@ -256,7 +256,6 @@ export default function MapControls({
 				{extraActions}
 				</Box>
 				<DriveButton className="map-action"
-					disabled={isDriving && !isNavActive}
 					aria-label={isNavActive ? "Add a stop" : "Choose destination"}
 					aria-expanded={panel === "search"}
 					onClick={() => (panel === "search" ? close() : setPanel("search"))}

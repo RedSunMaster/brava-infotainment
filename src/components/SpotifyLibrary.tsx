@@ -1,5 +1,14 @@
 import ArrowBackRounded from "@mui/icons-material/ArrowBackRounded";
 import MusicNoteRounded from "@mui/icons-material/MusicNoteRounded";
+import PlaylistAddRounded from "@mui/icons-material/PlaylistAddRounded";
+import CheckRounded from "@mui/icons-material/CheckRounded";
+import CloseRounded from "@mui/icons-material/CloseRounded";
+import VerticalAlignTopRounded from "@mui/icons-material/VerticalAlignTopRounded";
+import QueuePlayNextRounded from "@mui/icons-material/QueuePlayNextRounded";
+import GraphicEqRounded from "@mui/icons-material/GraphicEqRounded";
+import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
+import PlayArrowRounded from "@mui/icons-material/PlayArrowRounded";
+import FavoriteRounded from "@mui/icons-material/FavoriteRounded";
 import SearchRounded from "@mui/icons-material/SearchRounded";
 import {
 	Box,
@@ -10,7 +19,6 @@ import {
 import React, { useEffect, useRef, useState } from "react";
 import {
 	SpotifyEpisode,
-	SpotifyPlaylist,
 	SpotifyQueueItem,
 	SpotifyShow,
 	UseSpotifyReturn,
@@ -22,15 +30,22 @@ import { useKeyboard } from "../contexts/KeyboardContext";
 
 const SPOTIFY_GREEN = "#1DB954";
 
-type LibraryTab = "queue" | "playlists" | "podcasts" | "books" | "search";
+type LibraryTab = "playlists" | "albums" | "podcasts" | "books" | "queue" | "search";
 
 const TABS: { id: LibraryTab; label: string }[] = [
-	{ id: "queue", label: "Queue" },
 	{ id: "playlists", label: "Playlists" },
+	{ id: "albums", label: "Albums" },
 	{ id: "podcasts", label: "Podcasts" },
 	{ id: "books", label: "Books" },
+	{ id: "queue", label: "Queue" },
 	{ id: "search", label: "Search" },
 ];
+
+/** What is open under Playlists or Albums: Liked Songs, a playlist or an album, shown as its list of songs. */
+type Collection =
+	| { kind: "liked" }
+	| { kind: "playlist"; id: string; uri: string; name: string; imageUrl: string; subtitle: string }
+	| { kind: "album"; id: string; uri: string; name: string; imageUrl: string; subtitle: string };
 
 function formatMs(ms: number): string {
 	const s = Math.floor(ms / 1000);
@@ -64,6 +79,8 @@ const ArtBox = ({
 			component="img"
 			src={src}
 			alt={alt}
+			loading="lazy"
+			decoding="async"
 			sx={{
 				width: size,
 				height: size,
@@ -91,27 +108,59 @@ const ArtBox = ({
 		</Box>
 	);
 
+/** A button at the end of a song row. It shows a tick for a moment once it has worked. */
+interface RowAction { label: string; icon: React.ReactNode; run: () => Promise<void> }
+const RowActionButton = ({ action, name }: { action: RowAction; name: string }) => {
+	const [state, setState] = useState<"idle" | "busy" | "done">("idle");
+	const go = async () => {
+		if (state === "busy") return;
+		setState("busy");
+		try { await action.run(); setState("done"); setTimeout(() => setState("idle"), 1500); } catch { setState("idle"); }
+	};
+	return <DriveButton color={state === "done" ? "primary" : "inherit"} variant="outlined" disabled={state === "busy"} aria-label={`${action.label}: ${name}`} onClick={() => void go()} sx={{ flexShrink: 0, minWidth: 0, width: 68, minHeight: 72, borderRadius: 3, "& .MuiSvgIcon-root": { fontSize: 34 } }}>{state === "done" ? <CheckRounded /> : action.icon}</DriveButton>;
+};
+
+/** A song: tap to play it; the buttons at the end act on it (add to queue, play next, and so on). */
 const TrackRow = ({
 	item,
 	onPlay,
+	actions = [],
+	playing = false,
 }: {
 	item: SpotifyQueueItem;
 	onPlay: () => void;
+	actions?: RowAction[];
+	playing?: boolean;
+}) => (
+	<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+		<Box sx={{ flex: 1, minWidth: 0 }}><TrackButton item={item} onPlay={onPlay} playing={playing} /></Box>
+		{actions.map(action => <RowActionButton key={action.label} action={action} name={item.name} />)}
+	</Box>
+);
+
+const TrackButton = ({
+	item,
+	onPlay,
+	playing = false,
+}: {
+	item: SpotifyQueueItem;
+	onPlay: () => void;
+	playing?: boolean;
 }) => (
 	<Box component="button" type="button" sx={{ ...rowSx, width: "100%", border: 0, bgcolor: "transparent", textAlign: "left", font: "inherit" }} onClick={onPlay}>
 		<ArtBox src={item.albumArt} alt={item.name} />
 		<Box sx={{ flex: 1, minWidth: 0 }}>
 			<Typography
 				sx={{
-					color: "text.primary",
+					color: playing ? SPOTIFY_GREEN : "text.primary",
 					fontSize: 24,
-					fontWeight: 500,
+					fontWeight: playing ? 700 : 500,
 					overflow: "hidden",
 					textOverflow: "ellipsis",
 					whiteSpace: "nowrap",
 				}}
 			>
-				{item.name}
+				{playing && <GraphicEqRounded aria-label="Playing now" sx={{ fontSize: 26, mr: 0.75, verticalAlign: "text-bottom" }} />}{item.name}
 			</Typography>
 			<Typography
 				sx={{
@@ -133,10 +182,11 @@ const TrackRow = ({
 	</Box>
 );
 
-const PlaylistRow = ({ playlist, onPlay }: { playlist: SpotifyPlaylist; onPlay: () => void }) => (
- <Box component="button" type="button" onClick={onPlay} sx={{ display: "flex", alignItems: "center", gap: 2, width: "100%", minWidth: 0, minHeight: "var(--car-target)", p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 3, bgcolor: "background.default", color: "text.primary", textAlign: "left", cursor: "pointer", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}>
-  <ArtBox src={playlist.imageUrl} alt="" size={120} />
-  <Box sx={{ minWidth: 0 }}><Typography sx={{ fontSize: 24, fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{playlist.name}</Typography><Typography sx={{ color: "text.secondary", fontSize: 20 }}>{playlist.tracksTotal} tracks</Typography></Box>
+/** A playlist, album or Liked Songs as a card; tapping it opens its songs. */
+const CollectionCard = ({ name, imageUrl, subtitle, onOpen, icon }: { name: string; imageUrl: string; subtitle: string; onOpen: () => void; icon?: React.ReactNode }) => (
+ <Box component="button" type="button" onClick={onOpen} sx={{ display: "flex", alignItems: "center", gap: 2, width: "100%", minWidth: 0, minHeight: "var(--car-target)", p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 3, bgcolor: "background.default", color: "text.primary", textAlign: "left", cursor: "pointer", contentVisibility: "auto", containIntrinsicSize: "auto 150px", "&:focus-visible": { outline: "3px solid", outlineColor: "primary.main" } }}>
+  {icon ?? <ArtBox src={imageUrl} alt="" size={120} />}
+  <Box sx={{ minWidth: 0 }}><Typography sx={{ fontSize: 24, fontWeight: 700, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{name}</Typography><Typography noWrap sx={{ color: "text.secondary", fontSize: 20 }}>{subtitle}</Typography></Box>
  </Box>
 );
 
@@ -158,6 +208,21 @@ const EpisodeRow = ({ episode, onPlay }: { episode: SpotifyEpisode; onPlay: () =
 		</Box>
 	</Box>
 );
+
+/** Calls onVisible when it scrolls into view: how a long list loads another page just before you reach the end. */
+const LoadMore = ({ onVisible, loading }: { onVisible: () => void; loading: boolean }) => {
+	const ref = useRef<HTMLDivElement>(null);
+	const latest = useRef(onVisible);
+	latest.current = onVisible;
+	useEffect(() => {
+		const node = ref.current;
+		if (!node || loading || typeof IntersectionObserver === "undefined") return;
+		const observer = new IntersectionObserver((entries) => { if (entries.some(entry => entry.isIntersecting)) latest.current(); }, { rootMargin: "400px" });
+		observer.observe(node);
+		return () => observer.disconnect();
+	}, [loading]);
+	return <Box ref={ref} sx={{ gridColumn: "1 / -1", display: "flex", justifyContent: "center", py: 2, minHeight: 40 }}>{loading && <CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} />}</Box>;
+};
 
 const EmptyState = ({ text }: { text: string }) => (
 	<Typography
@@ -194,6 +259,20 @@ const SpotifyLibrary = ({
 		search,
 		playTrack,
 		playContext,
+		liked,
+		fetchLiked,
+		playLiked,
+		addToQueue,
+		albums,
+		fetchAlbums,
+		queueNow,
+		removeFromQueue,
+		moveToNext,
+		playNext,
+		fetchMorePlaylists,
+		playlistsLoading,
+		hasMorePlaylists,
+		fetchCollectionTracks,
 		shows,
 		audiobooks,
 		fetchShows,
@@ -203,8 +282,34 @@ const SpotifyLibrary = ({
 		playEpisodes,
 	} = spotify;
 
+	const playingId = spotify.track?.id ?? null;
+	// Every song can be added to the end of the queue or put next.
+	const queueActions = (item: SpotifyQueueItem): RowAction[] => [
+		{ label: "Add to queue", icon: <PlaylistAddRounded />, run: () => addToQueue(item.uri) },
+		{ label: "Play next", icon: <QueuePlayNextRounded />, run: () => playNext(item) },
+	];
+	// One prompt covers every missing permission, instead of a message in each tab.
+	const permissionProblem = spotify.needsReconnect || /permission|reconnect/i.test(spotify.error ?? "");
+
 	const { showKeyboard, hideKeyboard } = useKeyboard();
-	const [tab, setTab] = useState<LibraryTab>("queue");
+	const [tab, setTab] = useState<LibraryTab>("playlists");
+	// A playlist, album or Liked Songs opened to see its songs.
+	const [collection, setCollection] = useState<Collection | null>(null);
+	const [collectionTracks, setCollectionTracks] = useState<SpotifyQueueItem[]>([]);
+	const [collectionLoading, setCollectionLoading] = useState(false);
+	useEffect(() => { setCollection(null); }, [tab]);
+	useEffect(() => {
+		if (!collection) return;
+		if (collection.kind === "liked") { void fetchLiked(); return; }
+		let cancelled = false;
+		setCollectionTracks([]);
+		setCollectionLoading(true);
+		fetchCollectionTracks(collection.kind, collection.id, collection.imageUrl)
+			.then(list => { if (!cancelled) setCollectionTracks(list); })
+			.catch((): void => undefined)
+			.finally(() => { if (!cancelled) setCollectionLoading(false); });
+		return () => { cancelled = true; };
+	}, [collection, fetchCollectionTracks, fetchLiked]);
 	const [actionError, setActionError] = useState<string | null>(null);
 	async function playItem(action: () => Promise<void>, thenGoBack = false) {
 		setActionError(null);
@@ -235,17 +340,13 @@ const SpotifyLibrary = ({
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	useEffect(() => {
-		if (isDriving && tab === "search") {
-			setTab("queue");
-			hideKeyboard();
-			return;
-		}
 		if (tab === "queue") fetchQueue();
+		else if (tab === "albums") fetchAlbums();
 		else if (tab === "playlists") fetchPlaylists();
 		else if (tab === "podcasts") fetchShows();
 		else if (tab === "books") fetchAudiobooks();
 		else if (tab !== "search") hideKeyboard();
-	}, [tab, fetchQueue, fetchPlaylists, fetchShows, fetchAudiobooks, hideKeyboard, isDriving]);
+	}, [tab, fetchQueue, fetchAlbums, fetchPlaylists, fetchShows, fetchAudiobooks, hideKeyboard, isDriving]);
 
 	useEffect(() => {
 		if (tab !== "search") return;
@@ -262,7 +363,12 @@ const SpotifyLibrary = ({
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
-			{(actionError || spotify.error) && <Box sx={{ mb: 1 }}><QuietNotice onClose={actionError ? () => setActionError(null) : undefined}>{actionError || spotify.error}</QuietNotice></Box>}
+			{(actionError || (spotify.error && !permissionProblem)) && <Box sx={{ mb: 1 }}><QuietNotice onClose={actionError ? () => setActionError(null) : undefined}>{actionError || spotify.error}</QuietNotice></Box>}
+			{permissionProblem && <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, px: 1.5, py: 1, borderRadius: 2, bgcolor: "action.hover", border: "1px solid", borderColor: "warning.main" }}>
+				<WarningAmberRounded aria-hidden sx={{ color: "warning.main", fontSize: 30, flexShrink: 0 }} />
+				<Typography sx={{ flex: 1, minWidth: 0, fontSize: 22 }}>{isDriving ? "Spotify needs permission for some features. Reconnect when parked." : "Spotify needs permission for some features."}</Typography>
+				<DriveButton variant="contained" disabled={isDriving} onClick={() => void spotify.connect()} sx={{ flexShrink: 0, minHeight: 64, px: 3 }}>Reconnect Spotify</DriveButton>
+			</Box>}
 			{/* ── Header ── */}
 			<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1.5 }}>
 				<DriveButton aria-label="Back to now playing"
@@ -282,19 +388,14 @@ const SpotifyLibrary = ({
 					{TABS.map((t) => (
 						<DriveButton
                             aria-pressed={tab === t.id}
-                            disabled={isDriving && t.id === "search"}
 							key={t.id}
-							onClick={() => {
-								if (!(isDriving && t.id === "search")) setTab(t.id);
-							}}
+							onClick={() => setTab(t.id)}
 							sx={{
 								flex: 1,
 								textAlign: "center",
 								py: 0.6,
 								borderRadius: 2,
-								cursor:
-									isDriving && t.id === "search" ? "not-allowed" : "pointer",
-								opacity: isDriving && t.id === "search" ? 0.35 : 1,
+								cursor: "pointer",
 								backgroundColor:
 									tab === t.id ? "rgba(255,255,255,0.1)" : "transparent",
 								transition: "background-color 0.15s",
@@ -303,7 +404,7 @@ const SpotifyLibrary = ({
 						>
 							<Typography
 								sx={{
-									fontSize: 24,
+									fontSize: 22,
 									fontWeight: tab === t.id ? 700 : 400,
 									color: tab === t.id ? "text.primary" : "text.secondary",
 								}}
@@ -371,34 +472,78 @@ const SpotifyLibrary = ({
 					},
 				}}
 			>
-				{isLibraryLoading ? (
+				{collection && (tab === "playlists" || tab === "albums") ? (() => {
+					const songs = collection.kind === "liked" ? liked : collectionTracks;
+					const loading = collection.kind === "liked" ? isLibraryLoading : collectionLoading;
+					const playFrom = (i: number) => collection.kind === "liked" ? playLiked(i) : playContext(collection.uri, songs[i]?.uri);
+					return <Box>
+						<Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+							<DriveButton color="inherit" aria-label="Back to the list" onClick={() => setCollection(null)} sx={{ flexShrink: 0, minWidth: 0, width: 64, minHeight: 64 }}><ArrowBackRounded /></DriveButton>
+							<Box sx={{ flex: 1, minWidth: 0 }}>
+								<Typography noWrap sx={{ fontSize: 26, fontWeight: 800 }}>{collection.kind === "liked" ? "Liked Songs" : collection.name}</Typography>
+								<Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{collection.kind === "liked" ? `${liked.length} songs` : collection.subtitle}</Typography>
+							</Box>
+							<DriveButton variant="contained" disabled={songs.length === 0} onClick={() => void playItem(() => (collection.kind === "liked" ? playLiked(0) : playContext(collection.uri)), true)} startIcon={<PlayArrowRounded />} sx={{ flexShrink: 0, minHeight: 64, px: 3, fontSize: 24, fontWeight: 700 }}>Play</DriveButton>
+						</Box>
+						{loading ? <Box sx={{ display: "flex", justifyContent: "center", pt: 4 }}><CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} /></Box>
+							: songs.length === 0 ? <EmptyState text={collection.kind === "liked" ? "No liked songs yet." : "No songs to show here."} />
+							: songs.map((item, i) => <TrackRow key={`${item.id}-${i}`} item={item} onPlay={() => void playItem(() => playFrom(i), true)} actions={queueActions(item)} playing={item.id === playingId} />)}
+					</Box>;
+				})() : isLibraryLoading ? (
 					<Box sx={{ display: "flex", justifyContent: "center", pt: 4 }}>
 						<CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} />
 					</Box>
 				) : tab === "queue" ? (
-					queue.length === 0 ? (
-						<EmptyState text="Queue is empty" />
-					) : (
-						queue.map((item, i) => (
+					<Box>
+						<Typography sx={{ fontSize: 22, fontWeight: 700, color: "text.secondary", px: 1, mb: 0.5 }}>Now playing</Typography>
+						{(queueNow ?? null) || spotify.track ? <TrackRow item={queueNow ?? { id: spotify.track!.id, name: spotify.track!.name, artists: spotify.track!.artists, albumArt: spotify.track!.albumArt, durationMs: spotify.track!.durationMs, uri: "" }} onPlay={() => undefined} playing /> : <EmptyState text="Nothing is playing" />}
+						<Typography sx={{ fontSize: 22, fontWeight: 700, color: "text.secondary", px: 1, mt: 1.5, mb: 0.5 }}>Next up</Typography>
+						{queue.length === 0 ? <EmptyState text="Nothing queued next" /> : queue.map((item, i) => (
 							<TrackRow
 								key={`${item.id}-${i}`}
 								item={item}
 								onPlay={() => void playItem(() => playTrack(item.uri))}
+								actions={[
+									...(i > 0 ? [{ label: "Play next", icon: <VerticalAlignTopRounded />, run: () => moveToNext(i) }] : []),
+									{ label: "Remove from queue", icon: <CloseRounded />, run: () => removeFromQueue(i) },
+								]}
 							/>
-						))
-					)
-				) : tab === "playlists" ? (
-					playlists.length === 0 ? (
-						<EmptyState text="No playlists found" />
+						))}
+					</Box>
+				) : tab === "albums" ? (
+					albums.length === 0 ? (
+						<EmptyState text="No saved albums yet. Save albums in Spotify and they will show up here." />
 					) : (
-						<Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>{playlists.map((pl) => (
-							<PlaylistRow
-								key={pl.id}
-								playlist={pl}
-								onPlay={() => void playItem(() => playContext(pl.uri), true)}
+						<Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>{albums.map((album) => (
+							<CollectionCard
+								key={album.id}
+								name={album.name}
+								imageUrl={album.imageUrl}
+								subtitle={album.artists}
+								onOpen={() => setCollection({ kind: "album", id: album.id, uri: album.uri, name: album.name, imageUrl: album.imageUrl, subtitle: album.artists })}
 							/>
 						))}</Box>
 					)
+				) : tab === "playlists" ? (
+					<Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>
+						<CollectionCard
+							name="Liked Songs"
+							imageUrl=""
+							subtitle="Your liked songs"
+							icon={<Box sx={{ width: 120, height: 120, borderRadius: 1, flexShrink: 0, display: "grid", placeItems: "center", background: "linear-gradient(135deg, #4510d8, #a8b6ff)" }}><FavoriteRounded sx={{ fontSize: 60, color: "#fff" }} /></Box>}
+							onOpen={() => setCollection({ kind: "liked" })}
+						/>
+						{playlists.map((pl) => (
+							<CollectionCard
+								key={pl.id}
+								name={pl.name}
+								imageUrl={pl.imageUrl}
+								subtitle={`${pl.tracksTotal} songs`}
+								onOpen={() => setCollection({ kind: "playlist", id: pl.id, uri: pl.uri, name: pl.name, imageUrl: pl.imageUrl, subtitle: `${pl.tracksTotal} songs` })}
+							/>
+						))}
+						{(hasMorePlaylists || playlistsLoading) && <LoadMore onVisible={() => void fetchMorePlaylists()} loading={playlistsLoading} />}
+					</Box>
 				) : tab === "podcasts" || tab === "books" ? (
 					openShow ? (
 						<Box>
@@ -415,8 +560,7 @@ const SpotifyLibrary = ({
 								{continueList.map(episode => <EpisodeRow key={episode.id} episode={episode} onPlay={() => void playItem(() => playEpisodes([episode], 0), true)} />)}
 							</Box>}
 							{list.length === 0 ? <Box sx={{ display: "grid", justifyItems: "center", gap: 2, pt: 1 }}>
-									<EmptyState text={tab === "podcasts" ? "Follow podcasts in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it." : "Save audiobooks in Spotify and they will show up here. If you already do, reconnect Spotify once to allow it."} />
-									<DriveButton variant="outlined" color="inherit" disabled={isDriving} onClick={() => void spotify.connect()} sx={{ px: 4 }}>Reconnect Spotify</DriveButton>
+									<EmptyState text={tab === "podcasts" ? "Follow podcasts in Spotify and they will show up here." : "Save audiobooks in Spotify and they will show up here."} />
 								</Box>
 								: <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1.5 }}>{list.map(show => <ShowRow key={show.id} show={show} onOpen={() => setOpenShow(show)} />)}</Box>}
 						</>;
@@ -431,6 +575,8 @@ const SpotifyLibrary = ({
 							key={`${item.id}-${i}`}
 							item={item}
 							onPlay={() => void playTrack(item.uri).catch((): void => {})}
+							actions={queueActions(item)}
+							playing={item.id === playingId}
 						/>
 					))
 				)}

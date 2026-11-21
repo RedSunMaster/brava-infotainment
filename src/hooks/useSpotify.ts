@@ -14,7 +14,8 @@ const SCOPES = [
 	"user-read-currently-playing",
 	"playlist-read-private",
 	"playlist-read-collaborative",
-	"user-library-read", // saved podcasts and audiobooks
+	"user-library-read", // liked songs, saved podcasts and audiobooks
+	"user-library-modify", // liking and unliking the song that is playing
 	"user-read-playback-position", // where each episode was left
 	"streaming", // the in-app player (Web Playback SDK)
 	"user-read-email",
@@ -25,6 +26,7 @@ const TOKEN_KEY = "spotify_access_token";
 const EXPIRY_KEY = "spotify_token_expiry";
 const VERIFIER_KEY = "spotify_code_verifier";
 const REFRESH_KEY = "spotify_refresh_token"; // web fallback only
+const SCOPE_KEY = "spotify_scope"; // what the current sign-in was actually allowed to do
 
 // ─── Web Playback SDK typings (minimal) ───────────────────────────────────────
 interface SpotifyPlayer {
@@ -113,7 +115,7 @@ function renewAccessToken(): Promise<string | null> {
 			});
 			const data = await res.json().catch((): null => null);
 			if (res.ok && data?.access_token) {
-				storeToken(data.access_token, data.expires_in);
+				storeToken(data.access_token, data.expires_in, data.scope);
 				if (data.refresh_token) await saveRefreshToken(data.refresh_token);
 				return data.access_token as string;
 			}
@@ -129,7 +131,8 @@ function renewAccessToken(): Promise<string | null> {
 	return renewal;
 }
 
-function storeToken(token: string, expiresIn: number): void {
+function storeToken(token: string, expiresIn: number, scope?: string): void {
+	if (scope) localStorage.setItem(SCOPE_KEY, scope);
 	localStorage.setItem(TOKEN_KEY, token);
 	localStorage.setItem(EXPIRY_KEY, String(Date.now() + expiresIn * 1000));
 }
@@ -164,12 +167,25 @@ export interface SpotifyPlaylist {
 	tracksTotal: number;
 	uri: string;
 }
+export interface SpotifyAlbum {
+	id: string;
+	name: string;
+	imageUrl: string;
+	artists: string;
+	tracksTotal: number;
+	uri: string;
+}
 export interface UseSpotifyReturn {
 	error: string | null;
 	track: SpotifyTrack | null;
 	isConnected: boolean;
 	isLoading: boolean;
 	isLibraryLoading: boolean; // ← new
+	/** True when this sign-in was not allowed everything the app now uses (new features): reconnect once while parked. */
+	needsReconnect: boolean;
+	/** Whether the song playing is in Liked Songs (null while unknown). */
+	trackLiked: boolean | null;
+	toggleLikeCurrent: () => Promise<void>;
 	queue: SpotifyQueueItem[]; // ← new
 	playlists: SpotifyPlaylist[]; // ← new
 	searchResults: SpotifyQueueItem[]; // ← new
@@ -181,10 +197,34 @@ export interface UseSpotifyReturn {
 	toggleShuffle: () => Promise<void>;
 	cycleRepeat: () => Promise<void>;
 	fetchQueue: () => Promise<void>; // ← new
+	/** The song playing now, as the queue sees it. */
+	queueNow: SpotifyQueueItem | null;
+	/** Take a song out of "Next up". Spotify cannot edit its queue, so this restarts playback at the same spot with the new list. */
+	removeFromQueue: (index: number) => Promise<void>;
+	/** Move a song in "Next up" to the front. */
+	moveToNext: (index: number) => Promise<void>;
+	/** Put a song at the front of "Next up" (plays right after the current one). */
+	playNext: (item: SpotifyQueueItem) => Promise<void>;
 	fetchPlaylists: () => Promise<void>; // ← new
+	/** Playlists load a screenful at a time: more when you scroll to the end. */
+	fetchMorePlaylists: () => Promise<void>;
+	playlistsLoading: boolean;
+	hasMorePlaylists: boolean;
 	search: (query: string) => Promise<void>; // ← new
 	playTrack: (uri: string) => Promise<void>; // ← new
 	playContext: (contextUri: string, offsetTrackUri?: string) => Promise<void>; // ← new
+	/** Saved albums. */
+	albums: SpotifyAlbum[];
+	fetchAlbums: () => Promise<void>;
+	/** The songs of a playlist or album (an album's songs carry the album's own artwork). */
+	fetchCollectionTracks: (kind: "playlist" | "album", id: string, albumArt?: string) => Promise<SpotifyQueueItem[]>;
+	/** Liked songs, newest first (up to 500). */
+	liked: SpotifyQueueItem[];
+	fetchLiked: () => Promise<void>;
+	/** Plays the liked songs from index onwards. */
+	playLiked: (index?: number) => Promise<void>;
+	/** Adds a song to the end of the play queue. */
+	addToQueue: (uri: string) => Promise<void>;
 	/** Saved podcasts and audiobooks. They need the extra permissions, so an older sign-in has to reconnect once. */
 	shows: SpotifyShow[];
 	audiobooks: SpotifyShow[];
@@ -197,6 +237,26 @@ export interface UseSpotifyReturn {
 	playEpisodes: (episodes: SpotifyEpisode[], index: number) => Promise<void>;
 	volume: number; // ← new
 	setVolume: (pct: number) => Promise<void>; // ← new
+}
+
+/** The smallest artwork that is still sharp at `min` pixels: the large originals are slow to fetch for a thumbnail. */
+function smallImage(images: { url: string; width?: number | null }[] | undefined, min: number): string {
+	const list = (images ?? []).filter(image => image?.url);
+	if (!list.length) return "";
+	const big = list.filter(image => (image.width ?? 0) >= min).sort((a, b) => (a.width ?? 0) - (b.width ?? 0));
+	return (big[0] ?? list[0]).url;
+}
+
+/** A Spotify track object (from a playlist, album, liked songs or search) as a list row. */
+function toQueueItem(item: any, fallbackArt = ""): SpotifyQueueItem {
+	return {
+		id: item.id ?? item.uri,
+		name: item.name,
+		artists: (item.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+		albumArt: item.album?.images?.[0]?.url ?? fallbackArt,
+		durationMs: item.duration_ms ?? 0,
+		uri: item.uri,
+	};
 }
 
 /** Turns the Web Playback SDK's state (local, instant) into the same shape the Web API polling produces. */
@@ -268,7 +328,7 @@ export function useSpotify(): UseSpotifyReturn {
 			.then((r) => r.json())
 			.then((data) => {
 				if (data.access_token) {
-					storeToken(data.access_token, data.expires_in);
+					storeToken(data.access_token, data.expires_in, data.scope);
 					if (data.refresh_token) void saveRefreshToken(data.refresh_token);
 					setToken(data.access_token);
 					setPlayerEpoch((n) => n + 1);
@@ -416,40 +476,60 @@ export function useSpotify(): UseSpotifyReturn {
 		[token],
 	);
 
+	const [queueNow, setQueueNow] = useState<SpotifyQueueItem | null>(null);
+	const asQueueItem = (item: any): SpotifyQueueItem => ({
+		id: item.id,
+		name: item.name,
+		artists: item.show?.publisher ?? (item.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+		albumArt: (item.album ?? item.show ?? item)?.images?.[0]?.url ?? "",
+		durationMs: item.duration_ms,
+		uri: item.uri,
+	});
+	/** The song playing and what is queued after it, straight from Spotify. */
+	const readQueue = useCallback(async (): Promise<{ now: SpotifyQueueItem | null; next: SpotifyQueueItem[] } | null> => {
+		const data = await spotifyFetch("/me/player/queue");
+		if (!data?.queue) return null;
+		return {
+			now: data.currently_playing?.uri ? asQueueItem(data.currently_playing) : null,
+			next: (data.queue as any[]).filter(item => item?.uri).slice(0, 30).map(asQueueItem),
+		};
+	}, [spotifyFetch]);
 	const fetchQueue = useCallback(async () => {
 		setIsLibraryLoading(true);
-		const data = await spotifyFetch("/me/player/queue");
-		if (data?.queue) {
-			setQueue(
-				(data.queue as any[]).slice(0, 30).map((item) => ({
-					id: item.id,
-					name: item.name,
-					artists: item.show?.publisher ?? (item.artists ?? []).map((a: { name: string }) => a.name).join(", "),
-					albumArt: (item.album ?? item.show ?? item)?.images?.[0]?.url ?? "",
-					durationMs: item.duration_ms,
-					uri: item.uri,
-				})),
-			);
-		}
+		const data = await readQueue();
+		if (data) { setQueue(data.next); setQueueNow(data.now); }
 		setIsLibraryLoading(false);
-	}, [spotifyFetch]);
+	}, [readQueue]);
 
-	const fetchPlaylists = useCallback(async () => {
-		setIsLibraryLoading(true);
-		const data = await spotifyFetch("/me/playlists?limit=50");
-		if (data?.items) {
-			setPlaylists(
-				(data.items as any[]).map((pl) => ({
+	// Playlists come a page at a time (the first one small, so it shows at once); the rest load as you scroll.
+	const PLAYLIST_PAGE = 18;
+	const [playlistsLoading, setPlaylistsLoading] = useState(false);
+	const [hasMorePlaylists, setHasMorePlaylists] = useState(false);
+	const playlistCount = useRef(0);
+	const playlistBusy = useRef(false);
+	const loadPlaylists = useCallback(async (reset: boolean) => {
+		if (playlistBusy.current) return;
+		playlistBusy.current = true;
+		setPlaylistsLoading(true);
+		try {
+			const offset = reset ? 0 : playlistCount.current;
+			const data = await spotifyFetch(`/me/playlists?limit=${PLAYLIST_PAGE}&offset=${offset}`);
+			if (data?.items) {
+				const page: SpotifyPlaylist[] = (data.items as any[]).filter(Boolean).map((pl) => ({
 					id: pl.id,
 					name: pl.name,
-					imageUrl: pl.images?.[0]?.url ?? "",
+					imageUrl: smallImage(pl.images, 160),
 					tracksTotal: pl.tracks?.total ?? 0,
 					uri: pl.uri,
-				})),
-			);
-		}
-		setIsLibraryLoading(false);
+				}));
+				playlistCount.current = offset + (data.items as any[]).length;
+				setPlaylists(previous => (reset ? page : [...previous, ...page.filter(item => !previous.some(old => old.id === item.id))]));
+				setHasMorePlaylists(!!data.next);
+			}
+		} finally { playlistBusy.current = false; setPlaylistsLoading(false); }
 	}, [spotifyFetch]);
+	const fetchPlaylists = useCallback(() => loadPlaylists(true), [loadPlaylists]);
+	const fetchMorePlaylists = useCallback(() => loadPlaylists(false), [loadPlaylists]);
 
 	const search = useCallback(
 		async (query: string) => {
@@ -479,6 +559,53 @@ export function useSpotify(): UseSpotifyReturn {
 		},
 		[spotifyFetch],
 	);
+
+	// ── Liked songs and the queue ────────────────────────────────────────────
+	const [liked, setLiked] = useState<SpotifyQueueItem[]>([]);
+	const fetchLiked = useCallback(async () => {
+		setIsLibraryLoading(true);
+		try {
+			const entries: any[] = [];
+			let loaded = false;
+			for (let offset = 0; offset < 500; offset += 50) {
+				const page = await spotifyFetch(`/me/tracks?limit=50&offset=${offset}`);
+				if (!page?.items) break;
+				loaded = true;
+				entries.push(...page.items);
+				if (!page.next) break;
+			}
+			if (loaded) setLiked(entries.map(entry => entry?.track).filter(item => item?.uri).map(item => toQueueItem(item)));
+		} finally { setIsLibraryLoading(false); }
+	}, [spotifyFetch]);
+	const [albums, setAlbums] = useState<SpotifyAlbum[]>([]);
+	const fetchAlbums = useCallback(async () => {
+		setIsLibraryLoading(true);
+		try {
+			const data = await spotifyFetch("/me/albums?limit=50");
+			if (data?.items) setAlbums((data.items as any[]).map(entry => entry.album).filter(Boolean).map(album => ({
+				id: album.id,
+				name: album.name,
+				imageUrl: album.images?.[0]?.url ?? "",
+				artists: (album.artists ?? []).map((a: { name: string }) => a.name).join(", "),
+				tracksTotal: album.total_tracks ?? 0,
+				uri: album.uri,
+			})));
+		} finally { setIsLibraryLoading(false); }
+	}, [spotifyFetch]);
+	const fetchCollectionTracks = useCallback(async (kind: "playlist" | "album", id: string, albumArt = ""): Promise<SpotifyQueueItem[]> => {
+		const out: SpotifyQueueItem[] = [];
+		const limit = kind === "playlist" ? 100 : 50;
+		for (let offset = 0; offset < 500; offset += limit) {
+			const page = await spotifyFetch(kind === "playlist" ? `/playlists/${id}/tracks?limit=${limit}&offset=${offset}` : `/albums/${id}/tracks?limit=${limit}&offset=${offset}`);
+			if (!page?.items) break;
+			for (const entry of page.items as any[]) {
+				const item = kind === "playlist" ? entry?.track : entry;
+				if (item?.uri && item.type !== "episode") out.push(toQueueItem(item, albumArt));
+			}
+			if (!page.next) break;
+		}
+		return out;
+	}, [spotifyFetch]);
 
 	// ── Podcasts and audiobooks ──────────────────────────────────────────────
 	const [shows, setShows] = useState<SpotifyShow[]>([]);
@@ -772,6 +899,62 @@ export function useSpotify(): UseSpotifyReturn {
 		[spotifyFetch, fetchPlayback, onCarDevice],
 	);
 
+	const playLiked = useCallback(async (index = 0) => {
+		const start = Math.max(0, index);
+		const uris = liked.map(item => item.uri).slice(start, start + 100);
+		if (!uris.length) return;
+		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris });
+		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
+	}, [liked, spotifyFetch, fetchPlayback, onCarDevice]);
+
+	const addToQueue = useCallback(async (uri: string) => {
+		await spotifyFetch(await onCarDevice(`/me/player/queue?uri=${encodeURIComponent(uri)}`), "POST");
+	}, [spotifyFetch, onCarDevice]);
+
+	/** Spotify has no call to edit its queue, so restart playback on [current, ...next] at the same point in the song. */
+	const restartWith = useCallback(async (now: SpotifyQueueItem | null, next: SpotifyQueueItem[], progressMs: number) => {
+		const uris = [...(now ? [now.uri] : []), ...next.map(item => item.uri)].slice(0, 100);
+		if (!uris.length) return;
+		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris, offset: { position: 0 }, ...(now && progressMs > 0 ? { position_ms: Math.round(progressMs) } : {}) });
+		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
+	}, [spotifyFetch, onCarDevice, fetchPlayback]);
+	const removeFromQueue = useCallback(async (index: number) => {
+		const next = queue.filter((_, i) => i !== index);
+		setQueue(next);
+		await restartWith(queueNow, next, track?.progressMs ?? 0);
+	}, [queue, queueNow, track?.progressMs, restartWith]);
+	const moveToNext = useCallback(async (index: number) => {
+		if (!queue[index] || index === 0) return;
+		const next = [queue[index], ...queue.filter((_, i) => i !== index)];
+		setQueue(next);
+		await restartWith(queueNow, next, track?.progressMs ?? 0);
+	}, [queue, queueNow, track?.progressMs, restartWith]);
+	const playNext = useCallback(async (item: SpotifyQueueItem) => {
+		const current = await readQueue();
+		if (!current?.now) { await playTrack(item.uri); return; }
+		await restartWith(current.now, [item, ...current.next.filter(other => other.uri !== item.uri)], track?.progressMs ?? 0);
+	}, [readQueue, restartWith, playTrack, track?.progressMs]);
+
+	// ── Is the playing song liked, and a heart to change it ──────────────────
+	const [trackLiked, setTrackLiked] = useState<boolean | null>(null);
+	const grantedScope = (() => { try { return localStorage.getItem(SCOPE_KEY); } catch { return null; } })();
+	const needsReconnect = !!token && !!grantedScope && SCOPES.split(" ").some(scope => !grantedScope.split(" ").includes(scope));
+	const likedId = track?.id ?? null;
+	useEffect(() => {
+		setTrackLiked(null);
+		if (!likedId || !token || needsReconnect) return;
+		let cancelled = false;
+		void spotifyFetch(`/me/tracks/contains?ids=${encodeURIComponent(likedId)}`).then(result => { if (!cancelled && Array.isArray(result)) setTrackLiked(!!result[0]); });
+		return () => { cancelled = true; };
+	}, [likedId, token, needsReconnect, spotifyFetch]);
+	const toggleLikeCurrent = useCallback(async () => {
+		if (!likedId || trackLiked === null) return;
+		const next = !trackLiked;
+		setTrackLiked(next);
+		try { await spotifyFetch(`/me/tracks?ids=${encodeURIComponent(likedId)}`, next ? "PUT" : "DELETE"); }
+		catch (cause) { setTrackLiked(!next); throw cause; }
+	}, [likedId, trackLiked, spotifyFetch]);
+
 	const playEpisodes = useCallback(
 		async (episodes: SpotifyEpisode[], index: number) => {
 			if (!episodes[index]) return;
@@ -796,6 +979,9 @@ export function useSpotify(): UseSpotifyReturn {
 		isConnected: !!token,
 		isLoading,
 		isLibraryLoading,
+		needsReconnect,
+		trackLiked,
+		toggleLikeCurrent,
 		queue,
 		playlists,
 		searchResults,
@@ -807,10 +993,24 @@ export function useSpotify(): UseSpotifyReturn {
 		toggleShuffle,
 		cycleRepeat,
 		fetchQueue,
+		queueNow,
+		removeFromQueue,
+		moveToNext,
+		playNext,
 		fetchPlaylists,
+		fetchMorePlaylists,
+		playlistsLoading,
+		hasMorePlaylists,
 		search,
 		playTrack,
 		playContext,
+		albums,
+		fetchAlbums,
+		fetchCollectionTracks,
+		liked,
+		fetchLiked,
+		playLiked,
+		addToQueue,
 		volume,
 		setVolume,
 	};
