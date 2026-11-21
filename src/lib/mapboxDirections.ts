@@ -53,6 +53,8 @@ export async function getMapboxRoutes(origin: [number, number], dest: [number, n
 		`?steps=true&geometries=polyline6&overview=full&annotations=congestion,maxspeed,closure&banner_instructions=true&alternatives=${alternatives}` +
 		(options?.avoid?.length ? `&exclude=${options.avoid.join(",")}` : "") +
 		(Number.isFinite(options?.speedMs) && options!.speedMs! > 1 ? `&avoid_maneuver_radius=${Math.min(250, Math.max(30, Math.round(options!.speedMs! * 8)))}` : "") +
+		// Only the start has a bearing (the car's heading, give or take 45 degrees); the other waypoints are left empty.
+		(Number.isFinite(options?.headingDeg) ? `&bearings=${Math.round(((options!.headingDeg! % 360) + 360) % 360)},45${";".repeat(waypoints.length - 1)}` : "") +
 		(target ? `&waypoint_targets=${";".repeat(stops.length + 1)}${target.join(",")}` : "") +
 		`&access_token=${process.env.MAPBOX_TOKEN}`;
 

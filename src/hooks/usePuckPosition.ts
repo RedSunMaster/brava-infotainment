@@ -8,7 +8,7 @@ import type { CameraMode, Orientation } from "../constants";
 import { ZOOM_LEVEL } from "../constants";
 import { lookAheadCamera, puckModelScale, smoothToward } from "../lib/cameraLookAhead";
 import { puckOffset, puckScreenPoint } from "../lib/cameraPadding";
-import { locateOnRoute, pointAtDistance, routeCache, segmentAtDistance } from "../lib/routeLocate";
+import { locateOnRoute, nextOffTrack, pointAtDistance, routeCache, segmentAtDistance, type Located } from "../lib/routeLocate";
 import { nearestLongitude } from "../lib/showcase";
 
 // How quickly the rendered bearing chases the target bearing.
@@ -61,11 +61,17 @@ export function usePositionPuck(
 	const speedMsRef = useRef<number>(0);
 	const distancesFor = useRef(routeCache()).current;
 	// Metres along the route of a position, searched near where the puck already is so that a route passing the same spot twice cannot jump it to the other pass.
-	function distanceAlongRouteToPoint(coords: [number, number][], pos: [number, number]): number {
+	function locateOnCurrentRoute(coords: [number, number][], pos: [number, number]): Located {
 		const cumulative = distancesFor(coords);
 		const hint = distanceCursorRef.current >= 0 ? segmentAtDistance(cumulative, distanceCursorRef.current) : 0;
-		return locateOnRoute(coords, cumulative, pos, hint).along;
+		return locateOnRoute(coords, cumulative, pos, hint);
 	}
+	function distanceAlongRouteToPoint(coords: [number, number][], pos: [number, number]): number {
+		return locateOnCurrentRoute(coords, pos).along;
+	}
+	// True while the car is away from the route line (a missed turn, a detour): the puck then goes where the GPS says, facing the GPS heading,
+	// instead of sliding along a line the car is not on.
+	const offTrackRef = useRef(false);
 	const distanceCursorRef = useRef<number>(-1);
 
 	const gpsPosRef = useRef<[number, number]>(initialPos);
@@ -121,8 +127,13 @@ export function usePositionPuck(
 		lastFrameTimeRef.current = performance.now();
 
 		const coords = coordsRef.current;
-		distanceCursorRef.current =
-			coords.length >= 2 ? distanceAlongRouteToPoint(coords, pos) : -1;
+		distanceCursorRef.current = -1;
+		offTrackRef.current = false;
+		if (coords.length >= 2) {
+			const located = locateOnCurrentRoute(coords, pos);
+			distanceCursorRef.current = located.along;
+			offTrackRef.current = nextOffTrack(false, located.offsetM);
+		}
 		mapRef.current?.triggerRepaint();
 	}
 
@@ -237,7 +248,7 @@ export function usePositionPuck(
 				lastFrameTimeRef.current = now;
 
 				const coords = coordsRef.current;
-				const hasRoute = coords.length >= 2 && distanceCursorRef.current >= 0;
+				const hasRoute = coords.length >= 2 && distanceCursorRef.current >= 0 && !offTrackRef.current;
 				const bearingAlpha = 1 - Math.exp(-BEARING_LERP_SPEED * dt);
 
 				if (hasRoute) {
@@ -448,16 +459,21 @@ export function usePositionPuck(
 
 		if (coords.length < 2) {
 			distanceCursorRef.current = -1;
+			offTrackRef.current = false;
 			return;
 		}
 
-		const actualDist = distanceAlongRouteToPoint(coords, pos);
+		const located = locateOnCurrentRoute(coords, pos);
+		const actualDist = located.along;
+		offTrackRef.current = nextOffTrack(offTrackRef.current, located.offsetM);
 
 		if (distanceCursorRef.current < 0) {
 			distanceCursorRef.current = actualDist;
 			renderPosRef.current = [...pos] as [number, number];
 			return;
 		}
+		// Off the line the cursor just follows the car, so rejoining the route carries on from where it really is.
+		if (offTrackRef.current) { distanceCursorRef.current = actualDist; return; }
 
 		const error = actualDist - distanceCursorRef.current;
 
@@ -471,6 +487,7 @@ export function usePositionPuck(
 
 	function resetCursor() {
 		distanceCursorRef.current = -1;
+		offTrackRef.current = false;
 		speedMsRef.current = 0;
 	}
 

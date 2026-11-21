@@ -413,6 +413,12 @@ export default function App() {
 		syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
 	});
 
+	// A stop the car has reached is done: a reroute afterwards must not send it back to it.
+	const dropReachedStop = useCallback((pos: [number, number]) => {
+		const [next, ...rest] = navStopsRef.current;
+		if (next && distanceKm(pos, next) < 0.06) navStopsRef.current = rest;
+	}, []);
+
 	// ── Reroute ────────────────────────────────────────────────────────────────
 	const handleOffRoute = useCallback(async () => {
 		if (!navDestRef.current || isRerouting) return;
@@ -425,7 +431,8 @@ export default function App() {
 				provider,
 				navStopsRef.current,
 				navBuildingRef.current ?? undefined,
-				{ avoid: routePreferences, speedMs: lastSpeedRef.current },
+				// Heading only when moving: a receiver's heading at a standstill is the last one it had, which may be stale.
+				{ avoid: routePreferences, speedMs: lastSpeedRef.current, headingDeg: lastSpeedRef.current > 2 ? lastBearingRef.current : undefined },
 			);
 			if (request !== routeRequest.current || !navDestRef.current) return;
 			if (route.coords.length < 2 || !route.maneuvers.length)
@@ -480,9 +487,10 @@ export default function App() {
 			if (coordsRef.current.length) setRoutePosition(closestRouteIndex(pos, coordsRef.current));
 			setNearRouteEnd(!!routeEnd && distanceKm(pos, routeEnd) < 0.03);
 			updatePuck(pos, bearing, speed);
+			if (navActive) dropReachedStop(pos);
 			await onPositionUpdate(pos, bearing, speed, prov, trusted);
 		},
-		[updatePuck, onPositionUpdate, updatePosition, closestRouteIndex],
+		[updatePuck, onPositionUpdate, updatePosition, closestRouteIndex, navActive, dropReachedStop],
 	);
 
 	// ── GPS ────────────────────────────────────────────────────────────────────
@@ -498,6 +506,7 @@ export default function App() {
 				setDrivingState((previous) => nextDrivingState(previous, speed));
 
 				updatePuck(pos, bearing, speed);
+				if (navActive) dropReachedStop(pos);
 
 				if (navActive && !isRerouting) {
 					if (coordsRef.current.length > 0) {

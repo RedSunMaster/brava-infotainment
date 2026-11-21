@@ -26,11 +26,12 @@ export interface NormalizedRoute {
 }
 
 export type RoutePreference = "toll" | "ferry" | "unpaved";
-export interface RouteOptions { avoid?: RoutePreference[]; speedMs?: number }
+/** `headingDeg` is the way the car is facing: a route from where it is now then sets off that way, not back the way it came. */
+export interface RouteOptions { avoid?: RoutePreference[]; speedMs?: number; headingDeg?: number }
 
 export async function getRoutes(origin: [number, number], dest: [number, number], provider: RoutingProvider, stops: [number, number][] = [], target?: [number, number], options?: RouteOptions): Promise<NormalizedRoute[]> {
 	if (provider !== "mapbox" && options?.avoid?.length) throw new Error("Route preferences require Mapbox routing.");
-	return provider === "mapbox" ? getMapboxRoutes(origin, dest, stops, true, target, options) : [await getValhallaRoute(origin, dest, stops)];
+	return provider === "mapbox" ? getMapboxRoutes(origin, dest, stops, true, target, options) : [await getValhallaRoute(origin, dest, stops, options?.headingDeg)];
 }
 
 export async function getRoute(
@@ -44,7 +45,7 @@ export async function getRoute(
 	if (provider !== "mapbox" && options?.avoid?.length) throw new Error("Route preferences require Mapbox routing.");
 	return provider === "mapbox"
 		? getMapboxRoute(origin, dest, stops, target, options)
-		: getValhallaRoute(origin, dest, stops);
+		: getValhallaRoute(origin, dest, stops, options?.headingDeg);
 }
 
 export async function snapToRoad(

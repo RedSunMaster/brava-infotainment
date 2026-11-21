@@ -124,3 +124,13 @@ export function routeCache() {
 		return value;
 	};
 }
+
+/** The puck leaves the route line (and follows the GPS position and heading) beyond this many metres from it... */
+export const OFF_TRACK_ENTER_M = 30;
+/** ...and rejoins it once back within this many; the gap stops a car running alongside the line flickering between the two. */
+export const OFF_TRACK_EXIT_M = 15;
+
+/** Whether the car is off the route line, given whether it was and how far from the line the latest fix is. */
+export function nextOffTrack(wasOff: boolean, offsetM: number): boolean {
+	return wasOff ? offsetM > OFF_TRACK_EXIT_M : offsetM > OFF_TRACK_ENTER_M;
+}

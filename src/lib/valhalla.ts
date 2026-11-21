@@ -45,9 +45,13 @@ export async function getValhallaRoute(
 	origin: [number, number],
 	dest: [number, number],
 	stops: [number, number][] = [],
+	/** Which way the car faces at the start, in degrees from north. */
+	headingDeg?: number,
 ): Promise<NormalizedRoute> {
 	const data = await valhallaPost("/route", {
-		locations: [origin, ...stops, dest].map(([lon, lat]) => ({ lon, lat })),
+		locations: [origin, ...stops, dest].map(([lon, lat], index) => index === 0 && Number.isFinite(headingDeg)
+			? { lon, lat, heading: Math.round(((headingDeg as number) % 360 + 360) % 360), heading_tolerance: 45 }
+			: { lon, lat }),
 		costing: "auto",
 		directions_options: { units: "kilometres" },
 	});

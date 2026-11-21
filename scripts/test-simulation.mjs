@@ -130,3 +130,10 @@ test("a position far from the hint is still found by searching the whole route",
 	assert.equal(point.segment, 50);
 	assert.ok(Math.abs(point.bearing - 90) < 0.5);
 });
+
+test("the puck leaves the route line past 30 m and only rejoins within 15 m", () => {
+	assert.equal(locate.nextOffTrack(false, 29), false);
+	assert.equal(locate.nextOffTrack(false, 31), true);
+	assert.equal(locate.nextOffTrack(true, 20), true);
+	assert.equal(locate.nextOffTrack(true, 14), false);
+});
