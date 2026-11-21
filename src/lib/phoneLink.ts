@@ -172,3 +172,15 @@ export function spokenNotification(n: PhoneNotification): string {
 	const title = clean(n.title);
 	return [clean(n.appName), [title, text].filter(Boolean).join(". ")].filter(Boolean).join(": ");
 }
+
+/** Notifications older than this when they arrive (the phone re-sending what was already showing) do not chime. */
+export const CHIME_MAX_AGE_MS = 30_000;
+/** At most one chime this often, so a burst of notifications is one sound, not a rattle. */
+export const CHIME_MIN_GAP_MS = 2_000;
+
+/** Whether an arriving notification should play the chime. `ducked` is true while a spoken prompt is being said. */
+export function chimeDue(input: { muted: boolean; level: number; ducked: boolean; time: number; now: number; lastChime: number | null }): boolean {
+	if (input.muted || input.level <= 0 || input.ducked) return false;
+	if (input.now - input.time > CHIME_MAX_AGE_MS) return false;
+	return input.lastChime === null || input.now - input.lastChime >= CHIME_MIN_GAP_MS;
+}

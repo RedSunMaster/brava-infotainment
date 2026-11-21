@@ -35,3 +35,10 @@ export const rendererConfig: Configuration = {
 		},
 	},
 };
+
+/**
+ * The preload script's own config. It must not be split into chunks: a preload cannot load extra chunks, so (in dev, where the
+ * dev-server client is a shared vendor chunk) its entry would wait forever and never run, leaving window.electronPhone,
+ * window.electronSpotify, etc. undefined.
+ */
+export const preloadConfig: Configuration = { ...rendererConfig, cache: false, optimization: {} };

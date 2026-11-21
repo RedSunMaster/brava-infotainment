@@ -4,6 +4,8 @@ export interface PhoneSettings {
 	toasts: boolean;
 	/** Show the text of a notification on that pop-up (off hides it from passengers: only the sender shows). */
 	showText: boolean;
+	/** Silences the sound played when a notification arrives (its volume is the "chime" level). */
+	chimeMuted: boolean;
 	/** Apps (Android package names) whose notifications are ignored. */
 	blocked: string[];
 	/** Apps seen so far, so one can be switched off even when it has nothing showing right now. */
@@ -14,7 +16,7 @@ type StorageLike = Pick<Storage, "getItem" | "setItem">;
 export const PHONE_SETTINGS_KEY = "brava-phone-settings";
 /** A phone that sends hundreds of different apps cannot grow this without limit. */
 const MAX_APPS = 100;
-export const DEFAULT_PHONE_SETTINGS: PhoneSettings = { toasts: true, showText: true, blocked: [], apps: {} };
+export const DEFAULT_PHONE_SETTINGS: PhoneSettings = { toasts: true, showText: true, chimeMuted: false, blocked: [], apps: {} };
 
 export function readPhoneSettings(storage: StorageLike | null): PhoneSettings {
 	try {
@@ -26,6 +28,7 @@ export function readPhoneSettings(storage: StorageLike | null): PhoneSettings {
 		return {
 			toasts: typeof r.toasts === "boolean" ? r.toasts : true,
 			showText: typeof r.showText === "boolean" ? r.showText : true,
+			chimeMuted: typeof r.chimeMuted === "boolean" ? r.chimeMuted : false,
 			blocked: Array.isArray(r.blocked) ? r.blocked.filter((item): item is string => typeof item === "string").slice(0, MAX_APPS) : [],
 			apps,
 		};
@@ -48,6 +51,7 @@ export function createPhoneSettings(storage: StorageLike | null) {
 		isAllowed: (app: string) => !state.blocked.includes(app),
 		setToasts: (toasts: boolean) => commit({ ...state, toasts }),
 		setShowText: (showText: boolean) => commit({ ...state, showText }),
+		setChimeMuted: (chimeMuted: boolean) => commit({ ...state, chimeMuted }),
 		setBlocked(app: string, blocked: boolean): void {
 			const rest = state.blocked.filter((item) => item !== app);
 			commit({ ...state, blocked: blocked ? [...rest, app] : rest });

@@ -1,5 +1,8 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { createNotificationStore, parsePhoneMessage, type StoredNotification } from "../lib/phoneLink";
+import { chimeDue, createNotificationStore, parsePhoneMessage, type StoredNotification } from "../lib/phoneLink";
+import { audioDucking } from "../lib/audioDucking";
+import { playChime } from "../lib/notificationChime";
+import { voiceLevels } from "./useMasterVolume";
 import { createPhoneSettings } from "../lib/phoneSettings";
 
 /** What the main process reports about the connection to the phone (see phoneLinkMain.ts). */
@@ -39,6 +42,8 @@ function setToast(next: StoredNotification | null) {
 function markSeen() { try { localStorage.setItem(SEEN_KEY, "1"); } catch { /* Not remembered. */ } }
 const seen = (): boolean => { try { return localStorage.getItem(SEEN_KEY) === "1"; } catch { return false; } };
 
+let lastChime: number | null = null;
+
 let started = false;
 function start() {
 	const electron = bridge();
@@ -53,7 +58,12 @@ function start() {
 		if (message.t === "notif") {
 			phoneSettings.noteApp(message.app, message.appName);
 			const stored = phoneNotifications.add(message);
-			if (stored) setToast(stored);
+			if (stored) {
+				setToast(stored);
+				const now = Date.now();
+				const level = voiceLevels.get().chime;
+				if (chimeDue({ muted: phoneSettings.get().chimeMuted, level, ducked: audioDucking.ducked, time: stored.time, now, lastChime })) { lastChime = now; playChime(level); }
+			}
 		} else if (message.t === "gone") {
 			phoneNotifications.remove(message.key);
 			if (toast?.key === message.key) setToast(null);
@@ -84,6 +94,7 @@ export function usePhoneLink() {
 		clearAll() { phoneNotifications.get().items.forEach((item) => bridge()?.dismiss(item.key)); phoneNotifications.clear(); setToast(null); },
 		setToasts: phoneSettings.setToasts,
 		setShowText: phoneSettings.setShowText,
+		setChimeMuted: phoneSettings.setChimeMuted,
 		setBlocked: phoneSettings.setBlocked,
 	};
 }

@@ -2,6 +2,7 @@ import React from "react";
 import { Box, Typography } from "@mui/material";
 import DriveButton from "./DriveButton";
 import { usePhoneLink } from "../hooks/usePhoneLink";
+import VoiceVolumes from "./VoiceVolumes";
 import { timeAgo } from "../lib/phoneLink";
 
 function Section({ title, hint, children }: { title: string; hint?: string; children?: React.ReactNode }) {
@@ -34,6 +35,10 @@ export default function PhoneSettings() {
 		</Section>
 		<Section title="Text on pop-ups" hint="Hide the message so passengers cannot read it. Only the sender shows.">
 			<Choice label="Text on pop-ups" value={settings.showText} onChange={phone.setShowText} on="Show text" off="Sender only" />
+		</Section>
+		<Section title="Notification sound" hint="A short sound when a notification arrives. It stays quiet while a spoken prompt is playing, and the music dips under it.">
+			<Choice label="Notification sound" value={!settings.chimeMuted} onChange={(on) => phone.setChimeMuted(!on)} on="On" off="Muted" />
+			{!settings.chimeMuted && <VoiceVolumes only={["chime"]} />}
 		</Section>
 		<Section title="Apps" hint={apps.length ? "Choose which apps can send notifications to the car." : "Apps appear here after they have sent a notification."}>
 			{apps.map(([app, name]) => {

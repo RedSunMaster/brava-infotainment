@@ -7,7 +7,7 @@ const load = async name => {
 	const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2021 } }).outputText;
 	return import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
 };
-const { parsePhoneMessage, createLineSplitter, createNotificationStore, frame, timeAgo, spokenNotification } = await load("lib/phoneLink");
+const { parsePhoneMessage, createLineSplitter, createNotificationStore, frame, timeAgo, spokenNotification, chimeDue } = await load("lib/phoneLink");
 const { createPhoneSettings, readPhoneSettings } = await load("lib/phoneSettings");
 const memory = (data = {}) => ({ data, getItem(k) { return k in data ? data[k] : null; }, setItem(k, v) { data[k] = String(v); } });
 const notif = (extra = {}) => ({ t: "notif", key: "k1", app: "com.msg", appName: "Messages", title: "Sam", text: "Running late", sender: "Sam", kind: "message", time: 1000, ...extra });
@@ -74,7 +74,7 @@ test("what is read aloud: who, where, and no links or pictures", () => {
 	assert.equal(spokenNotification(notif({ text: "", sender: null, title: "" })), "Message from Someone.");
 });
 test("phone settings default sensibly, survive bad data, and remember apps", () => {
-	assert.deepEqual(readPhoneSettings(memory({ "brava-phone-settings": "garbage" })), { toasts: true, showText: true, blocked: [], apps: {} });
+	assert.deepEqual(readPhoneSettings(memory({ "brava-phone-settings": "garbage" })), { toasts: true, showText: true, chimeMuted: false, blocked: [], apps: {} });
 	const store = memory();
 	const settings = createPhoneSettings(store);
 	settings.setShowText(false);
@@ -85,4 +85,24 @@ test("phone settings default sensibly, survive bad data, and remember apps", () 
 	assert.deepEqual([again.showText, again.blocked, again.apps], [false, ["com.game"], { "com.game": "Game" }]);
 	settings.setBlocked("com.game", false);
 	assert.equal(settings.isAllowed("com.game"), true);
+});
+
+const due = (extra = {}) => chimeDue({ muted: false, level: 0.6, ducked: false, time: 100_000, now: 100_500, lastChime: null, ...extra });
+test("a fresh notification chimes", () => assert.equal(due(), true));
+test("no chime when muted, at zero volume or while a prompt is being spoken", () => {
+	assert.equal(due({ muted: true }), false);
+	assert.equal(due({ level: 0 }), false);
+	assert.equal(due({ ducked: true }), false);
+});
+test("no chime for a notification the phone is only re-sending, or in a burst", () => {
+	assert.equal(due({ now: 100_000 + 31_000 }), false);
+	assert.equal(due({ lastChime: 99_000 }), false);
+	assert.equal(due({ lastChime: 97_000 }), true);
+});
+test("the chime is on by default and mute is remembered", () => {
+	const data = {};
+	const s = createPhoneSettings(memory(data));
+	assert.equal(s.get().chimeMuted, false);
+	s.setChimeMuted(true);
+	assert.equal(readPhoneSettings(memory(data)).chimeMuted, true);
 });
