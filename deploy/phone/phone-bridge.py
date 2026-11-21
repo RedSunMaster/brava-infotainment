@@ -61,6 +61,12 @@ class Profile(dbus.service.Object):
         except OSError as error:
             # The Brava app is not running (yet). Refuse; the phone tries again.
             log("app not listening at", APP_SOCKET, "-", error)
+            # shutdown() as well as close(): BlueZ keeps its own copy of the descriptor, so close() alone leaves the link
+            # open and the phone sits on a dead connection instead of retrying (at boot the app starts after the bridge).
+            try:
+                bluetooth.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             bluetooth.close()
             return
         log("phone connected:", device)
