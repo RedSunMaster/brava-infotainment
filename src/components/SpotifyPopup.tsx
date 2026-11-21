@@ -72,9 +72,9 @@ export default function SpotifyPopup({ spotify, isDriving, onClose }: Props) {
      <DriveButton variant="contained" aria-label={track?.isPlaying ? "Pause music" : "Play music"} onClick={() => void run(track?.isPlaying ? spotify.pause : spotify.play)} sx={{ ...TRANSPORT, flex: "0 0 150px" }}>{track?.isPlaying ? <PauseRounded /> : <PlayArrowRounded />}</DriveButton>
      <DriveButton color="inherit" disabled={!track} aria-label="Next track" onClick={() => void run(spotify.next)} sx={{ ...STEP_BUTTON, ...TRANSPORT, flex: "0 0 112px" }}><SkipNextRounded /></DriveButton>
      <DriveButton color={track?.repeat !== "off" && track ? "primary" : "inherit"} disabled={!track} aria-label={`Repeat ${track?.repeat ?? "off"}`} onClick={() => void run(spotify.cycleRepeat)} sx={{ ...STEP_BUTTON, flex: "0 0 72px", minHeight: 64, minWidth: 0 }}>{track?.repeat === "track" ? <RepeatOneRounded /> : <RepeatRounded />}</DriveButton>
-     {/* The master volume, small and at the end of the row, in the same form as the music card. */}
-     <Box sx={{ ml: 1, pl: 1.5, borderLeft: "1px solid", borderColor: "divider" }}><MasterVolume /></Box>
     </Box>
+    {/* The master volume: a wide slider with big buttons on its own row, so it can be set accurately. */}
+    <MasterVolume variant="inline" />
    </>}
   </>}
  </Box>;

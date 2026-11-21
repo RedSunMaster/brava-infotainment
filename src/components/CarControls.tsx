@@ -31,7 +31,6 @@ import { audioDucking, duckedVolume } from "../lib/audioDucking";
 import { useMasterVolume, voiceLevels } from "../hooks/useMasterVolume";
 import { outputLevel } from "../lib/masterVolume";
 import MasterVolume from "./MasterVolume";
-import VolumeOffRounded from "@mui/icons-material/VolumeOffRounded";
 import RearDefrostIcon from "../../public/icons/rearWindshieldDefrost.svg";
 import AirflowFaceIcon from "../../public/icons/airflowFace.svg";
 import AirflowFaceFeetIcon from "../../public/icons/airflowFaceFeet.svg";
@@ -174,7 +173,7 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
  const master = useMasterVolume();
  // The level Spotify itself should play at. With the system output as the master, Spotify stays at full and the system volume
  // does the work (so it also works when Spotify is not connected); without one, Spotify's own volume is the master.
- const musicTarget = master.system ? 100 : master.muted ? 0 : outputLevel(master.level);
+ const musicTarget = master.system ? 100 : outputLevel(master.level);
  const musicTargetRef = useRef(musicTarget);
  musicTargetRef.current = musicTarget;
  // True while a spoken prompt has the music lowered.
@@ -293,7 +292,7 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
   switch (id) {
    case "fan": return <StepControl vertical={vertical} className={className} label="Fan" icon={AirRounded} grow={1} value={fan} onChange={setFan} maximum={10} displayValue={fan === 0 ? "Off" : fan + "/10"} meter={vertical ? <VerticalSlider kind="fan" label="Fan speed" value={fan} maximum={10} onChange={setFan} /> : <FanMeter value={fan} />} />;
    case "warmth": return <StepControl vertical={vertical} className={className} label="Warmth" icon={DeviceThermostatRounded} grow={1} value={temp} onChange={setTemp} maximum={10} displayValue={temp === 0 ? "Cool" : temp === 10 ? "Warm" : temp + "/10"} meter={vertical ? <VerticalSlider kind="warmth" label="Warmth" value={temp} maximum={10} onChange={setTemp} /> : <WarmthMeter value={temp} />} />;
-   case "volume": return <StepControl vertical={vertical} className={className} label="Volume" icon={master.muted ? VolumeOffRounded : VolumeUpRounded} grow={1} value={master.muted ? 0 : master.level} step={5} maximum={100} displayValue={master.muted ? "Mute" : String(master.level)} meter={vertical ? <VerticalSlider kind="level" label="Volume" value={master.muted ? 0 : master.level} maximum={100} step={5} onChange={master.setLevel} /> : undefined} onChange={master.setLevel} />;
+   case "volume": return <StepControl vertical={vertical} className={className} label="Volume" icon={VolumeUpRounded} grow={1} value={master.level} step={5} maximum={100} displayValue={String(master.level)} meter={vertical ? <VerticalSlider kind="level" label="Volume" value={master.level} maximum={100} step={5} onChange={master.setLevel} /> : undefined} onChange={master.setLevel} />;
    case "airflow": return <Switch bar={barEdge} caption={caption("Airflow")} className={className} label={`Airflow direction: ${AIRFLOW_MODES[airflow].name}${suffix}`} onClick={() => { const next = (airflow + 1) % AIRFLOW_MODES.length; setAirflow(next); setAirflowNote(AIRFLOW_MODES[next].name); }}>{React.createElement(AIRFLOW_MODES[airflow].Icon, { width: 46, height: 46, fill: "currentColor", "aria-hidden": true })}</Switch>;
    case "recirculate": return <Switch bar={barEdge} caption={caption("Recirculate")} className={className} label={`Recirculate cabin air${suffix}`} pressed={recirculate} onClick={() => setRecirculate(!recirculate)}><RecirculateIcon width={46} height={46} fill="currentColor" /></Switch>;
    case "demist": return <Switch bar={barEdge} caption={caption("Demist")} className={className} label={`Rear demist${suffix}`} pressed={rearDemist} onClick={() => setRearDemist(!rearDemist)}><RearDefrostIcon width={46} height={46} fill="currentColor" /></Switch>;

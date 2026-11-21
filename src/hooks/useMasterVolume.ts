@@ -15,7 +15,14 @@ export const masterVolume = createMasterVolume(storage(), bridge());
 export const voiceLevels = createVoiceLevels(storage());
 
 let started = false;
-function start() { if (!started) { started = true; void masterVolume.connect(); } }
+// There is no mute button any more, so a mute saved by an older version is cleared: it would be silence with no way to undo it.
+function start() {
+	if (started) return;
+	started = true;
+	const unmute = () => { if (masterVolume.get().muted) masterVolume.setMuted(false); };
+	unmute();
+	void masterVolume.connect().then(unmute, unmute);
+}
 
 export function useMasterVolume() {
 	useEffect(start, []);
