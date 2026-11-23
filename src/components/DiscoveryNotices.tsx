@@ -4,6 +4,8 @@ import { alpha, keyframes } from "@mui/material/styles";
 import TravelExploreRounded from "@mui/icons-material/TravelExploreRounded";
 import ParkRounded from "@mui/icons-material/ParkRounded";
 import LocationCityRounded from "@mui/icons-material/LocationCityRounded";
+import EmojiEventsRounded from "@mui/icons-material/EmojiEventsRounded";
+import DonutLargeRounded from "@mui/icons-material/DonutLargeRounded";
 import type { DiscoveryNotice } from "../hooks/useExploration";
 
 const arrive = keyframes`from { opacity: 0; transform: translateY(-16px) scale(0.96); } to { opacity: 1; transform: none; }`;
@@ -16,7 +18,7 @@ export default function DiscoveryNotices({ notices, onDismiss }: Props) {
 	return (
 		<Box aria-live="polite" sx={{ display: "grid", justifyItems: "center", gap: 1, pointerEvents: "none" }}>
 			{notices.map(notice => {
-				const Icon = notice.kind === "area" ? ParkRounded : notice.kind === "place" ? LocationCityRounded : TravelExploreRounded;
+				const Icon = notice.kind === "milestone" ? EmojiEventsRounded : notice.kind === "suburb" ? DonutLargeRounded : notice.kind === "area" ? ParkRounded : notice.kind === "place" ? LocationCityRounded : TravelExploreRounded;
 				return (
 					<Box key={notice.key} role="status" onClick={() => onDismiss(notice.key)}
 						sx={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 2, px: 2.5, py: 1.5, minWidth: "min(520px, 90vw)", maxWidth: "min(720px, 92vw)", borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.94), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "primary.main", boxShadow: 8, animation: `${arrive} 320ms ease-out` }}>

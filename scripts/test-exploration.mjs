@@ -2,9 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import ts from "typescript";
-const source = await readFile(new URL("../src/lib/exploration.ts", import.meta.url), "utf8");
-const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2021 } }).outputText;
-const { Explorer, toCellSpace, cellKey, REVEAL_RADIUS_M, metersPerCell } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`);
+/** A source file compiled to a data: URL, with its imports of other files in `links` pointed at their URLs. */
+async function compile(name, links = {}) {
+	const source = await readFile(new URL(`../src/lib/${name}.ts`, import.meta.url), "utf8");
+	let compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2021 } }).outputText;
+	for (const [from, url] of Object.entries(links)) compiled = compiled.replaceAll(`"./${from}"`, JSON.stringify(url));
+	return `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`;
+}
+const explorationUrl = await compile("exploration");
+const { Explorer, toCellSpace, cellKey, REVEAL_RADIUS_M, metersPerCell } = await import(explorationUrl);
+const { outlineFromNominatim, contains, cellsInside, shareExplored, FULLY_EXPLORED } = await import(await compile("suburbs", { exploration: explorationUrl }));
+const { newMilestones } = await import(await compile("milestones"));
 
 const ORIGIN = [172.60685, -43.45389];
 const M_LAT = 1 / 111_195;
@@ -174,4 +182,70 @@ test("ground explored while the saved map could not be read is added to it once 
 	assert.ok(seen(saved, at(250, 0)) && seen(saved, at(250, 400)));
 	assert.ok(Math.abs(saved.distanceM - 1000) < 10);
 	assert.deepEqual(saved.places.map(p => p.name), ["Riccarton", "Fendalton"]);
+});
+
+/** A square suburb `side` metres across with its south-west corner at the origin, as Nominatim returns it. */
+function squareSuburb(side, extra = {}) {
+	const ring = [at(0, 0), at(side, 0), at(side, side), at(0, side), at(0, 0)];
+	return { osm_type: "relation", osm_id: 1, name: "Testville", addresstype: "suburb", geojson: { type: "Polygon", coordinates: [ring] }, ...extra };
+}
+
+test("a suburb outline is read from a lookup, and cities or point-only results are not", () => {
+	const outline = outlineFromNominatim(squareSuburb(1000));
+	assert.equal(outline.id, "relation:1");
+	assert.ok(contains(outline, at(500, 500)) && !contains(outline, at(1500, 500)));
+	assert.equal(outlineFromNominatim(squareSuburb(1000, { addresstype: "city" })), null);
+	assert.equal(outlineFromNominatim({ ...squareSuburb(1000), geojson: { type: "Point", coordinates: at(0, 0) } }), null);
+	// Far bigger than any suburb.
+	assert.equal(outlineFromNominatim(squareSuburb(8000)), null);
+});
+
+test("a suburb's cells cover its area, and holes are left out", () => {
+	const outline = outlineFromNominatim(squareSuburb(1000));
+	const cells = cellsInside(outline);
+	const expected = 1e6 / metersPerCell(ORIGIN[1]) ** 2;
+	assert.ok(Math.abs(cells.length - expected) / expected < 0.03, `${cells.length} vs ${expected}`);
+	const hole = [at(250, 250), at(750, 250), at(750, 750), at(250, 750), at(250, 250)];
+	const holed = outlineFromNominatim({ ...squareSuburb(1000), geojson: { type: "Polygon", coordinates: [squareSuburb(1000).geojson.coordinates[0], hole] } });
+	const ratio = cellsInside(holed).length / cells.length;
+	assert.ok(Math.abs(ratio - 0.75) < 0.03, String(ratio));
+});
+
+test("driving through a suburb raises its progress, and 90% of it counts as all", () => {
+	const outline = outlineFromNominatim(squareSuburb(1000));
+	const cells = cellsInside(outline);
+	const explorer = new Explorer();
+	assert.equal(shareExplored(cells, explorer.cells), 0);
+	drive(explorer, [[0, 500], [1000, 500]]);
+	const one = shareExplored(cells, explorer.cells);
+	// One road across: about 100 m of the 1000 m, scaled up by FULLY_EXPLORED.
+	assert.ok(one > 0.09 && one < 0.16, String(one));
+	const seen = new Set(cells.slice(0, Math.ceil(cells.length * FULLY_EXPLORED)));
+	assert.equal(shareExplored(cells, seen), 1);
+});
+
+test("milestones are reached once, and only the biggest new one of a kind is announced", () => {
+	const state = { areaKm2: 6, newRoadsKm: 12, places: 5, suburbs: [{ id: "a", name: "Northwood", share: 0.6 }] };
+	const first = newMilestones(state, new Set());
+	assert.deepEqual(first.all.map(m => m.id), ["area:1", "area:2", "area:5", "roads:10", "places:5", "suburb:a:25", "suburb:a:50"]);
+	assert.deepEqual(first.announce.map(m => m.title), ["5 km² explored", "10 km of new roads", "5 places discovered", "Half of Northwood explored"]);
+	const achieved = new Set(first.all.map(m => m.id));
+	assert.equal(newMilestones(state, achieved).all.length, 0);
+	const done = newMilestones({ ...state, suburbs: [{ id: "a", name: "Northwood", share: 1 }] }, achieved);
+	assert.deepEqual(done.announce.map(m => m.title), ["First suburb fully explored", "Northwood fully explored"]);
+});
+
+test("milestones and suburbs are saved, and a map from before them is marked for quiet catch-up", () => {
+	const explorer = new Explorer();
+	explorer.reach([{ id: "area:1", title: "1 km² explored", kind: "area", at: 5 }]);
+	explorer.visitSuburb({ id: "relation:1", name: "Testville", at: 6 });
+	assert.equal(explorer.visitSuburb({ id: "relation:1", name: "Testville", at: 7 }), false);
+	const loaded = Explorer.fromJSON(JSON.parse(JSON.stringify(explorer.toJSON())));
+	assert.deepEqual(loaded.milestones.map(m => m.id), ["area:1"]);
+	assert.deepEqual(loaded.suburbs.map(s => s.name), ["Testville"]);
+	assert.equal(loaded.milestonesKnown, true);
+	const old = explorer.toJSON();
+	delete old.milestones;
+	assert.equal(Explorer.fromJSON(old).milestonesKnown, false);
+	assert.deepEqual(explorer.reach([{ id: "area:1", title: "", kind: "area", at: 9 }, { id: "area:2", title: "", kind: "area", at: 9 }]).map(m => m.id), ["area:2"]);
 });

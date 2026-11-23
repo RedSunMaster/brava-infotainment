@@ -9,6 +9,8 @@
  *
  * Pure logic with no map or storage, so it can be tested on its own.
  */
+import type { Milestone } from "./milestones";
+
 export type LngLat = [number, number];
 
 export const CELL_ZOOM = 20;
@@ -149,7 +151,13 @@ export interface SavedExploration {
 	newDistanceM: number;
 	places: DiscoveredPlace[];
 	startedAt: number;
+	/** Added later: older saves have none (their milestones are then filled in quietly, without popups). */
+	milestones?: Milestone[];
+	/** Suburbs driven in that have an outline (the outlines themselves are kept separately, shared by all profiles). */
+	suburbs?: VisitedSuburb[];
 }
+
+export interface VisitedSuburb { id: string; name: string; at: number }
 
 export class Explorer {
 	readonly cells = new Set<number>();
@@ -161,6 +169,10 @@ export class Explorer {
 	newDistanceM = 0;
 	places: DiscoveredPlace[] = [];
 	startedAt = Date.now();
+	milestones: Milestone[] = [];
+	suburbs: VisitedSuburb[] = [];
+	/** False for a map saved before milestones existed, until the ones it had already reached are filled in. */
+	milestonesKnown = true;
 	private track: TrackPoint[] = [];
 	private lastTime = 0;
 	/** Distance driven since this drive last uncovered anything; credited as new road once it does. */
@@ -266,6 +278,21 @@ export class Explorer {
 
 	hasPlace(id: string): boolean { return this.places.some(item => item.id === id); }
 
+	/** Remembers a suburb driven in. False if it was already known. */
+	visitSuburb(suburb: VisitedSuburb): boolean {
+		if (this.suburbs.some(item => item.id === suburb.id)) return false;
+		this.suburbs.push(suburb);
+		return true;
+	}
+
+	/** Records milestones reached. Returns the ones that were new. */
+	reach(milestones: Milestone[]): Milestone[] {
+		const known = new Set(this.milestones.map(item => item.id));
+		const added = milestones.filter(item => !known.has(item.id) && (known.add(item.id), true));
+		this.milestones.push(...added);
+		return added;
+	}
+
 	/** The share (0–1) of the land within radiusM of a point that has been explored. */
 	shareAround(center: LngLat, radiusM: number): number {
 		const [x, y] = toCellSpace(center);
@@ -287,6 +314,9 @@ export class Explorer {
 		this.distanceM = 0;
 		this.newDistanceM = 0;
 		this.places = [];
+		this.milestones = [];
+		this.suburbs = [];
+		this.milestonesKnown = true;
 		this.track = [];
 		this.startedAt = Date.now();
 		this.loopCooldownUntil = 0;
@@ -295,7 +325,7 @@ export class Explorer {
 	toJSON(): SavedExploration {
 		const sorted = [...this.cells].sort((a, b) => a - b);
 		const deltas = sorted.map((key, i) => (i === 0 ? key : key - sorted[i - 1]));
-		return { v: SAVE_VERSION, cells: deltas, distanceM: this.distanceM, newDistanceM: this.newDistanceM, places: this.places, startedAt: this.startedAt };
+		return { v: SAVE_VERSION, cells: deltas, distanceM: this.distanceM, newDistanceM: this.newDistanceM, places: this.places, startedAt: this.startedAt, milestones: this.milestones, suburbs: this.suburbs };
 	}
 
 	/** Whether saved data is a map this version can read (anything else must never be saved over). */
@@ -310,6 +340,8 @@ export class Explorer {
 		this.distanceM += other.distanceM;
 		this.newDistanceM += other.newDistanceM;
 		for (const place of other.places) this.discover(place);
+		for (const suburb of other.suburbs) this.visitSuburb(suburb);
+		this.reach(other.milestones);
 	}
 
 	static fromJSON(data: unknown): Explorer {
@@ -336,6 +368,12 @@ export class Explorer {
 		if (typeof saved.startedAt === "number" && Number.isFinite(saved.startedAt)) explorer.startedAt = saved.startedAt;
 		if (Array.isArray(saved.places)) {
 			explorer.places = saved.places.filter((item): item is DiscoveredPlace => !!item && typeof item.id === "string" && typeof item.name === "string" && Array.isArray(item.coords) && item.coords.length === 2 && item.coords.every(Number.isFinite) && typeof item.at === "number");
+		}
+		if (Array.isArray(saved.milestones)) {
+			explorer.milestones = saved.milestones.filter((item): item is Milestone => !!item && typeof item.id === "string" && typeof item.title === "string" && typeof item.kind === "string" && typeof item.at === "number");
+		} else explorer.milestonesKnown = false;
+		if (Array.isArray(saved.suburbs)) {
+			explorer.suburbs = saved.suburbs.filter((item): item is VisitedSuburb => !!item && typeof item.id === "string" && typeof item.name === "string" && typeof item.at === "number");
 		}
 		return explorer;
 	}

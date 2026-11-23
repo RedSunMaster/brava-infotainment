@@ -19,6 +19,14 @@ const queues = new Map<string, Promise<void>>();
 const PREVIOUS_EVERY_MS = 10 * 60 * 1000;
 const lastPrevious = new Map<string, number>();
 
+/**
+ * Suburb outlines come from OpenStreetMap's Nominatim. Its usage policy asks for at most one request a second and for
+ * the app to identify itself, which only the main process can do (browsers will not set a User-Agent).
+ */
+const NOMINATIM = "https://nominatim.openstreetmap.org/reverse";
+const NOMINATIM_GAP_MS = 1_100;
+let nominatimQueue: Promise<unknown> = Promise.resolve();
+
 export type ExplorationLoad = { status: "ok"; data: unknown } | { status: "missing" } | { status: "error"; message: string };
 
 /** How many explored cells a saved map holds (its cell list is stored as gaps between cells, one entry per cell). */
@@ -71,6 +79,21 @@ export function registerExplorationIpc(): void {
 		const next = (queues.get(file) ?? Promise.resolve()).then(write, write).catch((cause: unknown) => console.error("Explore map not saved:", cause));
 		queues.set(file, next);
 		return next.then(() => true);
+	});
+	// The suburb at a point, with its outline (Nominatim's JSON), or null if the lookup failed.
+	ipcMain.handle("exploration:suburb-at", (_event, lng: unknown, lat: unknown) => {
+		if (typeof lng !== "number" || typeof lat !== "number" || !Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+		const params = new URLSearchParams({ lat: lat.toFixed(5), lon: lng.toFixed(5), zoom: "14", format: "jsonv2", polygon_geojson: "1", polygon_threshold: "0.0001" });
+		const run = async (): Promise<unknown> => {
+			try {
+				const response = await fetch(`${NOMINATIM}?${params}`, { headers: { "User-Agent": `brava-infotainment/${app.getVersion()}`, "Accept-Language": "en" }, signal: AbortSignal.timeout(10_000) });
+				return response.ok ? await response.json() as unknown : null;
+			} catch { return null; }
+		};
+		const result = nominatimQueue.then(run, run);
+		// The next lookup waits a little over a second after this one.
+		nominatimQueue = result.then(() => new Promise(resolve => setTimeout(resolve, NOMINATIM_GAP_MS)));
+		return result;
 	});
 	ipcMain.handle("exploration:delete", async (_event, id: unknown) => {
 		const file = fileFor(id);

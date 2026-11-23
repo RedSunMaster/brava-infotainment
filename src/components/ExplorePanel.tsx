@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { Box, Typography } from "@mui/material";
+import { Box, LinearProgress, Typography } from "@mui/material";
 import DriveButton from "./DriveButton";
 import type { ExploreStats } from "../hooks/useExploration";
 import type { LngLat } from "../lib/exploration";
+import { AREA_STEPS, ROAD_STEPS, nextStep } from "../lib/milestones";
+import { FULLY_EXPLORED } from "../lib/suburbs";
 
 const KIND_NAME = { place: "Town or city", locality: "Suburb", neighborhood: "Neighbourhood", area: "Area" } as const;
 /** How many discoveries are listed before "Show all". */
@@ -37,12 +39,24 @@ function Stat({ label, value }: { label: string; value: string }) {
 	);
 }
 
+/** Progress through a suburb as a percentage (rounded down, so 100% means done). */
+const percent = (share: number) => `${Math.floor(share * 100)}%`;
+const shortDate = (at: number) => new Date(at).toLocaleDateString("en-NZ", { day: "numeric", month: "short" });
+
+/** A section's list: the first RECENT rows, and a button for the rest. */
+function ShowMore({ count, open, onToggle }: { count: number; open: boolean; onToggle: () => void }) {
+	if (count <= RECENT) return null;
+	return <DriveButton className="settings-option" variant="outlined" onClick={onToggle}>{open ? "Show fewer" : `Show all ${count}`}</DriveButton>;
+}
+
 const km = (value: number) => value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString("en-NZ");
 
 /** Settings → Explore: the fog of war switch, how much has been explored, and what was found. */
 export default function ExplorePanel({ fogOn, onFogChange, stats, home, shareAround, onReset, isDriving }: Props) {
 	const [confirming, setConfirming] = useState(false);
 	const [showAll, setShowAll] = useState(false);
+	const [allSuburbs, setAllSuburbs] = useState(false);
+	const [allMilestones, setAllMilestones] = useState(false);
 	useEffect(() => { if (!confirming) return; const timer = window.setTimeout(() => setConfirming(false), 5000); return () => window.clearTimeout(timer); }, [confirming]);
 	const homeShare = home && stats ? shareAround(home, HOME_RADIUS_M) : null;
 	const since = stats ? new Date(stats.startedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }) : "";
@@ -72,6 +86,46 @@ export default function ExplorePanel({ fogOn, onFogChange, stats, home, shareAro
 					</Box>
 				) : <Typography sx={{ fontSize: 20, color: "text.secondary" }}>Loading…</Typography>}
 			</Box>
+			{stats && stats.suburbs.length > 0 && (
+				<Box sx={{ display: "grid", gap: 1.25 }}>
+					<Box>
+						<Typography sx={{ fontSize: 25, fontWeight: 700 }}>Suburbs</Typography>
+						<Typography sx={{ fontSize: 20, color: "text.secondary" }}>
+							{stats.suburbs.filter(suburb => suburb.share >= 1).length} of {stats.suburbs.length} fully explored. The backs of some sections can never be seen from a road, so {Math.round(FULLY_EXPLORED * 100)}% of a suburb counts as all of it.
+						</Typography>
+					</Box>
+					{(allSuburbs ? stats.suburbs : stats.suburbs.slice(0, RECENT)).map(suburb => (
+						<Box key={suburb.id} sx={{ display: "grid", gap: 0.5, minWidth: 0 }}>
+							<Box sx={{ display: "flex", alignItems: "baseline", gap: 1.5, minWidth: 0 }}>
+								<Typography noWrap sx={{ fontSize: 23, fontWeight: 700, flex: 1, minWidth: 0 }}>{suburb.name}</Typography>
+								<Typography sx={{ fontSize: 21, fontWeight: 700, color: suburb.share >= 1 ? "success.main" : "text.secondary" }}>{percent(suburb.share)}</Typography>
+							</Box>
+							<LinearProgress variant="determinate" value={suburb.share * 100} color={suburb.share >= 1 ? "success" : "primary"} sx={{ height: 10, borderRadius: 5 }} />
+						</Box>
+					))}
+					<ShowMore count={stats.suburbs.length} open={allSuburbs} onToggle={() => setAllSuburbs(all => !all)} />
+				</Box>
+			)}
+			{stats && (
+				<Box sx={{ display: "grid", gap: 1 }}>
+					<Box>
+						<Typography sx={{ fontSize: 25, fontWeight: 700 }}>Milestones</Typography>
+						<Typography sx={{ fontSize: 20, color: "text.secondary" }}>
+							{[
+								nextStep(AREA_STEPS, stats.areaKm2) !== null && `Next: ${nextStep(AREA_STEPS, stats.areaKm2)} km² explored`,
+								nextStep(ROAD_STEPS, stats.newDistanceKm) !== null && `${nextStep(ROAD_STEPS, stats.newDistanceKm)} km of new roads`,
+							].filter(Boolean).join(", ")}.
+						</Typography>
+					</Box>
+					{(allMilestones ? stats.milestones : stats.milestones.slice(0, RECENT)).map(milestone => (
+						<Box key={milestone.id} sx={{ display: "flex", alignItems: "baseline", gap: 1.5, minWidth: 0 }}>
+							<Typography noWrap sx={{ fontSize: 23, fontWeight: 700, flex: 1, minWidth: 0 }}>{milestone.title}</Typography>
+							<Typography noWrap sx={{ fontSize: 19, color: "text.secondary" }}>{shortDate(milestone.at)}</Typography>
+						</Box>
+					))}
+					<ShowMore count={stats.milestones.length} open={allMilestones} onToggle={() => setAllMilestones(all => !all)} />
+				</Box>
+			)}
 			{stats && stats.places.length > 0 && (
 				<Box sx={{ display: "grid", gap: 1 }}>
 					<Box>
@@ -81,14 +135,10 @@ export default function ExplorePanel({ fogOn, onFogChange, stats, home, shareAro
 					{(showAll ? stats.places : stats.places.slice(0, RECENT)).map(place => (
 						<Box key={place.id} sx={{ display: "flex", alignItems: "baseline", gap: 1.5, minWidth: 0 }}>
 							<Typography noWrap sx={{ fontSize: 23, fontWeight: 700, flex: 1, minWidth: 0 }}>{place.name}</Typography>
-							<Typography noWrap sx={{ fontSize: 19, color: "text.secondary" }}>{KIND_NAME[place.kind]} · {new Date(place.at).toLocaleDateString("en-NZ", { day: "numeric", month: "short" })}</Typography>
+							<Typography noWrap sx={{ fontSize: 19, color: "text.secondary" }}>{KIND_NAME[place.kind]} · {shortDate(place.at)}</Typography>
 						</Box>
 					))}
-					{stats.places.length > RECENT && (
-						<DriveButton className="settings-option" variant="outlined" onClick={() => setShowAll(all => !all)}>
-							{showAll ? "Show fewer" : `Show all ${stats.places.length}`}
-						</DriveButton>
-					)}
+					<ShowMore count={stats.places.length} open={showAll} onToggle={() => setShowAll(all => !all)} />
 				</Box>
 			)}
 			<Box sx={{ display: "grid", gap: 1.25 }}>
