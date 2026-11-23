@@ -43,9 +43,11 @@ export function isSignificantTurn(step: { type: number | string; modifier?: stri
 // At the normal follow zoom the car was about three road-widths wide, hiding junctions.
 const PUCK_BASE_SCALE = 3.3;
 const PUCK_REFERENCE_ZOOM = 16.5;
-// Beyond these limits the car stops compensating, so it cannot become absurd at extreme zooms.
+// Beyond these limits the car stops compensating, so it cannot become absurd at extreme zooms. Zoomed in past about 18.7
+// it becomes a real object about 12 m long (the model is 16.3 units, × 0.74), a little bigger than a car so it still
+// reads, and grows with the buildings around it instead of staying a fixed size on screen like a toy.
 const PUCK_MAX_ZOOM_OUT = 5;
-const PUCK_MAX_ZOOM_IN = 3;
+const PUCK_MAX_ZOOM_IN = 2.16;
 
 /**
  * World-size multiplier for the car model that keeps it the same size on screen at any zoom.

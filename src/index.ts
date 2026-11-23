@@ -13,6 +13,7 @@ import { registerAudioIpc } from "./audioMain";
 import { startPhoneLink } from "./phoneLinkMain";
 import { startGps } from "./gpsMain";
 import { registerBluetoothIpc } from "./bluetoothMain";
+import { registerExplorationIpc } from "./explorationMain";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -146,6 +147,7 @@ startUpdater(() => mainWindow);
 registerAudioIpc();
 startPhoneLink(() => mainWindow);
 registerBluetoothIpc();
+registerExplorationIpc();
 
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────
 ipcMain.on("app-quit", () => app.quit());

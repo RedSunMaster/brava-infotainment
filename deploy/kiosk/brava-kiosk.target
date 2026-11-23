@@ -1,0 +1,6 @@
+[Unit]
+Description=Brava kiosk (used instead of graphical.target)
+Requires=multi-user.target
+After=multi-user.target
+Wants=brava-kiosk.service
+AllowIsolate=yes

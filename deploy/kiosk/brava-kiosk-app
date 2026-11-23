@@ -1,0 +1,8 @@
+#!/bin/sh
+# Runs the app under the kiosk compositor and starts it again if it exits.
+export ELECTRON_OZONE_PLATFORM_HINT=wayland
+APP=/home/brava/brava-build/out/brava-infotainment-linux-x64/brava-infotainment
+while true; do
+	"$APP" --ozone-platform=wayland
+	sleep 1
+done

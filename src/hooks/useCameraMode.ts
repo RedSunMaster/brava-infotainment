@@ -32,11 +32,18 @@ export function useCameraMode(mapRef: React.RefObject<mapboxgl.Map | null>) {
 		const onTouch = (event: TouchEvent) => {
 			if (event.touches.length > 1) enterTemporaryOverview();
 		};
+		// Turning or tilting the map by hand (right-drag, Ctrl-drag) lets go of the car too; the follow camera's own
+		// moves have no originalEvent, so they never count.
+		const onTurn = (event: { originalEvent?: Event }) => { if (event.originalEvent) enterTemporaryOverview(); };
 		map.on("dragstart", onDrag);
+		map.on("rotatestart", onTurn);
+		map.on("pitchstart", onTurn);
 		canvas.addEventListener("touchstart", onTouch, { passive: true });
 		canvas.addEventListener("wheel", onWheel, { passive: true });
 		return () => {
 			map.off("dragstart", onDrag);
+			map.off("rotatestart", onTurn);
+			map.off("pitchstart", onTurn);
 			canvas.removeEventListener("touchstart", onTouch);
 			canvas.removeEventListener("wheel", onWheel);
 			if (recenterTimeoutRef.current) clearTimeout(recenterTimeoutRef.current);

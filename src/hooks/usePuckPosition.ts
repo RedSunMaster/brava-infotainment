@@ -57,6 +57,8 @@ export function usePositionPuck(
 	mapOffset: React.RefObject<number>,
 	/** While `enabled`, the follow camera zooms and tilts with speed and the next turn. */
 	lookAheadRef?: React.RefObject<{ enabled: boolean; distanceToNextM: number | null; significantTurn?: boolean }>,
+	/** How much fog (0–1) lies over the car on screen, from Explore mode: the car then shows as a faint outline. */
+	fogOverPuckRef?: React.RefObject<number>,
 ) {
 	const speedMsRef = useRef<number>(0);
 	const distancesFor = useRef(routeCache()).current;
@@ -159,6 +161,8 @@ export function usePositionPuck(
 			canvas: overlayCanvas,
 			antialias: true,
 			alpha: true,
+			// For the outline shown when fog is in front of the car.
+			stencil: true,
 		});
 		renderer.setClearColor(0x000000, 0);
 		renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
@@ -173,6 +177,16 @@ export function usePositionPuck(
 		const pulseRing = new THREE.Mesh(ringGeo, pulseMat);
 		pulseRing.rotation.x = -Math.PI / 2;
 		scene.add(pulseRing);
+
+		// With fog in front of the car it shows as a faint ghost inside a light outline. The outline is a slightly larger
+		// copy of the model drawn only outside the model's own silhouette (the model marks its pixels in the stencil).
+		const bodyMaterials: THREE.MeshBasicMaterial[] = [];
+		const outlineMaterial = new THREE.MeshBasicMaterial({
+			color: 0xd8e6ff, transparent: true, opacity: 0, depthTest: false, depthWrite: false,
+			stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,
+		});
+		let outline: THREE.Object3D | null = null;
+		let fogShown = 0;
 
 		const texture = new THREE.Texture();
 		texture.colorSpace = THREE.SRGBColorSpace;
@@ -194,9 +208,27 @@ export function usePositionPuck(
 						return;
 					}
 					materials.forEach((material) => { if ("map" in material && material.map instanceof THREE.Texture) material.map.dispose(); material.dispose(); });
-					mesh.material = new THREE.MeshBasicMaterial({ map: texture });
+					const body = new THREE.MeshBasicMaterial({
+						map: texture, transparent: true,
+						stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp,
+					});
+					bodyMaterials.push(body);
+					mesh.material = body;
 				});
-				if (!disposed) { scene.add(gltf.scene); map.triggerRepaint(); }
+				if (!disposed) {
+					scene.add(gltf.scene);
+					// The outline: the same shape, 8% bigger about its middle.
+					const centre = new THREE.Box3().setFromObject(gltf.scene).getCenter(new THREE.Vector3());
+					const copy = gltf.scene.clone(true);
+					copy.traverse((child) => { if ((child as THREE.Mesh).isMesh) { (child as THREE.Mesh).material = outlineMaterial; child.renderOrder = 2; } });
+					copy.position.copy(centre).multiplyScalar(-1);
+					outline = new THREE.Group().add(copy);
+					outline.position.copy(centre);
+					outline.scale.setScalar(1.08);
+					outline.visible = false;
+					scene.add(outline);
+					map.triggerRepaint();
+				}
 			}, undefined, () => console.error("Unable to load vehicle model."));
 		};
 		img.onerror = () => console.error("Unable to load shuttle texture.");
@@ -222,6 +254,15 @@ export function usePositionPuck(
 			const bearingRad = ((brg + 180) * Math.PI) / 180;
 			const zoom = map.getZoom();
 			const modelScale = puckModelScale(zoom);
+
+			// Fade between the car and its outline as fog comes and goes in front of it.
+			const fog = Math.min(1, Math.max(0, fogOverPuckRef?.current ?? 0));
+			fogShown += (fog - fogShown) * 0.2;
+			if (fogShown < 0.01) fogShown = 0;
+			for (const body of bodyMaterials) body.opacity = 1 - 0.85 * fogShown;
+			outlineMaterial.opacity = 0.9 * fogShown;
+			if (outline) outline.visible = fogShown > 0;
+			pulseMat.opacity *= 1 - 0.7 * fogShown;
 
 			rotY.makeRotationAxis(new THREE.Vector3(0, 1, 0), -bearingRad);
 			scaleVec.set(scale * modelScale, -scale * modelScale, scale * modelScale);
@@ -426,6 +467,7 @@ export function usePositionPuck(
 		};
 		map.on("resize", onResize);
 
+
 		return () => {
 			map.off("resize", onResize);
 			map.off("styledata", addLayer);
@@ -439,6 +481,7 @@ export function usePositionPuck(
             texture.dispose();
             ringGeo.dispose();
             pulseMat.dispose();
+            outlineMaterial.dispose();
             scene.traverse((child) => {
                 if (child instanceof THREE.Mesh && child !== pulseRing) {
                     child.geometry.dispose();
@@ -513,5 +556,7 @@ export function usePositionPuck(
 		map.triggerRepaint();
 	}
 
-	return { updatePuck, resetCursor, smoothLocate, syncPuck };
+	/** Where the car is drawn right now. */
+	const puckPosition = (): [number, number] => renderPosRef.current;
+	return { updatePuck, resetCursor, smoothLocate, syncPuck, puckPosition };
 }

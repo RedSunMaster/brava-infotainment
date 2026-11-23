@@ -32,6 +32,7 @@ import ThunderstormRounded from "@mui/icons-material/ThunderstormRounded";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
 import AirRounded from "@mui/icons-material/AirRounded";
 import SatelliteAltRounded from "@mui/icons-material/SatelliteAltRounded";
+import TravelExploreRounded from "@mui/icons-material/TravelExploreRounded";
 import VoiceVolumes from "./VoiceVolumes";
 import PhoneSettings from "./PhoneSettings";
 import PhoneAndroidRounded from "@mui/icons-material/PhoneAndroidRounded";
@@ -47,12 +48,13 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "places" | "gps" | "bluetooth" | "phone" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "explore" | "gps" | "bluetooth" | "phone" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
 	{ id: "drive", label: "Driving", icon: <RouteRounded /> },
 	{ id: "places", label: "Places", icon: <PlaceRounded /> },
+	{ id: "explore", label: "Explore", icon: <TravelExploreRounded /> },
 	{ id: "gps", label: "GPS", icon: <SatelliteAltRounded /> },
 	{ id: "bluetooth", label: "Bluetooth", icon: <BluetoothRounded /> },
 	{ id: "phone", label: "Phone", icon: <PhoneAndroidRounded /> },
@@ -172,6 +174,8 @@ interface Props {
 	route?: [number, number][];
 	/** The app's own view of the GPS, shown beside gpsd's details in Settings → GPS. */
 	gpsStatus?: GpsStatus;
+	/** Settings → Explore (fog of war and its stats). */
+	explorePanel?: React.ReactNode;
 }
 export default function MapControls({
 	panel, setPanel,
@@ -204,6 +208,7 @@ export default function MapControls({
 	stopCategory, onStopCategoryChange,
 	route,
 	gpsStatus = "disconnected",
+	explorePanel,
 }: Props) {
 	const [tab, setTab] = useState<SettingsTab>("display");
 	const [resumeMusic, setResumeMusic] = usePersistentState(RESUME_KEY, false, isBool);
@@ -300,8 +305,10 @@ export default function MapControls({
 						<Typography sx={{ fontSize: 32, fontWeight: 800 }}>Settings</Typography>
 						<DriveButton aria-label="Close panel" onClick={close}><CloseRounded /></DriveButton>
 					</Box>
-					<Box sx={{ display: "grid", gridTemplateColumns: "clamp(150px, 20vw, 220px) minmax(0, 1fr)", gap: 2, flex: 1, minHeight: 0, "& .settings-option": { minHeight: "clamp(76px, 8vw, 88px)", minWidth: 0, px: 1, fontSize: "clamp(19px, 2.4vw, 26px)" } }}>
-						<Box role="tablist" aria-label="Settings sections" sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+					{/* One row held to the sheet's height: the tab list and the section each scroll on their own instead of the
+					    taller of them stretching the row past the bottom of the sheet (which hid the end of a section). */}
+					<Box sx={{ display: "grid", gridTemplateColumns: "clamp(150px, 20vw, 220px) minmax(0, 1fr)", gridTemplateRows: "minmax(0, 1fr)", gap: 2, flex: 1, minHeight: 0, "& .settings-option": { minHeight: "clamp(76px, 8vw, 88px)", minWidth: 0, px: 1, fontSize: "clamp(19px, 2.4vw, 26px)" } }}>
+						<Box role="tablist" aria-label="Settings sections" sx={{ display: "flex", flexDirection: "column", gap: 1, overflowY: "auto", overflowX: "hidden", minHeight: 0, scrollbarWidth: "none", "&::-webkit-scrollbar": { display: "none" }, "& > *": { flexShrink: 0 } }}>
 							{SETTINGS_TABS.map(({ id, label, icon }) => <DriveButton key={id} role="tab" aria-selected={tab === id} color="inherit" variant={tab === id ? "contained" : "text"} onClick={() => setTab(id)} sx={{ justifyContent: "flex-start", gap: 1.5, px: 2, minHeight: 80, ...(tab === id ? {} : { color: "text.secondary" }) }}>{icon}{label}</DriveButton>)}
 						</Box>
 						<Box role="tabpanel" sx={{ display: "grid", gap: 3, alignContent: "start", overflowY: "auto", minHeight: 0, pr: 0.5 }}>
@@ -369,6 +376,7 @@ export default function MapControls({
 									{onSetPlace && <DriveButton className="settings-option" variant="outlined" onClick={() => onSetPlace("favourite")}>Add favourite</DriveButton>}
 								</Section>
 							</>}
+							{tab === "explore" && explorePanel}
 							{tab === "gps" && <GpsDebugPanel active status={gpsStatus} />}
 							{tab === "bluetooth" && <BluetoothPanel active />}
 							{tab === "phone" && <PhoneSettings />}

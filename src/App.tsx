@@ -56,6 +56,10 @@ import { recordFrequentPlace } from "./lib/frequentPlaces";
 import { readSavedPlaces, savePlace, setPlaceMarker, defaultMarker, type PlaceTarget } from "./lib/savedPlaces";
 import { readFavourites, addFavourite, removeFavourite, setFavouriteMarker, nextMarker } from "./lib/favourites";
 import { useRouteHazards } from "./hooks/useRouteHazards";
+import { EXPLORE_KEY, useExploration } from "./hooks/useExploration";
+import { useProfiles } from "./contexts/ProfileContext";
+import DiscoveryNotices from "./components/DiscoveryNotices";
+import ExplorePanel from "./components/ExplorePanel";
 
 import { usePersistentState, isBool } from "./lib/usePersistentState";
 import { distanceKm, placeDetails, fetchPlaceDetails, sameBusinessName, type PlaceDetails } from "./lib/locationSearch";
@@ -295,6 +299,16 @@ export default function App() {
 
 	const { mapRef, mapLoaded } = useMapbox(mapContainer);
 	useSplash(mapLoaded);
+	// Explore mode: fog of war over everywhere this profile has not driven.
+	const { active: activeProfile } = useProfiles();
+	const [fogOn, setFogOn] = usePersistentState(EXPLORE_KEY, false, isBool);
+	// The route line on the map (set once useRoute below exists) always shows through the fog.
+	const fogRouteRef = useRef<() => [number, number][] | null>(() => null);
+	// The car (set once usePositionPuck below exists), and how much fog covers it on screen: it then shows as an outline.
+	const fogPuckRef = useRef<() => [number, number] | null>(() => null);
+	const puckFogRef = useRef(0);
+	const explore = useExploration(mapRef, mapLoaded, activeProfile.id, fogOn, process.env.MAPBOX_TOKEN, fogRouteRef, fogPuckRef, puckFogRef);
+	const recordExploreFix = explore.recordFix;
 	const [showTraffic, setShowTraffic] = useState(() => { try { return localStorage.getItem("brava-show-traffic") !== "off"; } catch { return true; } });
 	useEffect(() => { try { localStorage.setItem("brava-show-traffic", showTraffic ? "on" : "off"); } catch { /* Keep the choice for this session. */ } }, [showTraffic]);
 	useTrafficLayer(mapRef, mapLoaded, showTraffic, navActive || !!pendingDest);
@@ -374,7 +388,9 @@ export default function App() {
 		drawAlternatives,
 		clearRoute,
 		trimRouteByDistance,
+		drawnCoords,
 	} = useRoute(mapRef);
+	fogRouteRef.current = drawnCoords;
 
 	// ── Camera ─────────────────────────────────────────────────────────────────
 	const {
@@ -396,7 +412,7 @@ export default function App() {
 	// ── Puck — render loop drives both model and camera ────────────────────────
 	// smoothLocate is destructured here alongside updatePuck and resetCursor.
 	const lookAheadRef = useRef<{ enabled: boolean; distanceToNextM: number | null; significantTurn?: boolean }>({ enabled: false, distanceToNextM: null });
-	const { updatePuck, resetCursor, smoothLocate, syncPuck } = usePositionPuck(
+	const { updatePuck, resetCursor, smoothLocate, syncPuck, puckPosition } = usePositionPuck(
 		mapRef,
 		mapLoaded,
 		DEV_ORIGIN,
@@ -407,7 +423,9 @@ export default function App() {
 		trimRouteByDistance,
 		mapOffset,
 		lookAheadRef,
+		puckFogRef,
 	);
+	fogPuckRef.current = puckPosition;
 
 	useMapStyle(mapRef, mapLoaded, period, weather, weatherAppearance, () => {
 		syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
@@ -499,6 +517,8 @@ export default function App() {
 			(pos: [number, number], bearing: number, speed: number) => {
 				lastFixRef.current = { pos, time: Date.now(), speed };
 				lastPosRef.current = pos;
+				// Real fixes explore (so do simulated drives, recorded where the simulation reports; never dead reckoning).
+				recordExploreFix(pos);
 				updatePosition(pos);
 				lastBearingRef.current = bearing;
 				lastSpeedRef.current = speed;
@@ -522,6 +542,7 @@ export default function App() {
 				updatePuck,
 				trackedPositionUpdate,
 				provider,
+				recordExploreFix,
 			],
 		),
 	);
@@ -648,10 +669,18 @@ export default function App() {
 		if (fasterOffer) dismissedFaster.current.add(fasterOffer.key);
 		setFasterOffer(null);
 	}
+	// Simulated drives explore too (the dead-reckoning guesses during GPS gaps do not: they go straight to trackedPositionUpdate).
+	const simulatedPositionUpdate = useCallback(
+		(pos: [number, number], bearing: number, speed: number, prov: RoutingProvider, trusted?: boolean) => {
+			recordExploreFix(pos);
+			return trackedPositionUpdate(pos, bearing, speed, prov, trusted);
+		},
+		[recordExploreFix, trackedPositionUpdate],
+	);
 	const { startSimulation, stopSimulation } = useSimulation(
 		coordsRef,
 		activeRouteRef,
-		trackedPositionUpdate,
+		simulatedPositionUpdate,
 		setInstruction,
 	);
 
@@ -1040,6 +1069,10 @@ export default function App() {
 						<PhoneNotifications open={phoneOpen} onOpen={() => setPhoneOpen(true)} onClose={() => setPhoneOpen(false)} quiet={navActive && isDriving} onRead={guidance.readAloud} />
 						<ProfileDialog open={profilesOpen} onClose={() => setProfilesOpen(false)} lockSwitch={navActive || isDriving} lockEdit={isDriving} />
 					</Box>
+					{/* Floats over the map just below the top bar, so nothing else moves when a discovery is announced. */}
+					<Box sx={{ position: "absolute", top: "100%", left: insetLeft, right: insetRight, pointerEvents: "none" }}>
+						<DiscoveryNotices notices={explore.notices} onDismiss={explore.dismissNotice} />
+					</Box>
 					{navActive && (
 						<NavigationCard
 							maneuvers={maneuvers}
@@ -1055,6 +1088,7 @@ export default function App() {
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 						gpsStatus={gpsStatus}
+					explorePanel={<ExplorePanel fogOn={fogOn} onFogChange={setFogOn} stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />}
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
 					stopCategory={stopCategory}

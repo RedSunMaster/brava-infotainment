@@ -127,5 +127,7 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   if (map?.getLayer("route")) map.setPaintProperty("route", "line-trim-offset", [0, next]);
   if (map?.getLayer("route-casing")) map.setPaintProperty("route-casing", "line-trim-offset", [0, next]);
  }
- return { coordsRef, maneuversRef, maneuvers, fetchRoute, applyRoute, refreshTimings, drawRoute, drawAlternatives, clearRoute, trimRouteByDistance };
+ /** The route line on the map now (a preview or the active route), or null. */
+ const drawnCoords = (): [number, number][] | null => drawn.current?.coords ?? null;
+ return { coordsRef, maneuversRef, maneuvers, fetchRoute, applyRoute, refreshTimings, drawRoute, drawAlternatives, clearRoute, trimRouteByDistance, drawnCoords };
 }
