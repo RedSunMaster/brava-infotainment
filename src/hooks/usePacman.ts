@@ -6,6 +6,18 @@ import { DOTS_FROM_ZOOM, DotsLayer } from "../lib/dotsLayer";
 import { RoadGraph } from "../lib/roadGraph";
 import { GHOST_LABEL, GhostPack } from "../lib/ghosts";
 import { Pacman, dotsFromWays, tileBounds, tileKey, tileOf, tilesAround, type Dot, type PacmanSummary, type Regrow } from "../lib/pacman";
+import { PacmanSounds } from "../lib/pacmanSound";
+import type { SoundName } from "../lib/pacmanSynth";
+import { appScale } from "../lib/masterVolume";
+import { masterVolume } from "./useMasterVolume";
+import startUrl from "../../public/sounds/pacman/start.wav";
+import wakaUrl from "../../public/sounds/pacman/waka.wav";
+import wakaBUrl from "../../public/sounds/pacman/wakaB.wav";
+import deathUrl from "../../public/sounds/pacman/death.wav";
+import eatGhostUrl from "../../public/sounds/pacman/eatghost.wav";
+import extraUrl from "../../public/sounds/pacman/extra.wav";
+import powerUrl from "../../public/sounds/pacman/power.wav";
+import sirenUrl from "../../public/sounds/pacman/siren.wav";
 import type { PacmanLoad, RoadsTile } from "../pacmanMain";
 import type { DiscoveryNotice } from "./useExploration";
 
@@ -13,6 +25,12 @@ import type { DiscoveryNotice } from "./useExploration";
 export const PACMAN_REGROW_KEY = "brava-pacman-regrow";
 /** Whether the ghost is on (per profile). */
 export const PACMAN_GHOSTS_KEY = "brava-pacman-ghosts";
+/** How loud the sound effects are: off, quiet or normal (per profile). */
+export const PACMAN_SOUND_KEY = "brava-pacman-sound";
+export type SoundSetting = "off" | "quiet" | "normal";
+export const isSoundSetting = (v: unknown): v is SoundSetting => v === "off" || v === "quiet" || v === "normal";
+const SOUND_LEVEL: Record<SoundSetting, number> = { off: 0, quiet: 0.4, normal: 1 };
+const SOUND_FILES: [SoundName, string][] = [["start", startUrl], ["waka", wakaUrl], ["wakaB", wakaBUrl], ["death", deathUrl], ["eatGhost", eatGhostUrl], ["extra", extraUrl], ["power", powerUrl], ["siren", sirenUrl]];
 /** The ghost moves this often (milliseconds). */
 const GHOST_STEP_MS = 100;
 /** The car's position is guessed ahead from its last fix for at most this long (milliseconds), and counts as stopped after STOP_AFTER_MS without one. */
@@ -49,7 +67,7 @@ export interface PacmanStats extends PacmanSummary {
  * car are fetched by map tile and drawn in 3D, and the score and stats are kept in a file per profile. The game loads
  * whichever mode is active, so its stats can always be looked at.
  */
-export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoaded: boolean, profileId: string, active: boolean, regrow: Regrow, puckSource: React.RefObject<() => LngLat | null>, ghosts: boolean) {
+export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoaded: boolean, profileId: string, active: boolean, regrow: Regrow, puckSource: React.RefObject<() => LngLat | null>, ghosts: boolean, sound: SoundSetting = "normal") {
 	const gameRef = useRef<Pacman | null>(null);
 	const layerRef = useRef<DotsLayer | null>(null);
 	const activeRef = useRef(active);
@@ -67,6 +85,29 @@ export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoade
 	const roadsOfTile = useRef(new Map<string, number[][]>());
 	const graphRef = useRef(new RoadGraph());
 	const huntRef = useRef(new GhostPack(graphRef.current));
+	const soundsRef = useRef<PacmanSounds | null>(null);
+	if (!soundsRef.current) soundsRef.current = new PacmanSounds(() => appScale(masterVolume.get()));
+	soundsRef.current.setLevel(SOUND_LEVEL[sound]);
+	// The arcade's own recordings; an imitation plays for any that cannot be loaded.
+	useEffect(() => {
+		const sounds = soundsRef.current;
+		let gone = false;
+		void (async () => {
+			const files: Partial<Record<SoundName, ArrayBuffer>> = {};
+			for (const [name, url] of SOUND_FILES) {
+				try { files[name] = await (await fetch(url)).arrayBuffer(); } catch { /* The imitation plays. */ }
+			}
+			if (!gone) await sounds?.useFiles(files);
+		})();
+		return () => { gone = true; sounds?.dispose(); };
+	}, []);
+	// The start tune plays when the mode is switched to, not when the app opens already in it.
+	const wasActive = useRef(active);
+	useEffect(() => {
+		if (active && !wasActive.current) soundsRef.current?.play("start");
+		if (!active) soundsRef.current?.stopAll();
+		wasActive.current = active;
+	}, [active]);
 	const ghostsRef = useRef(ghosts);
 	ghostsRef.current = ghosts;
 	const graphStale = useRef(false);
@@ -270,6 +311,7 @@ export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoade
 			dirty.current = true;
 			redraw();
 			refreshStats();
+			soundsRef.current?.play(result.pellets || result.multiplierUp ? "extra" : "waka");
 			if (result.pellets) {
 				notify({ kind: "pacman", name: `+${result.pelletPoints} points`, detail: result.pellets > 1 ? "Power pellets" : "Power pellet" });
 				// A power pellet turns every ghost blue.
@@ -324,18 +366,23 @@ export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoade
 			layerRef.current?.setGhosts(huntRef.current.places());
 			// Several ghosts can have had the car at once: the run is lost once, however many.
 			const caught = events.filter(event => event.type === "caught");
+			const blue = huntRef.current.frightenedFor() > 0;
+			soundsRef.current?.setLoop("power", blue);
+			soundsRef.current?.setLoop("siren", !blue);
 			if (caught.length) {
+				soundsRef.current?.play("death");
 				const lost = game.caughtByGhost();
 				notify({ kind: "pacman", name: `${GHOST_LABEL[caught[0].name]} caught you`, detail: lost ? `Run lost · −${lost} points` : "Run lost" });
 			}
 			for (const event of events) {
 				if (event.type !== "eaten") continue;
 				game.ateGhost(event.points);
+			soundsRef.current?.play("eatGhost");
 				notify({ kind: "pacman", name: `+${event.points} points`, detail: `${GHOST_LABEL[event.name]} eaten` });
 			}
 			if (events.length) { dirty.current = true; refreshStats(true); }
 		}, GHOST_STEP_MS);
-		return () => { window.clearInterval(timer); huntRef.current.clear(); layerRef.current?.setGhosts([]); };
+		return () => { window.clearInterval(timer); soundsRef.current?.setLoop("power", false); soundsRef.current?.setLoop("siren", false); huntRef.current.clear(); layerRef.current?.setGhosts([]); };
 	}, [active, ghosts, notify, refreshStats]);
 
 	// Lets the dev tools drive the game without a GPS receiver; never in packaged builds.

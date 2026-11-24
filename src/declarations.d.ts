@@ -44,3 +44,8 @@ interface Window {
 		) => () => void;
 	};
 }
+
+declare module "*.wav" {
+	const url: string;
+	export default url;
+}

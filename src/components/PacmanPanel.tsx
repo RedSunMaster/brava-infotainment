@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Box, Typography } from "@mui/material";
 import DriveButton from "./DriveButton";
 import { Stat } from "./ExplorePanel";
-import type { PacmanStats } from "../hooks/usePacman";
+import type { PacmanStats, SoundSetting } from "../hooks/usePacman";
 import { REGROW_OPTIONS, type Regrow } from "../lib/pacman";
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
 	onRegrowChange: (value: Regrow) => void;
 	ghosts: boolean;
 	onGhostsChange: (value: boolean) => void;
+	sound: SoundSetting;
+	onSoundChange: (value: SoundSetting) => void;
 	onReset: () => void;
 	isDriving: boolean;
 	/** Whether Pac-Man is the mode being played now. */
@@ -20,7 +22,7 @@ interface Props {
 const count = (value: number) => value.toLocaleString("en-NZ");
 
 /** Pac-Man's stats and options in Settings → Game Modes. */
-export default function PacmanPanel({ stats, regrow, onRegrowChange, ghosts, onGhostsChange, onReset, isDriving, playing }: Props) {
+export default function PacmanPanel({ stats, regrow, onRegrowChange, ghosts, onGhostsChange, sound, onSoundChange, onReset, isDriving, playing }: Props) {
 	const [confirming, setConfirming] = useState(false);
 	useEffect(() => { if (!confirming) return; const timer = window.setTimeout(() => setConfirming(false), 5000); return () => window.clearTimeout(timer); }, [confirming]);
 	const since = stats ? new Date(stats.startedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }) : "";
@@ -68,6 +70,17 @@ export default function PacmanPanel({ stats, regrow, onRegrowChange, ghosts, onG
 				</Box>
 				<Box role="group" aria-label="Ghost" sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1 }}>
 					{([[true, "On"], [false, "Off"]] as const).map(([value, text]) => <DriveButton key={text} className="settings-option" variant={ghosts === value ? "contained" : "outlined"} aria-pressed={ghosts === value} onClick={() => onGhostsChange(value)}>{text}</DriveButton>)}
+				</Box>
+			</Box>
+			<Box sx={{ display: "grid", gap: 1.25 }}>
+				<Box>
+					<Typography sx={{ fontSize: 25, fontWeight: 700 }}>Sound effects</Typography>
+					<Typography sx={{ fontSize: 20, color: "text.secondary" }}>
+						The arcade's own sounds: the start tune, waka, power pellets, the ghosts' siren, eating a ghost and being caught. They follow the master volume.
+					</Typography>
+				</Box>
+				<Box role="group" aria-label="Sound effects" sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1 }}>
+					{([["off", "Off"], ["quiet", "Quiet"], ["normal", "Normal"]] as const).map(([value, text]) => <DriveButton key={value} className="settings-option" variant={sound === value ? "contained" : "outlined"} aria-pressed={sound === value} onClick={() => onSoundChange(value)}>{text}</DriveButton>)}
 				</Box>
 			</Box>
 			<Box sx={{ display: "grid", gap: 1.25 }}>

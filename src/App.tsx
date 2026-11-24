@@ -57,7 +57,7 @@ import { readSavedPlaces, savePlace, setPlaceMarker, defaultMarker, type PlaceTa
 import { readFavourites, addFavourite, removeFavourite, setFavouriteMarker, nextMarker } from "./lib/favourites";
 import { useRouteHazards } from "./hooks/useRouteHazards";
 import { useExploration } from "./hooks/useExploration";
-import { PACMAN_GHOSTS_KEY, PACMAN_REGROW_KEY, usePacman } from "./hooks/usePacman";
+import { PACMAN_GHOSTS_KEY, PACMAN_REGROW_KEY, PACMAN_SOUND_KEY, isSoundSetting, usePacman } from "./hooks/usePacman";
 import { GAME_MODE_KEY, initialGameMode, isGameMode, type GameMode } from "./lib/gameModes";
 import { DEFAULT_REGROW, isRegrow } from "./lib/pacman";
 import GameModesPanel from "./components/GameModesPanel";
@@ -320,7 +320,8 @@ export default function App() {
 	const puckFogRef = useRef(0);
 	const explore = useExploration(mapRef, mapLoaded, activeProfile.id, fogOn, process.env.MAPBOX_TOKEN, fogRouteRef, fogPuckRef, puckFogRef);
 	const [pacmanGhosts, setPacmanGhosts] = usePersistentState(PACMAN_GHOSTS_KEY, true, isBool);
-	const pacman = usePacman(mapRef, mapLoaded, activeProfile.id, gameMode === "pacman", pacmanRegrow, fogPuckRef, pacmanGhosts);
+	const [pacmanSound, setPacmanSound] = usePersistentState<"off" | "quiet" | "normal">(PACMAN_SOUND_KEY, "normal", isSoundSetting);
+	const pacman = usePacman(mapRef, mapLoaded, activeProfile.id, gameMode === "pacman", pacmanRegrow, fogPuckRef, pacmanGhosts, pacmanSound);
 	// Every real or simulated fix goes to Fog of War's map (always) and to Pac-Man (which eats dots only while it is the mode).
 	const exploreFix = explore.recordFix, pacmanFix = pacman.recordFix;
 	const recordExploreFix = useCallback((pos: [number, number]) => { exploreFix(pos); pacmanFix(pos); }, [exploreFix, pacmanFix]);
@@ -1105,7 +1106,7 @@ export default function App() {
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 						gpsStatus={gpsStatus}
-					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} /> }} />}
+					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} sound={pacmanSound} onSoundChange={setPacmanSound} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} /> }} />}
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
 					stopCategory={stopCategory}
