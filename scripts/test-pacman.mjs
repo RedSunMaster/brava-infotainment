@@ -284,9 +284,9 @@ test("a road across a tile edge gives each tile only its own dots, and none twic
 	assert.ok(ids.length <= everything.length && ids.length > everything.length * 0.6);
 });
 
-test("game modes: one of three, with Fog of War carried over from its old switch", () => {
-	assert.deepEqual(GAME_MODES.map(mode => mode.id), ["off", "fog", "pacman"]);
-	assert.equal(isGameMode("pacman"), true);
+test("game modes: one at a time, with Fog of War carried over from its old switch", () => {
+	assert.deepEqual(GAME_MODES.map(mode => mode.id), ["off", "fog", "pacman", "ghost"]);
+	for (const mode of GAME_MODES) assert.equal(isGameMode(mode.id), true);
 	assert.equal(isGameMode("tetris"), false);
 	assert.equal(initialGameMode({ getItem: () => "true" }), "fog");
 	assert.equal(initialGameMode({ getItem: () => "false" }), "off");

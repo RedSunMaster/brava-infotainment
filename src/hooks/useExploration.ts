@@ -51,7 +51,7 @@ export interface ExploreStats {
 
 export interface DiscoveryNotice {
 	key: string;
-	kind: DiscoveredPlace["kind"] | "milestone" | "suburb" | "pacman";
+	kind: DiscoveredPlace["kind"] | "milestone" | "suburb" | "pacman" | "drive";
 	name: string;
 	detail: string;
 }

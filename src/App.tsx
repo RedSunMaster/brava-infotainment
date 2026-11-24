@@ -57,12 +57,16 @@ import { readSavedPlaces, savePlace, setPlaceMarker, defaultMarker, type PlaceTa
 import { readFavourites, addFavourite, removeFavourite, setFavouriteMarker, nextMarker } from "./lib/favourites";
 import { useRouteHazards } from "./hooks/useRouteHazards";
 import { useExploration } from "./hooks/useExploration";
+import { useDrives } from "./hooks/useDrives";
 import { PACMAN_GHOSTS_KEY, PACMAN_REGROW_KEY, PACMAN_SOUND_KEY, isSoundSetting, usePacman } from "./hooks/usePacman";
 import { GAME_MODE_KEY, initialGameMode, isGameMode, type GameMode } from "./lib/gameModes";
 import { DEFAULT_REGROW, isRegrow } from "./lib/pacman";
 import GameModesPanel from "./components/GameModesPanel";
 import PacmanPanel from "./components/PacmanPanel";
 import PacmanHud from "./components/PacmanHud";
+import DriveHud from "./components/DriveHud";
+import { GhostPanel, TripsPanel } from "./components/DrivePanels";
+import { useTopDownLock } from "./hooks/useTopDownLock";
 import { useProfiles } from "./contexts/ProfileContext";
 import DiscoveryNotices from "./components/DiscoveryNotices";
 import ExplorePanel from "./components/ExplorePanel";
@@ -322,9 +326,16 @@ export default function App() {
 	const [pacmanGhosts, setPacmanGhosts] = usePersistentState(PACMAN_GHOSTS_KEY, true, isBool);
 	const [pacmanSound, setPacmanSound] = usePersistentState<"off" | "quiet" | "normal">(PACMAN_SOUND_KEY, "normal", isSoundSetting);
 	const pacman = usePacman(mapRef, mapLoaded, activeProfile.id, gameMode === "pacman", pacmanRegrow, fogPuckRef, pacmanGhosts, pacmanSound);
+	// Pac-Man is played from straight above; the map can still be turned by hand.
+	useTopDownLock(mapRef, mapLoaded, gameMode === "pacman");
 	// Every real or simulated fix goes to Fog of War's map (always) and to Pac-Man (which eats dots only while it is the mode).
-	const exploreFix = explore.recordFix, pacmanFix = pacman.recordFix;
-	const recordExploreFix = useCallback((pos: [number, number]) => { exploreFix(pos); pacmanFix(pos); }, [exploreFix, pacmanFix]);
+	// Trips: every drive is recorded and scored, whichever mode is on. The ghost is only drawn in Ghost Race.
+	const driveLimitRef = useRef<() => number | null>(() => null);
+	const driveDestinationRef = useRef<() => [number, number] | null>(() => navDestRef.current);
+	const [smoothHud, setSmoothHud] = usePersistentState("brava-smooth-hud", true, isBool);
+	const drives = useDrives(mapRef, mapLoaded, activeProfile.id, gameMode === "ghost", driveLimitRef, driveDestinationRef);
+	const exploreFix = explore.recordFix, pacmanFix = pacman.recordFix, driveFix = drives.recordFix;
+	const recordExploreFix = useCallback((pos: [number, number], speed: number, bearing: number | null) => { exploreFix(pos); pacmanFix(pos); driveFix(pos, speed, bearing); }, [exploreFix, pacmanFix, driveFix]);
 	const [showTraffic, setShowTraffic] = useState(() => { try { return localStorage.getItem("brava-show-traffic") !== "off"; } catch { return true; } });
 	useEffect(() => { try { localStorage.setItem("brava-show-traffic", showTraffic ? "on" : "off"); } catch { /* Keep the choice for this session. */ } }, [showTraffic]);
 	useTrafficLayer(mapRef, mapLoaded, showTraffic, navActive || !!pendingDest);
@@ -535,7 +546,7 @@ export default function App() {
 				lastFixRef.current = { pos, time: Date.now(), speed };
 				lastPosRef.current = pos;
 				// Real fixes explore (so do simulated drives, recorded where the simulation reports; never dead reckoning).
-				recordExploreFix(pos);
+				recordExploreFix(pos, speed, bearing);
 				updatePosition(pos);
 				lastBearingRef.current = bearing;
 				lastSpeedRef.current = speed;
@@ -689,7 +700,7 @@ export default function App() {
 	// Simulated drives explore too (the dead-reckoning guesses during GPS gaps do not: they go straight to trackedPositionUpdate).
 	const simulatedPositionUpdate = useCallback(
 		(pos: [number, number], bearing: number, speed: number, prov: RoutingProvider, trusted?: boolean) => {
-			recordExploreFix(pos);
+			recordExploreFix(pos, speed, bearing);
 			return trackedPositionUpdate(pos, bearing, speed, prov, trusted);
 		},
 		[recordExploreFix, trackedPositionUpdate],
@@ -1034,6 +1045,8 @@ export default function App() {
 	// Judged against the road itself, not the nearest vertex: vertices can be a hundred metres apart on a straight.
 	const onRouteNow = navActive && showSpeed && !!activeRoute && activeRoute.coords.length > 1 && locateOnRoute(activeRoute.coords, routeDistances(activeRoute.coords), lastPosRef.current, routeHintRef.current).offsetM < 30;
 	const signState = speedSignState(vehicleSpeedMs, limitAt(activeRoute?.speedLimits, routePosition, onRouteNow));
+	// The smooth-driving score counts time over the posted limit, where the route says what it is.
+	driveLimitRef.current = () => signState.limit?.kind === "limit" ? signState.limit.speed / (signState.limit.unit === "mph" ? 2.23694 : 3.6) : null;
 
 	// One banner at a time, most urgent first. A closure on the route always shows; otherwise nothing
 	// competes with a turn that is close, and a faster-route offer waits until the road is clear.
@@ -1088,8 +1101,13 @@ export default function App() {
 					</Box>
 					{/* Floats over the map just below the top bar, so nothing else moves when a discovery is announced. */}
 					<Box sx={{ position: "absolute", top: "100%", left: insetLeft, right: insetRight, pointerEvents: "none" }}>
-						<DiscoveryNotices notices={[...explore.notices, ...pacman.notices]} onDismiss={(key) => { explore.dismissNotice(key); pacman.dismissNotice(key); }} />
-						{gameMode === "pacman" && <PacmanHud stats={pacman.stats} />}
+						<DiscoveryNotices notices={[...explore.notices, ...pacman.notices, ...drives.notices]} onDismiss={(key) => { explore.dismissNotice(key); pacman.dismissNotice(key); drives.dismissNotice(key); }} />
+						{/* The smooth-driving score is always on (unless switched off in Settings → Trips); the game modes add theirs below it. */}
+						<Box sx={{ position: "absolute", top: 0, left: 0, mt: 1, display: "grid", gap: 1, justifyItems: "start", pointerEvents: "none" }}>
+							{smoothHud && <DriveHud mode="smooth" live={drives.live} race={null} flash={drives.flash} />}
+							{gameMode === "pacman" && <PacmanHud stats={pacman.stats} />}
+							{gameMode === "ghost" && <DriveHud mode="ghost" live={drives.live} race={drives.race} flash={drives.flash} />}
+						</Box>
 					</Box>
 					{navActive && (
 						<NavigationCard
@@ -1106,7 +1124,8 @@ export default function App() {
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 						gpsStatus={gpsStatus}
-					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} sound={pacmanSound} onSoundChange={setPacmanSound} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} /> }} />}
+					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} sound={pacmanSound} onSoundChange={setPacmanSound} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} />, ghost: <GhostPanel trips={drives.trips} playing={gameMode === "ghost"} /> }} />}
+					tripsPanel={<TripsPanel trips={drives.trips} loaded={drives.loaded} onReset={drives.reset} isDriving={isDriving} showScore={smoothHud} onShowScoreChange={setSmoothHud} />}
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
 					stopCategory={stopCategory}

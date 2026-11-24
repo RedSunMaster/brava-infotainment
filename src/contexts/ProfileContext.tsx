@@ -31,7 +31,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
 		create: (name, avatar, color) => run(s => createProfile(s, name, avatar, color)),
 		update: (id, patch) => run(s => updateProfile(s, id, patch)),
 		// The profile's explored map (kept in a file, not local storage) goes with it.
-		remove: id => { run(s => deleteProfile(s, id)); void ipcRenderer.invoke("exploration:delete", id).catch((): void => undefined); void ipcRenderer.invoke("pacman:delete", id).catch((): void => undefined); },
+		remove: id => { run(s => deleteProfile(s, id)); void ipcRenderer.invoke("exploration:delete", id).catch((): void => undefined); void ipcRenderer.invoke("pacman:delete", id).catch((): void => undefined); void ipcRenderer.invoke("drives:delete", id).catch((): void => undefined); },
 	}), [state, run]);
 	return <ProfileContext.Provider value={value}><React.Fragment key={state.activeId}>{children}</React.Fragment></ProfileContext.Provider>;
 }

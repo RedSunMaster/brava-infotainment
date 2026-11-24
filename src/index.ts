@@ -15,6 +15,7 @@ import { startGps } from "./gpsMain";
 import { registerBluetoothIpc } from "./bluetoothMain";
 import { registerExplorationIpc } from "./explorationMain";
 import { registerPacmanIpc } from "./pacmanMain";
+import { registerDrivesIpc } from "./drivesMain";
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -150,6 +151,7 @@ startPhoneLink(() => mainWindow);
 registerBluetoothIpc();
 registerExplorationIpc();
 registerPacmanIpc();
+registerDrivesIpc();
 
 // ── App lifecycle (quit via renderer) ────────────────────────────────────────
 ipcMain.on("app-quit", () => app.quit());

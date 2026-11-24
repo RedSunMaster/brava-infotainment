@@ -8,7 +8,7 @@ import type { PacmanStats } from "../hooks/usePacman";
 export default function PacmanHud({ stats }: { stats: PacmanStats | null }) {
 	if (!stats) return null;
 	return (
-		<Box aria-label="Pac-Man score" role="status" sx={{ position: "absolute", top: 0, left: 0, mt: 1, pointerEvents: "none", display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 1, borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6 }}>
+		<Box aria-label="Pac-Man score" role="status" sx={{ pointerEvents: "none", display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 1, borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6 }}>
 			<SportsEsportsRounded sx={{ fontSize: 34, color: "#ffd60a" }} />
 			<Box>
 				<Typography sx={{ fontSize: 30, fontWeight: 800, lineHeight: 1 }}>{stats.score.toLocaleString("en-NZ")}</Typography>

@@ -3,10 +3,11 @@ import { Box, Typography } from "@mui/material";
 import BlockRounded from "@mui/icons-material/BlockRounded";
 import BlurOnRounded from "@mui/icons-material/BlurOnRounded";
 import SportsEsportsRounded from "@mui/icons-material/SportsEsportsRounded";
+import FlagRounded from "@mui/icons-material/FlagRounded";
 import DriveButton from "./DriveButton";
 import { GAME_MODES, type GameMode } from "../lib/gameModes";
 
-const ICONS: Record<GameMode, React.ReactNode> = { off: <BlockRounded />, fog: <BlurOnRounded />, pacman: <SportsEsportsRounded /> };
+const ICONS: Record<GameMode, React.ReactNode> = { off: <BlockRounded />, fog: <BlurOnRounded />, pacman: <SportsEsportsRounded />, ghost: <FlagRounded /> };
 
 interface Props {
 	mode: GameMode;

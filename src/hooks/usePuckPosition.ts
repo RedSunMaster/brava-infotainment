@@ -394,9 +394,9 @@ export function usePositionPuck(
 						lastCameraOffsetRef.current = mapOffset.current;
 						if (t >= 1) {
 							recenterRef.current = null;
-							// Following carries on from where the recentre ended. In Pac-Man mode that is straight down: its remembered pitch
-							// (from before, perhaps 45 degrees) would otherwise snap the view back and then ease it down again.
-							if (pacmanRef?.current) cameraPitchRef.current = 0;
+							// Following carries on from where the recentre ended: straight down in Pac-Man mode, tilted otherwise. A remembered
+							// pitch from the other mode (flat after Pac-Man, tilted before it) would otherwise snap the view and ease it back again.
+							cameraPitchRef.current = pacmanRef?.current ? 0 : 45;
 						}
 					} else if (
 						followingRef.current === "following" &&
