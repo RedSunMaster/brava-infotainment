@@ -70,7 +70,7 @@ function HazardOverlay() {
  </Box>;
 }
 
-interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | null; setPanel: (panel: "media" | null) => void; /** Dock layout editing is on (parked only). */ editing: boolean; onEditingChange: (editing: boolean) => void; /** Where the dock sits: along the bottom, or down the left or right edge. */ side?: DockSide }
+interface Props { /** Shown above the dock at the right (the speed signs). */ overlay?: React.ReactNode; isDriving: boolean; panel: "media" | null; setPanel: (panel: "media" | null) => void; /** Dock layout editing is on (parked only). */ editing: boolean; onEditingChange: (editing: boolean) => void; /** Where the dock sits: along the bottom, or down the left or right edge. */ side?: DockSide; /** Clear view: the dock, music and climate are hidden; only the speed signs (and hazard flashing) stay. */ clear?: boolean }
 interface StepControlProps { label: string; /** Shown beside the value instead of the label, which stays as the accessible name. */ icon?: React.ElementType; value: number; onChange: (value: number) => void; maximum: number; step?: number; displayValue?: string; /** A picture of the value, shown under the number. */ meter?: React.ReactNode; /** Share of the row, relative to the other steppers. */ grow?: number; disabled?: boolean; className?: string; /** In a side dock: up and down buttons stacked above and below the value. */ vertical?: boolean }
 /** The ‹ › beside a value: flat chevrons with the value as the centre of the cell. */
 const CHEVRON_BUTTON = { flex: "0 0 56px", minWidth: 0, minHeight: 96, borderRadius: 0, color: "text.secondary", "&:hover": { bgcolor: "action.hover", color: "text.primary" }, "& .MuiSvgIcon-root": { fontSize: 40 } } as const;
@@ -166,7 +166,7 @@ const STATUS_BAR_HEIGHT = 48;
 // A side dock hangs straight down from the status bar: same colour, square at the top, and starting one pixel up so the bar's
 // bottom line does not run across it. That makes the two read as one piece instead of two panels meeting at a corner.
 
-export default function CarControls({ overlay, isDriving, panel: tab, setPanel: setTab, editing, onEditingChange, side = "bottom" }: Props) {
+export default function CarControls({ overlay, isDriving, panel: tab, setPanel: setTab, editing, onEditingChange, side = "bottom", clear = false }: Props) {
  const spotify = useSpotify();
  const spotifyRef = useRef(spotify);
  spotifyRef.current = spotify;
@@ -329,6 +329,11 @@ export default function CarControls({ overlay, isDriving, panel: tab, setPanel: 
    {editing && freeCells(layout, columns) > 0 && <Box aria-hidden sx={{ ...(vertical ? { gridRow: `${columns - freeCells(layout, columns) + 1} / span ${freeCells(layout, columns)}`, gridColumn: 1 } : { gridColumn: `${columns - freeCells(layout, columns) + 1} / span ${freeCells(layout, columns)}`, gridRow: 1 }), m: 0.75, borderRadius: 2, border: "2px dashed", borderColor: "divider", display: "flex", alignItems: "center", justifyContent: "center", color: "text.secondary", fontSize: 20 }}>{freeCells(layout, columns)} free</Box>}
   </Box>
  );
+ // Everything above still runs (the music carries on playing); it just is not drawn.
+ if (clear) return <>
+  {hazards && <HazardOverlay />}
+  {overlay && <Box sx={{ position: "absolute", bottom: 0, right: 0, zIndex: 20, px: 2, pb: 1.5, pointerEvents: "none" }}>{overlay}</Box>}
+ </>;
  return <>
  <Box component="footer" data-dock aria-label="Dashboard controls" sx={{ position: "absolute", bottom: 0, left: side === "left" ? SIDE_DOCK_WIDTH : 0, right: side === "right" ? SIDE_DOCK_WIDTH : 0, zIndex: 20, display: "flex", flexDirection: "column", gap: 0, p: 0, pointerEvents: "none", "& > *": { pointerEvents: "auto" } }}>
   {hazards && <HazardOverlay />}

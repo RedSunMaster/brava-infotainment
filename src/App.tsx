@@ -75,6 +75,8 @@ import { usePersistentState, isBool } from "./lib/usePersistentState";
 import { distanceKm, placeDetails, fetchPlaceDetails, sameBusinessName, type PlaceDetails } from "./lib/locationSearch";
 import QuickDestinations from "./components/QuickDestinations";
 import FlagRounded from "@mui/icons-material/FlagRounded";
+import VisibilityOffRounded from "@mui/icons-material/VisibilityOffRounded";
+import VisibilityRounded from "@mui/icons-material/VisibilityRounded";
 import { useSpokenNavigation, type GuidanceStep } from "./hooks/useSpokenNavigation";
 import { kokoroVoice } from "./lib/kokoroVoice";
 import {
@@ -266,6 +268,9 @@ export default function App() {
 	const [favourites, setFavourites] = useState(readFavourites);
 	const [profilesOpen, setProfilesOpen] = useState(false);
 	const [phoneOpen, setPhoneOpen] = useState(false);
+	// Clear view: just the map and, if navigating, the guidance. Not remembered, so the car never starts with its controls hidden.
+	const [clearView, setClearView] = useState(false);
+	const enterClearView = useCallback(() => { setOpenPanel(null); setPhoneOpen(false); setProfilesOpen(false); setDockEditing(false); setClearView(true); }, []);
 	const [dockEditing, setDockEditing] = useState(false);
 	const [showClouds, setShowClouds] = usePersistentState(CLOUDS_KEY, true, isBool);
 	const [showNight, setShowNight] = usePersistentState(NIGHT_KEY, true, isBool);
@@ -1084,7 +1089,7 @@ export default function App() {
 						gap: 2,
 					}}
 				>
-					<Box
+					{!clearView && <Box
 						// Pulls the status bar out to the screen edges, past the overlay's own padding.
 						sx={{ m: `-16px -${insetRight}px 0 -${insetLeft}px` }}
 					>
@@ -1098,7 +1103,7 @@ export default function App() {
 						/>
 						<PhoneNotifications open={phoneOpen} onOpen={() => setPhoneOpen(true)} onClose={() => setPhoneOpen(false)} quiet={navActive && isDriving} onRead={guidance.readAloud} />
 						<ProfileDialog open={profilesOpen} onClose={() => setProfilesOpen(false)} lockSwitch={navActive || isDriving} lockEdit={isDriving} />
-					</Box>
+					</Box>}
 					{/* Floats over the map just below the top bar, so nothing else moves when a discovery is announced. */}
 					<Box sx={{ position: "absolute", top: "100%", left: insetLeft, right: insetRight, pointerEvents: "none" }}>
 						<DiscoveryNotices notices={[...explore.notices, ...pacman.notices, ...drives.notices]} onDismiss={(key) => { explore.dismissNotice(key); pacman.dismissNotice(key); drives.dismissNotice(key); }} />
@@ -1121,7 +1126,7 @@ export default function App() {
 						/>
 					)}
 					<Box ref={setTurnsSlot} sx={{ display: "contents" }} />
-					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
+					{!clearView && <Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 						gpsStatus={gpsStatus}
 					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} sound={pacmanSound} onSoundChange={setPacmanSound} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} />, ghost: <GhostPanel trips={drives.trips} playing={gameMode === "ghost"} /> }} />}
@@ -1191,8 +1196,9 @@ export default function App() {
 					isDriving={isDriving}
 					quickPlaces={!pendingDest && !arrivedAt && <QuickDestinations saved={savedPlaces} onGo={handleQuickDestination} onSet={handleSetPlace} disabled={routeBusy} />}
 					quickStops={navActive ? <QuickStops selected={openPanel === "search" ? stopCategory : null} onSelect={handleQuickStop} /> : undefined}
+					extraActions={<DriveButton className="map-action" color="inherit" aria-label="Clear view: hide the controls" onClick={enterClearView}><VisibilityOffRounded /></DriveButton>}
 				/>
-					</Box>
+					</Box>}
 
 					{(routeBusy || isRerouting) && (
 						<Alert severity="info" sx={{ fontSize: 28, order: 2 }}>
@@ -1287,7 +1293,9 @@ export default function App() {
 				/>
 
 			</Box>
-			<CarControls overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} editing={dockEditing} onEditingChange={setDockEditing} side={dockSide} />
+			<CarControls clear={clearView} overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} editing={dockEditing} onEditingChange={setDockEditing} side={dockSide} />
+			{/* Clear view hides everything else, so the way back is always here: a quiet button in the corner. */}
+			{clearView && <DriveButton color="inherit" aria-label="Show the controls" onClick={() => setClearView(false)} sx={{ position: "absolute", left: 24, bottom: 24, zIndex: 30, minWidth: 0, width: 72, height: 72, borderRadius: "50%", opacity: 0.6, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.85), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, "&:hover, &:focus-visible": { opacity: 1, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.95) } }}><VisibilityRounded sx={{ fontSize: 36 }} /></DriveButton>}
 		</Box>
 	);
 }
