@@ -25,6 +25,9 @@ export function useDestinationHighlight(mapRef: React.RefObject<mapboxgl.Map | n
 		marker.getElement().setAttribute("aria-label", "Destination");
 		let selected: mapboxgl.TargetFeature | undefined;
 		let needsUpdate = true;
+		// The follow camera ends a move every frame while driving, so a refresh is asked for every frame: look again at most a few
+		// times a second, and only at the destination's own spot (querying the whole screen's buildings cost several ms a frame).
+		let lastQuery = 0;
 		const refresh = () => { needsUpdate = true; };
 		const clear = () => {
 			if (selected) {
@@ -35,11 +38,14 @@ export function useDestinationHighlight(mapRef: React.RefObject<mapboxgl.Map | n
 		const restore = () => { selected = undefined; refresh(); };
 		const update = () => {
 			if (!needsUpdate || !map.isStyleLoaded()) return;
+			const now = performance.now();
+			if (now - lastQuery < 400) { map.triggerRepaint(); return; }
+			lastQuery = now;
 			needsUpdate = false;
 			const pixel = map.project(point);
 			const { clientWidth, clientHeight } = map.getContainer();
 			if (pixel.x < 0 || pixel.y < 0 || pixel.x > clientWidth || pixel.y > clientHeight) return;
-			const features = map.queryRenderedFeatures(undefined, { target: { featuresetId: "buildings", importId: "basemap" } });
+			const features = map.queryRenderedFeatures([[pixel.x - 3, pixel.y - 3], [pixel.x + 3, pixel.y + 3]], { target: { featuresetId: "buildings", importId: "basemap" } });
 			const feature = features.find(item => item.id != null && containsDestination(item.geometry, point));
 			if (selected?.id === feature?.id && selected?.namespace === feature?.namespace) return;
 			clear();

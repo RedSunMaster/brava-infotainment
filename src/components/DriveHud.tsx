@@ -14,7 +14,7 @@ interface Props {
 	flash: DriveFlash | null;
 }
 
-const card = { pointerEvents: "none", display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 1, borderRadius: 3, bgcolor: (theme: { palette: { background: { paper: string } } }) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6 } as const;
+const card = { pointerEvents: "none", display: "flex", alignItems: "center", gap: 1.25, px: 2, py: 1, borderRadius: 3, bgcolor: (theme: { palette: { background: { paper: string } } }) => alpha(theme.palette.background.paper, 0.92), border: "1px solid", borderColor: "divider", boxShadow: 6 } as const;
 
 const BAND_COLOUR = { great: "success.main", good: "success.main", fair: "warning.main", rough: "error.main" } as const;
 

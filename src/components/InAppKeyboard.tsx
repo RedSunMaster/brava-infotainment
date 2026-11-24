@@ -258,8 +258,6 @@ export default function InAppKeyboard({
 					zIndex: 10002,
 					height: "var(--keyboard-height, 340px)",
 					background: (theme: Theme) => alpha(theme.palette.background.paper, 0.97),
-					backdropFilter: "blur(24px)",
-					WebkitBackdropFilter: "blur(24px)",
 					borderTop: "1px solid",
 					borderColor: "divider",
 					px: 1,

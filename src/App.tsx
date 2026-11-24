@@ -49,7 +49,7 @@ import { useCameraPadding } from "./hooks/useCameraPadding";
 import { useGlobeShowcase } from "./hooks/useGlobeShowcase";
 import { useSplash } from "./hooks/useSplash";
 import { wantsLocation } from "./lib/showcase";
-import { CLOUDS_KEY, NIGHT_KEY, applyNight, presetFor, setCloudsVisible, setLightPreset } from "./lib/mapStyle";
+import { CLOUDS_KEY, DETAIL_KEY, NIGHT_KEY, applyDetail, applyNight, presetFor, setCloudsVisible, setLightPreset } from "./lib/mapStyle";
 import { useThemeMode } from "./ThemeContext";
 import DriveButton from "./components/DriveButton";
 import { recordFrequentPlace } from "./lib/frequentPlaces";
@@ -274,6 +274,7 @@ export default function App() {
 	const [dockEditing, setDockEditing] = useState(false);
 	const [showClouds, setShowClouds] = usePersistentState(CLOUDS_KEY, true, isBool);
 	const [showNight, setShowNight] = usePersistentState(NIGHT_KEY, true, isBool);
+	const [mapDetail, setMapDetail] = usePersistentState(DETAIL_KEY, false, isBool);
 	const [globeIdle, setGlobeIdle] = usePersistentState("brava-globe-idle", true, isBool);
 	const [dockSide, setDockSide] = usePersistentState("brava-dock-side", "bottom" as "bottom" | "left" | "right", isDockSide);
 	// Everything that is not the dock keeps clear of a dock at the left or right edge.
@@ -347,6 +348,11 @@ export default function App() {
 	const routeMeters = useMemo(() => routeLineMetrics(activeRoute?.coords ?? []).meters, [activeRoute?.coords]);
 	const routeHazards = useRouteHazards(activeRoute?.coords, hazardAlerts);
 	const routeAlerts = useMemo(() => activeRoute ? buildRouteAlerts({ incidents: activeRoute.incidents, closures: activeRoute.closures, hazards: routeHazards, trafficDelaySeconds: activeRoute.trafficDelaySeconds, meters: routeMeters, position: routePosition, stale: trafficStale }) : [], [activeRoute, routeMeters, routePosition, trafficStale, routeHazards]);
+	// Pins for the incidents and closures still ahead: rebuilt only when one is passed, not on every position update (each rebuild
+	// replaced every pin on the page, and the page then measured its layout again).
+	const passedAlerts = useMemo(() => activeRoute
+		? (activeRoute.incidents ?? []).filter(item => item.index < routePosition).length + (activeRoute.closures ?? []).filter(closure => closure.end < routePosition).length
+		: 0, [activeRoute, routePosition]);
 	useEffect(() => {
 		const map = mapRef.current;
 		if (!map || !mapLoaded || !activeRoute) return;
@@ -362,7 +368,7 @@ export default function App() {
 			markers.push(marker);
 		}
 		return () => markers.forEach(marker => marker.remove());
-	}, [mapLoaded, activeRoute, routePosition]);
+	}, [mapLoaded, activeRoute, passedAlerts]); // routePosition is read when one is passed
 	// Hazard pins are made once per route and removed as the car passes them, not rebuilt on every position update.
 	const hazardPins = useRef(new Map<string, mapboxgl.Marker>());
 	useEffect(() => {
@@ -402,6 +408,8 @@ export default function App() {
 	}, [mapLoaded, savedPlaces, favourites]);
 	// The globe's clouds follow the setting (and are applied again whenever the style reloads, in useMapbox).
 	useEffect(() => { const map = mapRef.current; if (map && mapLoaded) setCloudsVisible(map, showClouds); }, [showClouds, mapLoaded]);
+	// Shadows, 3D trees and lane markings follow their setting (and are applied again whenever the style reloads, in useMapbox).
+	useEffect(() => { const map = mapRef.current; if (map && mapLoaded) applyDetail(map, mapDetail); }, [mapDetail, mapLoaded]);
 	// The globe's night side follows its setting too, and the lighting preset goes with it (the globe is lit as day only while the night side is drawn).
 	useEffect(() => {
 		const map = mapRef.current;
@@ -720,22 +728,6 @@ export default function App() {
 	async function handleToggleProvider() {
 		setProvider((p) => (p === "mapbox" ? "valhalla" : "mapbox"));
 	}
-
-	const [mapBearing, setMapBearing] = useState(0);
-	useEffect(() => {
-		const map = mapRef.current;
-		if (!map) return;
-		let rafId: number;
-		const onMove = () => {
-			cancelAnimationFrame(rafId);
-			rafId = requestAnimationFrame(() => setMapBearing(map.getBearing()));
-		};
-		map.on("move", onMove);
-		return () => {
-			map.off("move", onMove);
-			cancelAnimationFrame(rafId);
-		};
-	}, [mapLoaded]);
 
 	const handleSearchSelect = useCallback(
 		async (coords: [number, number], placeName: string, buildingCoords = coords, details?: PlaceDetails) => {
@@ -1126,7 +1118,7 @@ export default function App() {
 						/>
 					)}
 					<Box ref={setTurnsSlot} sx={{ display: "contents" }} />
-					{!clearView && <Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
+					{!clearView && <Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 						gpsStatus={gpsStatus}
 					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} sound={pacmanSound} onSoundChange={setPacmanSound} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} />, ghost: <GhostPanel trips={drives.trips} playing={gameMode === "ghost"} /> }} />}
@@ -1143,7 +1135,6 @@ export default function App() {
 					cameraMode={cameraMode}
 					orientation={orientation}
 					hasRoute={maneuvers.length > 0}
-					currentBearing={mapBearing}
 					currentPosition={lastPosRef.current}
 					mapboxToken={process.env.MAPBOX_TOKEN}
 					onOverview={() => showOverview(coordsRef.current)}
@@ -1171,6 +1162,8 @@ export default function App() {
 					onCustomiseDock={() => setDockEditing(true)}
 					showClouds={showClouds}
 					showNight={showNight}
+					mapDetail={mapDetail}
+					onMapDetailChange={setMapDetail}
 					globeIdle={globeIdle}
 					onGlobeIdleChange={setGlobeIdle}
 					onShowNightChange={setShowNight}
@@ -1295,7 +1288,7 @@ export default function App() {
 			</Box>
 			<CarControls clear={clearView} overlay={showSpeed ? <SpeedSigns state={signState} estimated={estimating} simulated={gpsStatus !== "fix" && !estimating} /> : undefined} isDriving={isDriving} panel={openPanel === "media" ? "media" : null} setPanel={setOpenPanel} editing={dockEditing} onEditingChange={setDockEditing} side={dockSide} />
 			{/* Clear view hides everything else, so the way back is always here: a quiet button in the corner. */}
-			{clearView && <DriveButton color="inherit" aria-label="Show the controls" onClick={() => setClearView(false)} sx={{ position: "absolute", left: 24, bottom: 24, zIndex: 30, minWidth: 0, width: 72, height: 72, borderRadius: "50%", opacity: 0.6, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.85), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, "&:hover, &:focus-visible": { opacity: 1, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.95) } }}><VisibilityRounded sx={{ fontSize: 36 }} /></DriveButton>}
+			{clearView && <DriveButton color="inherit" aria-label="Show the controls" onClick={() => setClearView(false)} sx={{ position: "absolute", left: 24, bottom: 24, zIndex: 30, minWidth: 0, width: 72, height: 72, borderRadius: "50%", opacity: 0.6, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.85), border: "1px solid", borderColor: "divider", boxShadow: 6, "&:hover, &:focus-visible": { opacity: 1, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.95) } }}><VisibilityRounded sx={{ fontSize: 36 }} /></DriveButton>}
 		</Box>
 	);
 }

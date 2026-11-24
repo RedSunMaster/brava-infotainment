@@ -415,12 +415,12 @@ export function useExploration(mapRef: React.RefObject<mapboxgl.Map | null>, map
 		for (const event of events) map.on(event, ensure);
 		map.on("idle", updateLabels);
 		// Labels that come into view while the map moves or loads are hidden straight away, not once it settles (which
-		// left names showing through the fog until then). A few times a second is plenty.
+		// left names showing through the fog until then). A few times a second is plenty (each look queries every label on screen, which costs the car computer several ms).
 		const markDirty = () => { labelsDirty.current = true; };
 		map.on("move", markDirty);
 		map.on("sourcedata", markDirty);
 		// As ground is explored, its labels come back.
-		const labelTimer = window.setInterval(() => { if (labelsDirty.current) updateLabels(); }, 150);
+		const labelTimer = window.setInterval(() => { if (labelsDirty.current) updateLabels(); }, 350);
 		return () => {
 			for (const event of events) map.off(event, ensure);
 			map.off("idle", updateLabels);

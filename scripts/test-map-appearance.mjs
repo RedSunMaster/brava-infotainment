@@ -20,7 +20,8 @@ test("terrain is restored without duplicating its source and uses realistic elev
  const map = { getSource: id => sources.get(id), addSource: (id, source) => { assert.ok(!sources.has(id)); sources.set(id, source); }, setTerrain: value => { terrain = value; } };
  applyTerrain(map); applyTerrain(map);
  assert.equal(sources.size, 1);
- assert.equal(terrain.exaggeration, 1);
+ // Full height when zoomed out, flat by street level (where it cost the car computer half its frame rate).
+ assert.deepEqual(terrain.exaggeration, ["interpolate", ["linear"], ["zoom"], 11, 1, 13, 0]);
  assert.equal(sources.get(terrain.source).type, "raster-dem");
  sources.clear(); applyTerrain(map);
  assert.equal(sources.size, 1);

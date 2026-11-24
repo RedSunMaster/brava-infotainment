@@ -65,12 +65,18 @@ export function useCameraPadding(mapRef: React.RefObject<mapboxgl.Map | null>, l
 		// While zooming, change the padding and tilt in the same frame as the zoom (not a frame later), so they move together.
 		const onZoom = () => apply();
 		map.on("zoom", onZoom);
-		map.on("moveend", schedule);
+		// After a move only the padding needs applying again: what covers the map is measured when the page changes (above), and when
+		// a transition or animation ends (a panel that slides without changing size). While following, the camera ends a move every
+		// frame, and measuring then forced the page's layout inside the map's frame (up to 30 ms on the car computer).
+		const afterMove = () => { if (!frame) frame = requestAnimationFrame(apply); };
+		map.on("moveend", afterMove);
+		document.addEventListener("transitionend", schedule, true);
+		document.addEventListener("animationend", schedule, true);
 		watch();
 		// Straight away, before anything (the start-up flight) uses the camera.
 		measure();
 		apply();
-		return () => { rerun.current = () => {}; mutations.disconnect(); resize.disconnect(); map.off("zoom", onZoom); map.off("moveend", schedule); if (frame) cancelAnimationFrame(frame); };
+		return () => { rerun.current = () => {}; mutations.disconnect(); resize.disconnect(); map.off("zoom", onZoom); map.off("moveend", afterMove); document.removeEventListener("transitionend", schedule, true); document.removeEventListener("animationend", schedule, true); if (frame) cancelAnimationFrame(frame); };
 	}, [mapRef, loaded]);
 	// Going back from the overview to following: put the padding back at once.
 	useEffect(() => {

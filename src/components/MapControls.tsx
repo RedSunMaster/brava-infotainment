@@ -110,7 +110,6 @@ interface Props {
 	cameraMode: CameraMode;
 	orientation: Orientation;
 	hasRoute: boolean;
-	currentBearing: number;
 	currentPosition: [number, number];
 	mapboxToken: string;
 	onOverview: () => void;
@@ -149,6 +148,9 @@ interface Props {
 	showClouds?: boolean;
 	/** The globe's day and night sides, from the real sun. */
 	showNight?: boolean;
+	/** Shadows, 3D trees and lane markings on the map. */
+	mapDetail?: boolean;
+	onMapDetailChange?: (value: boolean) => void;
 	/** The turning globe at start and when parked and idle. */
 	globeIdle?: boolean;
 	onGlobeIdleChange?: (value: boolean) => void;
@@ -203,7 +205,7 @@ export default function MapControls({
 	searchTitle,
 	onSetPlace,
 	savedPlaces = {}, favourites = [], onPlaceMarker, onRemoveFavourite, onGoToPlace,
-	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange, showClouds = true, onShowCloudsChange, showNight = true, onShowNightChange, globeIdle = true, onGlobeIdleChange,
+	hazardAlerts = true, onHazardAlertsChange, onCustomiseDock, dockSide = "bottom", onDockSideChange, showClouds = true, onShowCloudsChange, mapDetail = false, onMapDetailChange, showNight = true, onShowNightChange, globeIdle = true, onGlobeIdleChange,
 	voiceStatus,
 	voiceEngine = "natural", onVoiceEngineChange,
 	onTestVoice, onTestAlert, onTestMessage,
@@ -326,6 +328,9 @@ export default function MapControls({
 										{WEATHER_APPEARANCES.map((value) => <DriveButton key={value} className="settings-option" variant={weatherAppearance === value ? "contained" : "outlined"} aria-pressed={weatherAppearance === value} onClick={() => setWeatherAppearance(value)} sx={{ flexDirection: "column", gap: 0.5, py: 1, fontSize: "clamp(16px, 1.9vw, 21px)", lineHeight: 1.1, "& .MuiSvgIcon-root": { fontSize: "clamp(28px, 3.2vw, 38px)" } }}>{WEATHER_ICONS[value]}{value === "auto" ? "Auto" : WEATHER_SHORT[value]}</DriveButton>)}
 									</Box>
 								</Section>
+								{onMapDetailChange && <Section title="Map detail" hint="Shadows under buildings, 3D trees and lane markings. They look richer, but slow the car computer's map down by about a fifth.">
+									<Options<boolean> label="Map detail" columns={2} value={mapDetail} onChange={onMapDetailChange} items={[[false, "Standard"], [true, "Detailed"]] as const} />
+								</Section>}
 								{onShowCloudsChange && <Section title="Earth clouds" hint="Clouds over the globe during the start-up flight.">
 									<Options<boolean> label="Earth clouds" columns={2} value={showClouds} onChange={onShowCloudsChange} items={[[true, "Show"], [false, "Hide"]] as const} />
 								</Section>}

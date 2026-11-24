@@ -79,7 +79,6 @@ export const topSheetSx = {
 	left: 0,
 	right: 0,
 	bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.94),
-	backdropFilter: "blur(12px)",
 	borderRadius: 3,
 	border: "1px solid",
 	borderColor: "divider",

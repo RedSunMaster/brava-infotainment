@@ -7,7 +7,7 @@ import WarningAmberRounded from "@mui/icons-material/WarningAmberRounded";
 interface Props { children: React.ReactNode; onClose?: () => void; /** Extra buttons, shown before the close button. */ action?: React.ReactNode }
 /** A quiet one-line problem notice: a warning icon and the message, in the same flat look as the cards. */
 export default function QuietNotice({ children, onClose, action }: Props) {
- return <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "warning.main" }}>
+ return <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), border: "1px solid", borderColor: "warning.main" }}>
   <WarningAmberRounded aria-hidden sx={{ color: "warning.main", fontSize: 28, flexShrink: 0 }} />
   <Typography sx={{ flex: 1, minWidth: 0, fontSize: 22 }}>{children}</Typography>
   {action}

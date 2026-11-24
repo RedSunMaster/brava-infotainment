@@ -1,3 +1,8 @@
+/*
+ * No backdrop-filter (frosted-glass blur) on anything over the map: the map changes every frame, so every blurred panel is blurred
+ * again every frame. On the car computer the panels' blur took about two thirds of the GPU's time while driving (35 fps with it,
+ * 47 without). The panels are 80-97% opaque, so the blur hardly showed anyway.
+ */
 body {
 	font-family:
 		-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,

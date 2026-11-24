@@ -82,7 +82,6 @@ export default function NavigationCard({
 		<Box
 			sx={(theme) => ({
 				background: alpha(theme.palette.background.paper, 0.92),
-				backdropFilter: "blur(12px)",
 				borderRadius: "12px",
 				border: `1px solid ${theme.palette.divider}`,
 										boxShadow: theme.shadows[6],
@@ -166,7 +165,6 @@ export default function NavigationCard({
 			<Box
 				sx={(theme) => ({
 					background: alpha(theme.palette.background.paper, 0.92),
-					backdropFilter: "blur(12px)",
 					borderRadius: theme.spacing(3),
 					padding: "12px 16px",
 					display: "flex",

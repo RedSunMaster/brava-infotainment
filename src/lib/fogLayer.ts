@@ -1,4 +1,5 @@
 import mapboxgl from "mapbox-gl";
+import { repaintSoon } from "./repaint";
 import { CELLS, REVEAL_RADIUS_M, cellX, cellY, type LngLat } from "./exploration";
 
 /**
@@ -44,8 +45,15 @@ const ROUTE_WIDTH: [number, number][] = [[8, 9], [12, 15], [15, 22], [18, 34]];
 /** How tall the fog bank stands. */
 const FOG_HEIGHT_M = 150;
 const MASK_SIZE = 2048;
-/** Resolution of the fog volume relative to the screen. Full: half made the edges against the map look smudgy. Lower it if the car's GPU struggles. */
-const VOLUME_SCALE = 1;
+/**
+ * Resolution of the fog volume relative to the screen: it adapts to the frame rate between these. Its cost goes with the square of this
+ * (on the car computer's GPU about 15 ms a frame at half resolution, about 5 ms at a quarter), and the fog's soft edges hide the
+ * difference; the route's cut-out is always drawn at full resolution.
+ */
+const VOLUME_SCALE = { start: 0.3, min: 0.2, max: 0.5, step: 0.05 };
+/** Frame times (ms, smoothed) that make the fog coarser (slower than about 45 fps) or let it get finer again (about 57 fps). */
+const SLOW_FRAME_MS = 22;
+const FAST_FRAME_MS = 17.5;
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const HEIGHT_SIZE = 64;
 /** The seen map covers this many screen-sizes either side of the view's centre; beyond it, everything is fog. */
@@ -72,16 +80,19 @@ interface Region {
 const blobHalf = (wanted: number) => Math.max(BLOB_RADIUS / CELLS, (9 * wanted) / MASK_SIZE);
 
 const NOISE = `
-float hash(vec2 cell, float period) {
-	cell = mod(cell, period);
-	return fract(sin(dot(cell, vec2(127.1, 311.7))) * 43758.5453);
-}
-// Value noise that repeats every 'period' lattice units.
+/** 256×256 random values, repeating: the noise's lattice, read with the GPU's own filtering instead of hashed per corner. */
+uniform sampler2D u_noise;
+// Value noise that repeats every 'period' lattice units, from the noise texture: one filtered read (the smoothstep goes into where
+// it reads) when it repeats every 256, the texture's own size; the four corners wrapped by hand for the coarse octaves that repeat
+// sooner. Hashing each corner with sin() cost the car computer's GPU most of its time.
 float noise(vec2 p, float period) {
 	vec2 i = floor(p);
 	vec2 f = fract(p);
 	f = f * f * (3.0 - 2.0 * f);
-	return mix(mix(hash(i, period), hash(i + vec2(1, 0), period), f.x), mix(hash(i + vec2(0, 1), period), hash(i + vec2(1, 1), period), f.x), f.y);
+	if (period >= 256.0) return texture(u_noise, (mod(i, 256.0) + f + 0.5) / 256.0).r;
+	ivec2 a = ivec2(mod(i, period)), b = ivec2(mod(i + 1.0, period));
+	return mix(mix(texelFetch(u_noise, a, 0).r, texelFetch(u_noise, ivec2(b.x, a.y), 0).r, f.x),
+		mix(texelFetch(u_noise, ivec2(a.x, b.y), 0).r, texelFetch(u_noise, b, 0).r, f.x), f.y);
 }`;
 
 const MASK_VS = `#version 300 es
@@ -198,7 +209,7 @@ float octave(int k, vec2 p, vec2 shift) {
 	// Keyed to the octave's level, not its slot, so an octave keeps drifting the same way when zooming shifts the slots.
 	float level = u_octave[k].w;
 	vec2 drift = vec2(cos(level * 2.1), sin(level * 2.1)) * u_time * 0.05;
-	// Repeats exactly once round the world (or every 256 cells for the finest), matching the globe's fog.
+	// Repeats exactly once round the world (or every 256 cells for the finest).
 	return noise(p * u_octave[k].x + u_octave[k].yz + drift + shift, min(exp2(level), 256.0));
 }
 // How much of octave k to keep at distance t (metres): far off, an octave whose features would be under a few pixels
@@ -230,50 +241,36 @@ float macro(vec2 p) {
 	// One offset for both: an octave keeps the same pattern when zooming moves it from one slot to the other.
 	return mix(octave(0, p, vec2(31.0, -17.0)), octave(1, p, vec2(31.0, -17.0)), u_macroMix);
 }
-float seenIn(sampler2D mask, vec2 uv) {
-	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
-	return min(1.0, texture(mask, uv).r);
-}
 // Where the previous square covers this point, how much of it still shows (0 outside it: nothing to blend from).
 float beforeWeight(vec2 uv) {
 	if (u_blend >= 1.0 || any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
 	return 1.0 - u_blend;
 }
-// How explored the ground is at a local point (metres from the square's centre).
-float seenAt(vec2 p) {
-	float now = seenIn(u_mask, p / (2.0 * u_half) + 0.5);
-	vec2 uv = (p - u_before.xy) / (2.0 * u_before.z) + 0.5;
-	float w = beforeWeight(uv);
-	return w > 0.0 ? mix(now, texture(u_maskBefore, uv).r, w) : now;
-}
-// How far (in cells, about 28 m) a local point is from explored ground, up to 8: read from the distance field.
-float cellsAway(vec2 p) {
+// The seen map at a local point (metres from the square's centre), read once: how explored the ground is (x), how far it is from
+// explored ground in cells (about 28 m each), up to 8, from the distance field (y), and how much of it is still clearing (z).
+vec3 maskAt(vec2 p) {
 	vec2 here = p / (2.0 * u_half) + 0.5;
-	float near = any(lessThan(here, vec2(0.0))) || any(greaterThan(here, vec2(1.0))) ? 0.0 : texture(u_mask, here).a;
+	vec4 m = any(lessThan(here, vec2(0.0))) || any(greaterThan(here, vec2(1.0))) ? vec4(0.0) : texture(u_mask, here);
+	float seen = min(1.0, m.r), near = m.a;
 	vec2 uv = (p - u_before.xy) / (2.0 * u_before.z) + 0.5;
 	float w = beforeWeight(uv);
-	if (w > 0.0) near = mix(near, texture(u_maskBefore, uv).a, w);
-	return near <= 0.0184 ? 8.0 : 4.0 * sqrt(-log(near));
-}
-// How much of the ground at a point is still clearing (newly explored, its fog not yet gone).
-float clearingAt(vec2 p) {
-	vec2 uv = p / (2.0 * u_half) + 0.5;
-	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return 0.0;
-	return min(1.0, texture(u_mask, uv).g);
+	if (w > 0.0) { vec4 b = texture(u_maskBefore, uv); seen = mix(seen, b.r, w); near = mix(near, b.a, w); }
+	return vec3(seen, near <= 0.0184 ? 8.0 : 4.0 * sqrt(-log(near)), min(1.0, m.g));
 }
 // How much fog stands at a point (1 all of it, 0 none), and in 'away' how far it is from cleared ground (in cells).
 // Cleared ground is explored ground, and the ground right round the car now: that clears smoothly as the car moves,
 // every frame, rather than in steps as GPS fixes arrive. The fog's noise n frays every edge; where ground is still
 // clearing it gets much more say, so the fog breaks up into wisps rather than fading as round blobs.
 float fogAt(vec2 p, float n, out float away) {
-	float seen = seenAt(p);
-	away = cellsAway(p);
+	vec3 mask = maskAt(p);
+	float seen = mask.x;
+	away = mask.y;
 	if (u_aura.z > 0.0) {
 		float d = length(p - u_aura.xy);
 		seen = max(seen, 0.9 * (1.0 - smoothstep(0.55 * u_aura.z, 1.15 * u_aura.z, d + (n - 0.5) * 0.9 * u_aura.z)));
 		away = min(away, max(0.0, d - u_aura.z) / u_cell + 0.6);
 	}
-	float k = 0.18 + 1.1 * clearingAt(p);
+	float k = 0.18 + 1.1 * mask.z;
 	return 1.0 - smoothstep(0.38, 0.52, seen + (n - 0.5) * k);
 }
 // The terrain's height at a local point.
@@ -307,7 +304,7 @@ void main() {
 	// Skip the empty air above the bank cheaply (ground heights only), so the costly samples are all spent inside it.
 	// Starting from the highest ground anywhere nearby instead made the samples' spacing jump whenever a hill came into
 	// that area, and the fog's look jumped with it.
-	const int SKIP = 24;
+	const int SKIP = 16;
 	float coarse = (tFar - tIn) / float(SKIP);
 	float tStart = tFar;
 	bool entered = false;
@@ -330,7 +327,7 @@ void main() {
 	// A smooth, evenly spread offset per pixel (interleaved gradient noise): hides the steps between samples without the
 	// salt-and-pepper speckle of a random one.
 	float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-	const int STEPS = 32;
+	const int STEPS = 22;
 	float span = tOut - tStart;
 	float transmit = 1.0;
 	vec3 colour = vec3(0.0);
@@ -424,13 +421,11 @@ uniform float u_solid;
 out vec4 o_color;
 void main() {
 	vec2 uv = v_ndc * 0.5 + 0.5;
-	// A light blur over the nearest pixels smooths away the sampling pattern in thin fog; the route cut stays sharp.
-	vec2 px = 1.0 / vec2(textureSize(u_volume, 0));
-	vec4 fog = texture(u_volume, uv) * 0.36
-		+ (texture(u_volume, uv + vec2(px.x, 0.0)) + texture(u_volume, uv - vec2(px.x, 0.0))
-		+ texture(u_volume, uv + vec2(0.0, px.y)) + texture(u_volume, uv - vec2(0.0, px.y))) * 0.12
-		+ (texture(u_volume, uv + px) + texture(u_volume, uv - px)
-		+ texture(u_volume, uv + vec2(px.x, -px.y)) + texture(u_volume, uv + vec2(-px.x, px.y))) * 0.04;
+	// A light blur over the nearest pixels smooths away the sampling pattern in thin fog; the route cut stays sharp. Four filtered reads
+	// half a pixel out diagonally make the same 3×3 tent blur as nine single reads (this pass runs at full resolution).
+	vec2 px = 0.5 / vec2(textureSize(u_volume, 0));
+	vec4 fog = (texture(u_volume, uv + px) + texture(u_volume, uv - px)
+		+ texture(u_volume, uv + vec2(px.x, -px.y)) + texture(u_volume, uv + vec2(-px.x, px.y))) * 0.25;
 	o_color = fog * u_solid * (1.0 - texture(u_route, uv).r);
 }`;
 
@@ -587,6 +582,23 @@ interface Area { region: Region; mask: Target; height: WebGLTexture }
 /** How long a rebuilt seen map takes to fade in. */
 const BLEND_MS = 500;
 
+/** 256×256 random values (the same every time), repeating, smoothly filtered: the lattice the fog's noise reads. */
+function noiseTexture(gl: WebGL2RenderingContext): WebGLTexture {
+	const values = new Uint8Array(256 * 256);
+	let seed = 0x2545f491;
+	for (let i = 0; i < values.length; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; values[i] = seed >>> 24; }
+	const texture = gl.createTexture()!;
+	gl.bindTexture(gl.TEXTURE_2D, texture);
+	gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 256, 256, 0, gl.RED, gl.UNSIGNED_BYTE, values);
+	gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+	return texture;
+}
+
 export class FogLayer implements mapboxgl.CustomLayerInterface {
 	readonly id = FOG_LAYER_ID;
 	readonly type = "custom" as const;
@@ -608,6 +620,8 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 	private routeTarget: Target | null = null;
 	private volumeTarget: Target | null = null;
 	private globe: { vao: WebGLVertexArrayObject; count: number } | null = null;
+	/** The noise lattice (see NOISE). */
+	private noise: WebGLTexture | null = null;
 	private maskDirty = true;
 	/**
 	 * Newly explored cells, still clearing. They are drawn every frame on a copy of the settled seen map (cheap: a few
@@ -630,6 +644,11 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 	onPuckFog: ((amount: number) => void) | null = null;
 	private puckRead: { buffer: WebGLBuffer; sync: WebGLSync | null } | null = null;
 	private start = performance.now();
+	/** The fog volume's resolution now (see VOLUME_SCALE), and what it goes by: the smoothed frame time and when it last changed. */
+	volumeScale = VOLUME_SCALE.start;
+	private frameAt = 0;
+	private frameMs = 16.7;
+	private scaledAt = 0;
 	private terrainTimer: number | undefined;
 	private onTerrain = (event: mapboxgl.MapSourceDataEvent) => {
 		if (event.sourceId !== "brava-terrain") return;
@@ -767,6 +786,7 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 		gl.vertexAttribDivisor(freshCell, 1);
 		gl.bindVertexArray(null);
 		this.buildGlobe(gl);
+		this.noise = noiseTexture(gl);
 		for (const chunk of this.chunks.values()) { chunk.buffer = null; chunk.vao = null; chunk.dirty = true; }
 		this.maskDirty = true;
 		this.heightsDirty = true;
@@ -790,6 +810,7 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 		this.working = null;
 		this.display = null;
 		this.globe = null;
+		this.noise = null;
 		this.map = null;
 	}
 
@@ -799,6 +820,7 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 		const mapCanvas = map.getCanvas();
 		if (canvas.width !== mapCanvas.width || canvas.height !== mapCanvas.height) { canvas.width = mapCanvas.width; canvas.height = mapCanvas.height; }
 		const time = (performance.now() - this.start) / 1000;
+		this.adaptResolution();
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.CULL_FACE);
 		// Explored cells are far below a pixel on the globe, so the globe is all fog; the bank only forms on the flat map.
@@ -820,8 +842,27 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 			if (fade > 0) this.drawGlobe(gl, matrix, toMerc ?? IDENTITY, 1, time, fogSolidity(map.getZoom()), fade * fade * (3 - 2 * fade));
 		}
 		gl.bindVertexArray(null);
-		// Keep the fog drifting.
-		map.triggerRepaint();
+		// Keep the fog drifting (slowly: 30 fps is plenty when nothing else is moving).
+		repaintSoon(map);
+	}
+
+	/**
+	 * Coarser fog while frames are slow, finer again once there is time to spare: quickly down (1.5 s apart), slowly up (6 s apart),
+	 * so it settles instead of see-sawing. Gaps over a quarter of a second (a hidden window, a pause) are not frames.
+	 */
+	private adaptResolution(): void {
+		const now = performance.now(), gap = now - this.frameAt;
+		this.frameAt = now;
+		if (gap <= 0 || gap > 250) return;
+		this.frameMs += (gap - this.frameMs) * 0.05;
+		const since = now - this.scaledAt;
+		if (this.frameMs > SLOW_FRAME_MS && this.volumeScale > VOLUME_SCALE.min && since > 1500) {
+			this.volumeScale = Math.max(VOLUME_SCALE.min, this.volumeScale - VOLUME_SCALE.step);
+			this.scaledAt = now;
+		} else if (this.frameMs < FAST_FRAME_MS && this.volumeScale < VOLUME_SCALE.max && since > 6000) {
+			this.volumeScale = Math.min(VOLUME_SCALE.max, this.volumeScale + VOLUME_SCALE.step);
+			this.scaledAt = now;
+		}
 	}
 
 	private target(gl: WebGL2RenderingContext, width: number, height: number, existing?: Target | null, precise = false): Target {
@@ -981,7 +1022,7 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 		gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, this.fresh.length);
 		gl.bindVertexArray(null);
 		gl.blendEquation(gl.FUNC_ADD);
-		this.map?.triggerRepaint();
+		if (this.map) repaintSoon(this.map);
 		return working.texture;
 	}
 
@@ -1081,7 +1122,7 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 		const local = multiply(matrix, [s, 0, 0, 0, 0, s, 0, 0, 0, 0, s, 0, region.cx, region.cy, 0, 1]);
 		const inverse = invert(local);
 		if (!inverse) return;
-		this.volumeTarget = this.target(gl, Math.max(1, Math.round(canvas.width * VOLUME_SCALE)), Math.max(1, Math.round(canvas.height * VOLUME_SCALE)), this.volumeTarget);
+		this.volumeTarget = this.target(gl, Math.max(1, Math.round(canvas.width * this.volumeScale)), Math.max(1, Math.round(canvas.height * this.volumeScale)), this.volumeTarget);
 		const volume = this.volumeTarget;
 		gl.bindFramebuffer(gl.FRAMEBUFFER, volume.framebuffer);
 		gl.viewport(0, 0, volume.width, volume.height);
@@ -1104,6 +1145,10 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 		gl.activeTexture(gl.TEXTURE3);
 		gl.bindTexture(gl.TEXTURE_2D, (before ?? area).height);
 		gl.uniform1i(at("u_heightBefore"), 3);
+		gl.activeTexture(gl.TEXTURE4);
+		gl.bindTexture(gl.TEXTURE_2D, this.noise);
+		gl.uniform1i(at("u_noise"), 4);
+		gl.activeTexture(gl.TEXTURE0);
 		gl.uniform1f(at("u_blend"), blend * blend * (3 - 2 * blend));
 		const was = (before ?? area).region;
 		gl.uniform3f(at("u_before"), (was.cx - region.cx) * region.metres, (was.cy - region.cy) * region.metres, was.half * region.metres);
@@ -1243,6 +1288,10 @@ export class FogLayer implements mapboxgl.CustomLayerInterface {
 			gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
 		}
 		gl.useProgram(program);
+		gl.activeTexture(gl.TEXTURE4);
+		gl.bindTexture(gl.TEXTURE_2D, this.noise);
+		gl.uniform1i(gl.getUniformLocation(program, "u_noise"), 4);
+		gl.activeTexture(gl.TEXTURE0);
 		gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_matrix"), false, Float32Array.from(matrix));
 		gl.uniformMatrix4fv(gl.getUniformLocation(program, "u_globeToMerc"), false, Float32Array.from(toMerc));
 		const { octaves, amps } = octaveSet(this.map!.getZoom());

@@ -6,6 +6,9 @@ import { alpha, useTheme } from "@mui/material";
 import { LOOK_EVENT, gameLookOn } from "../lib/mapStyle";
 import { routeLineMetrics, routeLineProgress, trafficGradient } from "../lib/routeLine";
 
+/** How far (metres) the car moves before the driven part of the route line is trimmed again. */
+const TRIM_STEP_M = 2;
+
 export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
  const coordsRef = useRef<[number, number][]>([]);
  const maneuversRef = useRef<NormalizedManeuver[]>([]);
@@ -124,7 +127,9 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   if (map.getSource("route")) map.removeSource("route");
  }
  function trimRouteByDistance(distanceM: number) {
-  const next = routeLineProgress(metrics.current, distanceM);
+  // In whole steps of TRIM_STEP_M, not every frame: each change of a paint property makes Mapbox re-evaluate every layer of the
+  // style, which took about 7% of the car computer's time while driving. The trimmed end is under the car, which is longer than a step.
+  const next = routeLineProgress(metrics.current, Math.floor(distanceM / TRIM_STEP_M) * TRIM_STEP_M);
   if (next === progress.current) return;
   progress.current = next;
   const map = mapRef.current;

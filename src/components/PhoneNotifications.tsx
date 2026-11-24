@@ -20,7 +20,6 @@ interface Props {
 
 const CARD = (theme: import("@mui/material/styles").Theme) => ({
 	bgcolor: alpha(theme.palette.background.paper, 0.96),
-	backdropFilter: "blur(12px)",
 	border: "1px solid",
 	borderColor: "divider",
 	borderRadius: 3,

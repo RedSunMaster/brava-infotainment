@@ -23,7 +23,7 @@ export default function DiscoveryNotices({ notices, onDismiss }: Props) {
 				const Icon = notice.kind === "pacman" ? SportsEsportsRounded : notice.kind === "drive" ? SpeedRounded : notice.kind === "milestone" ? EmojiEventsRounded : notice.kind === "suburb" ? DonutLargeRounded : notice.kind === "area" ? ParkRounded : notice.kind === "place" ? LocationCityRounded : TravelExploreRounded;
 				return (
 					<Box key={notice.key} role="status" onClick={() => onDismiss(notice.key)}
-						sx={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 2, px: 2.5, py: 1.5, minWidth: "min(520px, 90vw)", maxWidth: "min(720px, 92vw)", borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.94), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "primary.main", boxShadow: 8, animation: `${arrive} 320ms ease-out` }}>
+						sx={{ pointerEvents: "auto", display: "flex", alignItems: "center", gap: 2, px: 2.5, py: 1.5, minWidth: "min(520px, 90vw)", maxWidth: "min(720px, 92vw)", borderRadius: 3, bgcolor: (theme) => alpha(theme.palette.background.paper, 0.94), border: "1px solid", borderColor: "primary.main", boxShadow: 8, animation: `${arrive} 320ms ease-out` }}>
 						<Box sx={{ width: 64, height: 64, borderRadius: "50%", display: "grid", placeItems: "center", flexShrink: 0, bgcolor: (theme) => alpha(theme.palette.primary.main, 0.16), color: "primary.main" }}>
 							<Icon sx={{ fontSize: 38 }} />
 						</Box>

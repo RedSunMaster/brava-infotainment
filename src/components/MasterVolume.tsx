@@ -76,7 +76,7 @@ export default function MasterVolume({ variant = "button", buttonHeight = 80 }: 
 		</DriveButton>
 		<Popover open={!!anchor} anchorEl={anchor} onClose={() => { if (timer.current) clearTimeout(timer.current); setAnchor(null); }}
 			anchorOrigin={{ vertical: "top", horizontal: "center" }} transformOrigin={{ vertical: "bottom", horizontal: "center" }}
-			slotProps={{ paper: { sx: (theme) => ({ mb: 1, width: "min(680px, calc(100vw - 32px))", bgcolor: alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 6, backgroundImage: "none", overflow: "hidden" }) } }}>
+			slotProps={{ paper: { sx: (theme) => ({ mb: 1, width: "min(680px, calc(100vw - 32px))", bgcolor: alpha(theme.palette.background.paper, 0.92), border: "1px solid", borderColor: "divider", borderRadius: 3, boxShadow: 6, backgroundImage: "none", overflow: "hidden" }) } }}>
 			<VolumeSlider onTouch={arm} />
 		</Popover>
 	</>;

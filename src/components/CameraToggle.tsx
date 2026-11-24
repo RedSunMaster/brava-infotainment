@@ -26,7 +26,6 @@ export default function CameraToggle({ mode, onOverview, onFollowing }: Props) {
 					sx={{
 						background: mode === "overview" ? "#3b82f6" : "#1e1e1ecc",
 						color: "white",
-						backdropFilter: "blur(4px)",
 						"&:hover": { background: "#3b82f6" },
 						width: 44,
 						height: 44,
@@ -42,7 +41,6 @@ export default function CameraToggle({ mode, onOverview, onFollowing }: Props) {
 					sx={{
 						background: mode === "following" ? "#3b82f6" : "#1e1e1ecc",
 						color: "white",
-						backdropFilter: "blur(4px)",
 						"&:hover": { background: "#3b82f6" },
 						width: 44,
 						height: 44,

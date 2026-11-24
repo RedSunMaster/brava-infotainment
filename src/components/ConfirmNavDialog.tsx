@@ -12,7 +12,7 @@ export default function ConfirmNavDialog({ position, placeName, duration, distan
  const shortest = several ? Math.min(...choices.map((c) => c.km ?? Infinity)) : undefined;
  const arrival = etaSeconds === undefined || detour ? null : new Date(Date.now() + etaSeconds * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
  const summary = arrival ? (several ? `Arrive ${arrival}` : `Arrive ${arrival} · ${duration} · ${distance}`) : `${duration} · ${distance}`;
- return <Box role="region" aria-label="Route preview" sx={{ bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", borderRadius: 3, p: 2, border: "1px solid", borderColor: "divider", boxShadow: 6, display: "grid", gap: 1.5 }}>
+ return <Box role="region" aria-label="Route preview" sx={{ bgcolor: (theme) => alpha(theme.palette.background.paper, 0.92), borderRadius: 3, p: 2, border: "1px solid", borderColor: "divider", boxShadow: 6, display: "grid", gap: 1.5 }}>
   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
    <Box sx={{ flex: 1, minWidth: 0 }}>
     <Typography noWrap sx={{ fontSize: 30, fontWeight: 700, lineHeight: 1.2 }}>{placeName.split(",")[0]}</Typography>

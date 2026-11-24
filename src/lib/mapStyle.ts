@@ -53,11 +53,78 @@ export function resolveWeather(appearance: WeatherAppearance, weather: AmbientWe
 export type TimeOfDay = "dawn" | "day" | "dusk" | "night";
 export const MAP_STYLE = "mapbox://styles/mapbox/standard";
 
+/**
+ * Real height for hills and mountains seen from above (the globe, flights, a route overview), fading to flat ground by street level.
+ * 3D terrain was the costliest thing the map drew: with it the car computer managed about 18 fps while driving, without it over 30.
+ * At street level it barely shows (the follow camera is close and tilted), and Mapbox skips terrain altogether when a zoom-based
+ * exaggeration reaches 0 (a fixed 0 does not save anything).
+ */
+export const TERRAIN_EXAGGERATION: ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 11, 1, 13, 0];
+
 export function applyTerrain(map: Pick<Map, "getSource" | "addSource" | "setTerrain">) {
  if (!map.getSource("brava-terrain")) map.addSource("brava-terrain", {
   type: "raster-dem", url: "mapbox://mapbox.mapbox-terrain-dem-v1", tileSize: 512, maxzoom: 14,
  });
- map.setTerrain({ source: "brava-terrain", exaggeration: 1 });
+ map.setTerrain({ source: "brava-terrain", exaggeration: TERRAIN_EXAGGERATION });
+}
+
+/**
+ * The key for the map's finer detail: buildings casting shadows, 3D trees and lane-level road markings. Off unless chosen: together they
+ * cost the car computer about a fifth of its frame rate (some 35 fps without them while driving, under 30 with them), and from the
+ * driving camera they add little. Per profile, like the other settings.
+ */
+export const DETAIL_KEY = "brava-map-detail";
+export const detailWanted = (): boolean => { try { return localStorage.getItem(DETAIL_KEY) === "true"; } catch { return false; } };
+
+type LightsMap = Pick<Map, "setConfigProperty" | "setLights"> & Partial<Pick<Map, "getConfigProperty">>;
+/** Maps whose shadows are switched off (by a copy of the basemap's lights, which has to follow the time of day by hand). */
+const shadowless = new WeakSet<object>();
+/**
+ * The basemap's settings written into its lights, so they read the same on the root style. Lights there do not see the basemap's
+ * settings (the time of day): a copy that still asked for them was lit as day at night.
+ */
+const settled = (value: unknown, config: Record<string, unknown>): unknown => Array.isArray(value)
+ ? (value[0] === "config" && typeof value[1] === "string" && value[1] in config ? config[value[1]] : value.map(item => settled(item, config)))
+ : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, settled(item, config)])) : value;
+/** The Standard basemap's own lights, as its style sheet defines them, or null before it has loaded. */
+function basemapLights(map: object): { type?: string; properties?: Record<string, unknown> }[] | null {
+ try {
+  const lights = (map as { style?: { fragments?: { id: string; style?: { stylesheet?: { lights?: unknown } } }[] } }).style?.fragments?.find(fragment => fragment.id === "basemap")?.style?.stylesheet?.lights;
+  return Array.isArray(lights) ? lights : null;
+ } catch { return null; }
+}
+/** Sets the basemap's lights, as they are for this time of day, on the root style without shadows. False before the basemap has loaded. */
+function setShadowlessLights(map: LightsMap, preset?: string): boolean {
+ const lights = basemapLights(map);
+ if (!lights) return false;
+ const config: Record<string, unknown> = {
+  lightPreset: preset ?? map.getConfigProperty?.("basemap", "lightPreset") ?? "day",
+  theme: map.getConfigProperty?.("basemap", "theme") ?? "default",
+ };
+ try {
+  map.setLights(lights.map(light => settled(light.type === "directional" ? { ...light, properties: { ...light.properties, "cast-shadows": false } } : light, config)) as Parameters<Map["setLights"]>[0]);
+ } catch { return false; }
+ return true;
+}
+
+/**
+ * Shows the finer detail (see DETAIL_KEY) or leaves it out. The Standard style has no setting for shadows, so they are switched off with
+ * a copy of its lights on the root style (which overrides the basemap's) that casts none, set again whenever the time of day changes
+ * (setLightPreset). Returns false when the basemap is not loaded yet.
+ */
+export function applyDetail(map: LightsMap, detailed: boolean): boolean {
+ try {
+  map.setConfigProperty("basemap", "show3dTrees", detailed);
+  map.setConfigProperty("basemap", "showHdRoads", detailed);
+ } catch { return false; }
+ if (detailed) {
+  shadowless.delete(map);
+  try { map.setLights(null as unknown as Parameters<Map["setLights"]>[0]); } catch { /* None were set. */ }
+  return true;
+ }
+ if (!setShadowlessLights(map)) return false;
+ shadowless.add(map);
+ return true;
 }
 
 /** The key that turns the globe's clouds on or off (per profile, like the other settings). */
@@ -175,6 +242,9 @@ type NightMap = Pick<Map, "getSource" | "getLayer" | "addSource" | "addLayer" | 
  * soft, warm edge where it is dusk or dawn, and the lights of the cities coming on wherever it is properly dark. Like the clouds it fades out as the camera comes in, a little later than they do, and is not drawn beyond zoom 8.
  * Added after the clouds so the clouds on the night side go dark too.
  */
+/** The globe's night side is only drawn this far out (it is meant for the Earth seen from space). */
+export const NIGHT_MAX_ZOOM = 8;
+
 export async function applyNight(map: NightMap, visible: boolean, date = new Date(), lightsUrl?: string) {
  if (!visible) { globeSun = null; if (map.getLayer(NIGHT_LAYER)) map.setLayoutProperty(NIGHT_LAYER, "visibility", "none"); repaintGlow(map as unknown as WeatherMap); return; }
  const url = await nightPicture(date, lightsUrl);
@@ -186,7 +256,7 @@ export async function applyNight(map: NightMap, visible: boolean, date = new Dat
  if (existing?.updateImage) existing.updateImage({ url, coordinates: nightCoordinates });
  else if (!existing) map.addSource(NIGHT_LAYER, { type: "image", url, coordinates: nightCoordinates });
  if (!map.getLayer(NIGHT_LAYER)) map.addLayer({
-  id: NIGHT_LAYER, type: "raster", source: NIGHT_LAYER, slot: "middle", maxzoom: 8,
+  id: NIGHT_LAYER, type: "raster", source: NIGHT_LAYER, slot: "middle", maxzoom: NIGHT_MAX_ZOOM,
   // It stays well after the lighting preset has been switched (at about zoom 4.6), so the map darkens underneath it instead of flashing bright.
   paint: { "raster-opacity": ["interpolate", ["linear"], ["zoom"], 0, 1, 3, 0.95, 4.5, 0.75, 6, 0.4, 7.5, 0], "raster-fade-duration": 0, "raster-resampling": "linear", "raster-emissive-strength": 1 },
  });
@@ -338,6 +408,8 @@ export function setLightPreset(map: Pick<Map, "setConfigProperty">, preset: Time
   } catch { /* Fall back to the instant change. */ }
  }
  map.setConfigProperty("basemap", "lightPreset", preset);
+ // The shadowless copy of the lights does not follow the basemap's time of day by itself.
+ if (shadowless.has(map)) setShadowlessLights(map as LightsMap, preset);
 }
 
 interface Shown { period: TimeOfDay; effect: WeatherEffect; strength: number; space: number; preset: TimeOfDay; glow: number; view: TimeOfDay; near: boolean; lighting: () => Lighting }

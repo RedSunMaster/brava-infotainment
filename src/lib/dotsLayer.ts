@@ -6,6 +6,7 @@ import { createFruit, type FruitModel } from "./fruitModel";
 import type { LiveFruit } from "./fruit";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { puckModelScale } from "./cameraLookAhead";
+import { repaintSoon } from "./repaint";
 import { toLocalMetres } from "./localMetres";
 import { DOT_SPRITE, GHOST_COLOURS, PELLET_COLOUR, POWER_PELLET_SPRITE } from "./sprites";
 
@@ -110,6 +111,8 @@ export class DotsLayer {
 	private readonly ghosts = new Map<string, GhostEntry>();
 	private fruit: FruitEntry | null = null;
 	private enabled = true;
+	/** The canvas has been cleared and nothing drawn since. */
+	private blank = false;
 	private appliedSize = 0;
 	private disposed = false;
 	private readonly m4 = new THREE.Matrix4();
@@ -122,8 +125,8 @@ export class DotsLayer {
 		window.clearTimeout(this.heightTimer);
 		this.heightTimer = window.setTimeout(() => this.updateHeights(), 250);
 	};
-	private readonly onResize = () => { this.canvas.width = this.map.getCanvas().width; this.canvas.height = this.map.getCanvas().height; this.renderer.setSize(this.canvas.width, this.canvas.height, false); };
-	private readonly ensureLayer = () => { if (this.disposed || !this.map.isStyleLoaded()) return; if (!this.map.getLayer(LAYER_ID)) this.map.addLayer(this.layer); this.map.triggerRepaint(); };
+	private readonly onResize = () => { this.blank = false; this.canvas.width = this.map.getCanvas().width; this.canvas.height = this.map.getCanvas().height; this.renderer.setSize(this.canvas.width, this.canvas.height, false); };
+	private readonly ensureLayer = () => { if (this.disposed || !this.map.isStyleLoaded()) return; if (!this.map.getLayer(LAYER_ID)) { this.map.addLayer(this.layer); this.map.triggerRepaint(); } };
 
 	constructor(map: mapboxgl.Map) {
 		this.map = map;
@@ -344,10 +347,11 @@ export class DotsLayer {
 		const map = this.map;
 		const zoom = map.getZoom();
 		if (!this.enabled || zoom < DOTS_FROM_ZOOM || (!this.dotsLocal.length && !this.pelletsLocal.length && !this.ghosts.size && !this.fruit)) {
-			this.renderer.setClearColor(0x000000, 0);
-			this.renderer.clear();
+			// Clear once, then leave the canvas alone: clearing a full-screen canvas every frame made the page composite it every frame.
+			if (!this.blank) { this.renderer.setClearColor(0x000000, 0); this.renderer.clear(); this.blank = true; }
 			return;
 		}
+		this.blank = false;
 		const origin = mapboxgl.MercatorCoordinate.fromLngLat({ lng: this.anchor[0], lat: this.anchor[1] }, 0);
 		const metre = origin.meterInMercatorCoordinateUnits();
 		// Metres per CSS pixel at this zoom and place.
@@ -371,8 +375,8 @@ export class DotsLayer {
 		this.renderer.render(this.scene, this.camera);
 		this.renderer.clearDepth();
 		this.renderer.render(this.ghostScene, this.camera);
-		// Pellets blink, so a frame is wanted whenever there are any in view.
-		if (this.pelletsLocal.length || this.ghosts.size || this.fruit) map.triggerRepaint();
+		// Pellets blink and ghosts glide, so a frame is wanted whenever there are any in view (at 30 fps when nothing else moves).
+		if (this.pelletsLocal.length || this.ghosts.size || this.fruit) repaintSoon(map);
 	}
 
 	dispose(): void {

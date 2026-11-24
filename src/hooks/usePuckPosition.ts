@@ -11,6 +11,7 @@ import { lookAheadCamera, puckModelScale, smoothToward } from "../lib/cameraLook
 import { puckOffset, puckScreenPoint } from "../lib/cameraPadding";
 import { locateOnRoute, nextOffTrack, pointAtDistance, routeCache, segmentAtDistance, type Located } from "../lib/routeLocate";
 import { nearestLongitude } from "../lib/showcase";
+import { repaintSoon } from "../lib/repaint";
 
 // How quickly the rendered bearing chases the target bearing.
 const BEARING_LERP_SPEED = 2.5;
@@ -148,14 +149,16 @@ export function usePositionPuck(
 		const mapCanvas = map.getCanvas();
 		const container = mapCanvas.parentElement!;
 
+		// The car's own canvas covers only a square round the car, moved with it (see placeOverlay): a full-screen canvas with
+		// antialiasing cost the car computer's GPU a few milliseconds every frame to clear, resolve and composite, for a car ~100 px across.
 		const overlayCanvas = document.createElement("canvas");
 		overlayCanvas.style.cssText = `
       position:absolute;top:0;left:0;
-      width:100%;height:100%;
+      transform-origin:0 0;
       pointer-events:none;z-index:2;
     `;
-		overlayCanvas.width = mapCanvas.width;
-		overlayCanvas.height = mapCanvas.height;
+		overlayCanvas.width = 64;
+		overlayCanvas.height = 64;
 		container.appendChild(overlayCanvas);
 
 		const camera = new THREE.Camera();
@@ -197,6 +200,9 @@ export function usePositionPuck(
 		// Pac-Man mode's car, shown instead of the shuttle.
 		const pacman = createPacman();
 		scene.add(pacman.group);
+		// Everything drawn, in the scene's units: the pulse ring at its widest (1.8 × 4), Pac-Man, and the shuttle once loaded; with room to spare.
+		const drawnBounds = new THREE.Box3(new THREE.Vector3(-7.2, -0.5, -7.2), new THREE.Vector3(7.2, 0.5, 7.2))
+			.union(new THREE.Box3().setFromObject(pacman.group).expandByScalar(0.5));
 
 		const texture = new THREE.Texture();
 		texture.colorSpace = THREE.SRGBColorSpace;
@@ -227,6 +233,7 @@ export function usePositionPuck(
 				});
 				if (!disposed) {
 					shuttle = gltf.scene; scene.add(gltf.scene);
+					drawnBounds.union(new THREE.Box3().setFromObject(gltf.scene).expandByScalar(0.5));
 					// The outline: the same shape, 8% bigger about its middle.
 					const centre = new THREE.Box3().setFromObject(gltf.scene).getCenter(new THREE.Vector3());
 					const copy = gltf.scene.clone(true);
@@ -287,8 +294,53 @@ export function usePositionPuck(
 				.scale(scaleVec)
 				.multiply(rotX)
 				.multiply(rotY);
-			camera.projectionMatrix = m4.multiply(l4);
+			const full = m4.multiply(l4);
+			if (!placeOverlay(full)) return;
+			camera.projectionMatrix.multiplyMatrices(crop, full);
 			renderer.render(scene, camera);
+		}
+
+		// The small canvas: its size (device pixels, in steps), where it sits on the map, and the matrix that crops the view to it.
+		const crop = new THREE.Matrix4();
+		const corner = new THREE.Vector4();
+		let overlayW = 0, overlayH = 0, overlayAt = "";
+		const STEP = 64;
+		/**
+		 * Puts the car's canvas over the part of the map the car (and its pulse) covers this frame: the corners of everything drawn are
+		 * projected with the frame's own matrix. Its size changes only in steps (growing at once, shrinking when well over), and it sits on
+		 * whole pixels, so the car is drawn exactly as it was on the full-screen canvas. False when the car is off the map.
+		 */
+		function placeOverlay(full: THREE.Matrix4): boolean {
+			const W = mapCanvas.width, H = mapCanvas.height;
+			const dpr = W / Math.max(1, mapCanvas.clientWidth);
+			let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, behind = false;
+			const { min, max } = drawnBounds;
+			for (let i = 0; i < 8 && !behind; i++) {
+				corner.set(i & 1 ? max.x : min.x, i & 2 ? max.y : min.y, i & 4 ? max.z : min.z, 1).applyMatrix4(full);
+				if (corner.w <= 1e-6) { behind = true; break; }
+				const x = (corner.x / corner.w * 0.5 + 0.5) * W, y = (0.5 - corner.y / corner.w * 0.5) * H;
+				minX = Math.min(minX, x); maxX = Math.max(maxX, x); minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+			}
+			// Part of it behind the camera (only when looking out level): the whole map.
+			if (behind) { minX = 0; minY = 0; maxX = W; maxY = H; }
+			if (maxX < 0 || maxY < 0 || minX > W || minY > H) { overlayCanvas.style.visibility = "hidden"; return false; }
+			const needW = Math.min(W * 2, maxX - minX + 16), needH = Math.min(H * 2, maxY - minY + 16);
+			if (needW > overlayW || needW < overlayW - 2 * STEP || needH > overlayH || needH < overlayH - 2 * STEP) {
+				overlayW = Math.ceil(needW / STEP) * STEP;
+				overlayH = Math.ceil(needH / STEP) * STEP;
+				renderer.setSize(overlayW, overlayH, false);
+				overlayCanvas.style.width = `${overlayW / dpr}px`;
+				overlayCanvas.style.height = `${overlayH / dpr}px`;
+			}
+			const left = Math.round((minX + maxX - overlayW) / 2), top = Math.round((minY + maxY - overlayH) / 2);
+			const at = `translate(${left / dpr}px, ${top / dpr}px)`;
+			if (at !== overlayAt) { overlayCanvas.style.transform = at; overlayAt = at; }
+			overlayCanvas.style.visibility = "";
+			// Clip space of the whole map to clip space of this rectangle of it.
+			const hx = overlayW / W, hy = overlayH / H;
+			const cx = ((left + overlayW / 2) / W) * 2 - 1, cy = 1 - ((top + overlayH / 2) / H) * 2;
+			crop.set(1 / hx, 0, 0, -cx / hx, 0, 1 / hy, 0, -cy / hy, 0, 0, 1, 0, 0, 0, 0, 1);
+			return true;
 		}
 
 		const dummyLayer: mapboxgl.CustomLayerInterface = {
@@ -303,6 +355,8 @@ export function usePositionPuck(
 				const now = performance.now();
 				const dt = Math.min((now - lastFrameTimeRef.current) / 1000, 0.1);
 				lastFrameTimeRef.current = now;
+				// Whether the camera was moved this frame: if not, and the car is still, the next frame can wait (see the end).
+				let cameraMoved = false;
 
 				const coords = coordsRef.current;
 				const hasRoute = coords.length >= 2 && distanceCursorRef.current >= 0 && !offTrackRef.current;
@@ -376,6 +430,7 @@ export function usePositionPuck(
 						// Blend along the short way round the world: the longitudes are not simply averaged, or a camera that has been turned
 						// round the globe (by hand) would sweep back round the whole Earth, once for every turn it was given.
 						const goalLng = nearestLongitude(goal[0], recenter.anchor[0]);
+						cameraMoved = true;
 						map.easeTo({
 							center: [
 								recenter.anchor[0] + (goalLng - recenter.anchor[0]) * e,
@@ -451,6 +506,7 @@ export function usePositionPuck(
 						lastCameraPitchRef.current = targetPitch;
 						lastCameraOffsetRef.current = mapOffset.current;
 						lastCameraPaddingRef.current = paddingKey;
+						cameraMoved = true;
 						map.easeTo({
 							center: targetCenter,
 							bearing: targetBearing,
@@ -465,14 +521,17 @@ export function usePositionPuck(
 					}
 				}
 
-				map.triggerRepaint();
+				// Moving (or the camera gliding somewhere): every frame. Parked with the camera still, only the pulse animates, and 30 fps
+				// is plenty for that: it halves the work (and the heat, which slowed the car computer down once it was driving).
+				if (speedMsRef.current > 0.5 || cameraMoved || recenterRef.current || cameraTransitionRef.current) map.triggerRepaint();
+				else repaintSoon(map);
 			},
 		};
 
 		const addLayer = () => {
 			if (!map.isStyleLoaded()) return;
-			if (!map.getLayer("puck-layer")) map.addLayer(dummyLayer);
-			map.triggerRepaint();
+			// Only when it was missing: this runs on every style change (the route line is trimmed as the car moves).
+			if (!map.getLayer("puck-layer")) { map.addLayer(dummyLayer); map.triggerRepaint(); }
 		};
 
 		const onStyleLoad = () => {
@@ -486,11 +545,8 @@ export function usePositionPuck(
 		map.on("sourcedata", addLayer);
 		map.on("style.load", onStyleLoad);
 
-		const onResize = () => {
-			overlayCanvas.width = mapCanvas.width;
-			overlayCanvas.height = mapCanvas.height;
-			renderer.setSize(mapCanvas.width, mapCanvas.height, false);
-		};
+		// The map's size or pixel density changed: size the car's canvas afresh on the next frame.
+		const onResize = () => { overlayW = 0; overlayH = 0; overlayAt = ""; map.triggerRepaint(); };
 		map.on("resize", onResize);
 
 
