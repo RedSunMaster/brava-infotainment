@@ -62,11 +62,13 @@
 		"@emotion/react": "^11.14.0",
 		"@emotion/styled": "^11.14.1",
 		"@mapbox/polyline": "^1.2.1",
+		"@mapbox/vector-tile": "^3.0.0",
 		"@mui/icons-material": "^7.3.9",
 		"@mui/material": "^7.3.9",
 		"electron-squirrel-startup": "^1.0.1",
 		"kokoro-js": "^1.2.1",
 		"mapbox-gl": "^3.35.0",
+		"pbf": "^5.2.0",
 		"react": "^19.2.4",
 		"react-dom": "^19.2.4",
 		"three": "^0.183.2"

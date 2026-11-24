@@ -32,7 +32,7 @@ import ThunderstormRounded from "@mui/icons-material/ThunderstormRounded";
 import AcUnitRounded from "@mui/icons-material/AcUnitRounded";
 import AirRounded from "@mui/icons-material/AirRounded";
 import SatelliteAltRounded from "@mui/icons-material/SatelliteAltRounded";
-import TravelExploreRounded from "@mui/icons-material/TravelExploreRounded";
+import SportsEsportsRounded from "@mui/icons-material/SportsEsportsRounded";
 import VoiceVolumes from "./VoiceVolumes";
 import PhoneSettings from "./PhoneSettings";
 import PhoneAndroidRounded from "@mui/icons-material/PhoneAndroidRounded";
@@ -48,13 +48,13 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "places" | "explore" | "gps" | "bluetooth" | "phone" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "games" | "gps" | "bluetooth" | "phone" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
 	{ id: "drive", label: "Driving", icon: <RouteRounded /> },
 	{ id: "places", label: "Places", icon: <PlaceRounded /> },
-	{ id: "explore", label: "Explore", icon: <TravelExploreRounded /> },
+	{ id: "games", label: "Games", icon: <SportsEsportsRounded /> },
 	{ id: "gps", label: "GPS", icon: <SatelliteAltRounded /> },
 	{ id: "bluetooth", label: "Bluetooth", icon: <BluetoothRounded /> },
 	{ id: "phone", label: "Phone", icon: <PhoneAndroidRounded /> },
@@ -174,8 +174,8 @@ interface Props {
 	route?: [number, number][];
 	/** The app's own view of the GPS, shown beside gpsd's details in Settings → GPS. */
 	gpsStatus?: GpsStatus;
-	/** Settings → Explore (fog of war and its stats). */
-	explorePanel?: React.ReactNode;
+	/** Settings → Games (the game modes, their options and stats). */
+	gamesPanel?: React.ReactNode;
 }
 export default function MapControls({
 	panel, setPanel,
@@ -208,7 +208,7 @@ export default function MapControls({
 	stopCategory, onStopCategoryChange,
 	route,
 	gpsStatus = "disconnected",
-	explorePanel,
+	gamesPanel,
 }: Props) {
 	const [tab, setTab] = useState<SettingsTab>("display");
 	const [resumeMusic, setResumeMusic] = usePersistentState(RESUME_KEY, false, isBool);
@@ -376,7 +376,7 @@ export default function MapControls({
 									{onSetPlace && <DriveButton className="settings-option" variant="outlined" onClick={() => onSetPlace("favourite")}>Add favourite</DriveButton>}
 								</Section>
 							</>}
-							{tab === "explore" && explorePanel}
+							{tab === "games" && gamesPanel}
 							{tab === "gps" && <GpsDebugPanel active status={gpsStatus} />}
 							{tab === "bluetooth" && <BluetoothPanel active />}
 							{tab === "phone" && <PhoneSettings />}

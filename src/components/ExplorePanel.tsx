@@ -21,8 +21,6 @@ function placeSummary(places: ExploreStats["places"]): string {
 const HOME_RADIUS_M = 5_000;
 
 interface Props {
-	fogOn: boolean;
-	onFogChange: (value: boolean) => void;
 	stats: ExploreStats | null;
 	home?: LngLat;
 	shareAround: (center: LngLat, radiusM: number) => number;
@@ -30,7 +28,7 @@ interface Props {
 	isDriving: boolean;
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+export function Stat({ label, value }: { label: string; value: string }) {
 	return (
 		<Box sx={{ p: 1.5, borderRadius: 2, border: "1px solid", borderColor: "divider", minWidth: 0 }}>
 			<Typography noWrap sx={{ fontSize: 32, fontWeight: 800 }}>{value}</Typography>
@@ -51,8 +49,8 @@ function ShowMore({ count, open, onToggle }: { count: number; open: boolean; onT
 
 const km = (value: number) => value < 10 ? value.toFixed(1) : Math.round(value).toLocaleString("en-NZ");
 
-/** Settings → Explore: the fog of war switch, how much has been explored, and what was found. */
-export default function ExplorePanel({ fogOn, onFogChange, stats, home, shareAround, onReset, isDriving }: Props) {
+/** Fog of War stats in Settings → Game Modes: how much has been explored, and what was found. */
+export default function ExplorePanel({ stats, home, shareAround, onReset, isDriving }: Props) {
 	const [confirming, setConfirming] = useState(false);
 	const [showAll, setShowAll] = useState(false);
 	const [allSuburbs, setAllSuburbs] = useState(false);
@@ -62,15 +60,6 @@ export default function ExplorePanel({ fogOn, onFogChange, stats, home, shareAro
 	const since = stats ? new Date(stats.startedAt).toLocaleDateString("en-NZ", { day: "numeric", month: "long", year: "numeric" }) : "";
 	return (
 		<>
-			<Box sx={{ display: "grid", gap: 1.25 }}>
-				<Box>
-					<Typography sx={{ fontSize: 25, fontWeight: 700 }}>Fog of war</Typography>
-					<Typography sx={{ fontSize: 20, color: "text.secondary" }}>Covers the map in fog everywhere you have not driven. You see about 50 m either side of the road, and driving right round a park or block uncovers the middle. Your route always shows through. Drives are recorded even while the fog is hidden.</Typography>
-				</Box>
-				<Box role="group" aria-label="Fog of war" sx={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 1 }}>
-					{([[true, "Show fog"], [false, "Hide fog"]] as const).map(([value, text]) => <DriveButton key={text} className="settings-option" variant={fogOn === value ? "contained" : "outlined"} aria-pressed={fogOn === value} onClick={() => onFogChange(value)}>{text}</DriveButton>)}
-				</Box>
-			</Box>
 			<Box sx={{ display: "grid", gap: 1.25 }}>
 				<Box>
 					<Typography sx={{ fontSize: 25, fontWeight: 700 }}>Your exploring</Typography>

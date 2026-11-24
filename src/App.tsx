@@ -56,7 +56,13 @@ import { recordFrequentPlace } from "./lib/frequentPlaces";
 import { readSavedPlaces, savePlace, setPlaceMarker, defaultMarker, type PlaceTarget } from "./lib/savedPlaces";
 import { readFavourites, addFavourite, removeFavourite, setFavouriteMarker, nextMarker } from "./lib/favourites";
 import { useRouteHazards } from "./hooks/useRouteHazards";
-import { EXPLORE_KEY, useExploration } from "./hooks/useExploration";
+import { useExploration } from "./hooks/useExploration";
+import { PACMAN_GHOSTS_KEY, PACMAN_REGROW_KEY, usePacman } from "./hooks/usePacman";
+import { GAME_MODE_KEY, initialGameMode, isGameMode, type GameMode } from "./lib/gameModes";
+import { DEFAULT_REGROW, isRegrow } from "./lib/pacman";
+import GameModesPanel from "./components/GameModesPanel";
+import PacmanPanel from "./components/PacmanPanel";
+import PacmanHud from "./components/PacmanHud";
 import { useProfiles } from "./contexts/ProfileContext";
 import DiscoveryNotices from "./components/DiscoveryNotices";
 import ExplorePanel from "./components/ExplorePanel";
@@ -301,14 +307,23 @@ export default function App() {
 	useSplash(mapLoaded);
 	// Explore mode: fog of war over everywhere this profile has not driven.
 	const { active: activeProfile } = useProfiles();
-	const [fogOn, setFogOn] = usePersistentState(EXPLORE_KEY, false, isBool);
+	// One game mode at a time. Fog of War was a switch before there were modes, so that switch carries over.
+	const [gameMode, setGameMode] = usePersistentState<GameMode>(GAME_MODE_KEY, initialGameMode((() => { try { return localStorage; } catch { return null; } })()), isGameMode);
+	const fogOn = gameMode === "fog";
+	const pacmanOnRef = useRef(false);
+	pacmanOnRef.current = gameMode === "pacman";
+	const [pacmanRegrow, setPacmanRegrow] = usePersistentState(PACMAN_REGROW_KEY, DEFAULT_REGROW, isRegrow);
 	// The route line on the map (set once useRoute below exists) always shows through the fog.
 	const fogRouteRef = useRef<() => [number, number][] | null>(() => null);
 	// The car (set once usePositionPuck below exists), and how much fog covers it on screen: it then shows as an outline.
 	const fogPuckRef = useRef<() => [number, number] | null>(() => null);
 	const puckFogRef = useRef(0);
 	const explore = useExploration(mapRef, mapLoaded, activeProfile.id, fogOn, process.env.MAPBOX_TOKEN, fogRouteRef, fogPuckRef, puckFogRef);
-	const recordExploreFix = explore.recordFix;
+	const [pacmanGhosts, setPacmanGhosts] = usePersistentState(PACMAN_GHOSTS_KEY, true, isBool);
+	const pacman = usePacman(mapRef, mapLoaded, activeProfile.id, gameMode === "pacman", pacmanRegrow, fogPuckRef, pacmanGhosts);
+	// Every real or simulated fix goes to Fog of War's map (always) and to Pac-Man (which eats dots only while it is the mode).
+	const exploreFix = explore.recordFix, pacmanFix = pacman.recordFix;
+	const recordExploreFix = useCallback((pos: [number, number]) => { exploreFix(pos); pacmanFix(pos); }, [exploreFix, pacmanFix]);
 	const [showTraffic, setShowTraffic] = useState(() => { try { return localStorage.getItem("brava-show-traffic") !== "off"; } catch { return true; } });
 	useEffect(() => { try { localStorage.setItem("brava-show-traffic", showTraffic ? "on" : "off"); } catch { /* Keep the choice for this session. */ } }, [showTraffic]);
 	useTrafficLayer(mapRef, mapLoaded, showTraffic, navActive || !!pendingDest);
@@ -424,12 +439,13 @@ export default function App() {
 		mapOffset,
 		lookAheadRef,
 		puckFogRef,
+		pacmanOnRef,
 	);
 	fogPuckRef.current = puckPosition;
 
 	useMapStyle(mapRef, mapLoaded, period, weather, weatherAppearance, () => {
 		syncPuck(lastPosRef.current, lastBearingRef.current, lastSpeedRef.current);
-	});
+	}, gameMode === "pacman");
 
 	// A stop the car has reached is done: a reroute afterwards must not send it back to it.
 	const dropReachedStop = useCallback((pos: [number, number]) => {
@@ -1071,7 +1087,8 @@ export default function App() {
 					</Box>
 					{/* Floats over the map just below the top bar, so nothing else moves when a discovery is announced. */}
 					<Box sx={{ position: "absolute", top: "100%", left: insetLeft, right: insetRight, pointerEvents: "none" }}>
-						<DiscoveryNotices notices={explore.notices} onDismiss={explore.dismissNotice} />
+						<DiscoveryNotices notices={[...explore.notices, ...pacman.notices]} onDismiss={(key) => { explore.dismissNotice(key); pacman.dismissNotice(key); }} />
+						{gameMode === "pacman" && <PacmanHud stats={pacman.stats} />}
 					</Box>
 					{navActive && (
 						<NavigationCard
@@ -1088,7 +1105,7 @@ export default function App() {
 					<Box component="nav" id="navigation-options" aria-label="Map controls" sx={{ display: navActive && !navToolsOpen ? "none" : "flex", alignItems: "center", gap: 1, position: "relative", zIndex: 20, order: navActive ? 1 : 0, "& .map-action": { minWidth: "var(--map-target)", minHeight: 96, bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92), backdropFilter: "blur(12px)", border: "1px solid", borderColor: "divider", boxShadow: 6, borderRadius: 3, "&:hover": { bgcolor: (theme: Theme) => alpha(theme.palette.background.paper, 0.92) } }, "--map-target": "clamp(76px, 8vw, 88px)", }}>
 				<MapControls
 						gpsStatus={gpsStatus}
-					explorePanel={<ExplorePanel fogOn={fogOn} onFogChange={setFogOn} stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />}
+					gamesPanel={<GameModesPanel mode={gameMode} onModeChange={setGameMode} panels={{ fog: <ExplorePanel stats={explore.stats} home={savedPlaces.home?.coords} shareAround={explore.shareAround} onReset={explore.reset} isDriving={isDriving} />, pacman: <PacmanPanel stats={pacman.stats} regrow={pacmanRegrow} onRegrowChange={setPacmanRegrow} ghosts={pacmanGhosts} onGhostsChange={setPacmanGhosts} onReset={pacman.reset} isDriving={isDriving} playing={gameMode === "pacman"} /> }} />}
 					route={navActive ? coordsRef.current.slice(Math.max(0, routePosition - 1)) : undefined}
 					routePreferences={routePreferences}
 					stopCategory={stopCategory}

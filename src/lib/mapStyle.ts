@@ -317,7 +317,15 @@ const fadeTimers = new WeakMap<object, ReturnType<typeof setTimeout>>();
  * change the style's transition is stretched (and put back afterwards, so other changes such as route colours stay quick).
  * `smooth` is false for the very first lighting, which should simply be there.
  */
+/** A look that takes over the map from the time of day and the weather (Pac-Man mode's black board), or null for none. */
+let lookOverride: TimeOfDay | null = null;
+export function setLookOverride(preset: TimeOfDay | null): void { lookOverride = preset; }
+/** Whether a game's look is on the map, and the event sent when it comes on or goes off (so other drawing, like the route, can follow). */
+export const gameLookOn = (): boolean => lookOverride !== null;
+export const LOOK_EVENT = "brava-look-changed";
+
 export function setLightPreset(map: Pick<Map, "setConfigProperty">, preset: TimeOfDay, smooth = true) {
+ preset = lookOverride ?? preset;
  const style = (map as unknown as Transitions).style;
  if (smooth && typeof style?.setTransition === "function") {
   try {
@@ -386,6 +394,15 @@ const NIGHT_GLOW = { color: "#16264d", high: "#0b1431" };
 
 /** Fog, rain, snow and the dimming of the whole picture, each scaled by how close to the ground the camera is. */
 function paintWeather(map: WeatherMap, period: TimeOfDay, effect: WeatherEffect, strength: number, space = 0, glow = 1) {
+ // A game's look has no weather: a clear night.
+ if (lookOverride) {
+  map.setRain(null);
+  map.setSnow(null);
+  // Black space and no stars, with a faint blue rim to the globe.
+  map.setFog({ color: "#000000", "high-color": "#00003a", "space-color": "#000000", "horizon-blend": 0.04, "star-intensity": 0 });
+  map.getCanvas().style.filter = "";
+  return;
+ }
  const scale = (precipitation: Precipitation | undefined) => (precipitation && strength > 0 ? { ...precipitation, opacity: precipitation.opacity * strength, vignette: precipitation.vignette * strength } : null);
  // A dark vignette at the screen edges sells the gloomy, enclosed feel.
  const rain = scale(effect.rain);

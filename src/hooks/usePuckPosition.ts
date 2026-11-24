@@ -6,6 +6,7 @@ import spaceShuttle from "../../public/models/space_shuttle.glb";
 import textureUrl from "../../public/models/texture.jpg";
 import type { CameraMode, Orientation } from "../constants";
 import { ZOOM_LEVEL } from "../constants";
+import { createPacman } from "../lib/pacmanModel";
 import { lookAheadCamera, puckModelScale, smoothToward } from "../lib/cameraLookAhead";
 import { puckOffset, puckScreenPoint } from "../lib/cameraPadding";
 import { locateOnRoute, nextOffTrack, pointAtDistance, routeCache, segmentAtDistance, type Located } from "../lib/routeLocate";
@@ -59,6 +60,8 @@ export function usePositionPuck(
 	lookAheadRef?: React.RefObject<{ enabled: boolean; distanceToNextM: number | null; significantTurn?: boolean }>,
 	/** How much fog (0–1) lies over the car on screen, from Explore mode: the car then shows as a faint outline. */
 	fogOverPuckRef?: React.RefObject<number>,
+	/** True while Pac-Man mode is on: the car is then drawn as Pac-Man instead of the shuttle, and the following camera looks straight down. */
+	pacmanRef?: React.RefObject<boolean>,
 ) {
 	const speedMsRef = useRef<number>(0);
 	const distancesFor = useRef(routeCache()).current;
@@ -174,6 +177,8 @@ export function usePositionPuck(
 			opacity: 0.8,
 			side: THREE.DoubleSide,
 		});
+		const pulseBlue = pulseMat.color.clone();
+		const pulseYellow = new THREE.Color().setRGB(1, 0.8, 0.05, THREE.LinearSRGBColorSpace);
 		const pulseRing = new THREE.Mesh(ringGeo, pulseMat);
 		pulseRing.rotation.x = -Math.PI / 2;
 		scene.add(pulseRing);
@@ -186,7 +191,12 @@ export function usePositionPuck(
 			stencilWrite: true, stencilRef: 1, stencilFunc: THREE.NotEqualStencilFunc,
 		});
 		let outline: THREE.Object3D | null = null;
+		let shuttle: THREE.Object3D | null = null;
 		let fogShown = 0;
+		let lastRenderAt = performance.now();
+		// Pac-Man mode's car, shown instead of the shuttle.
+		const pacman = createPacman();
+		scene.add(pacman.group);
 
 		const texture = new THREE.Texture();
 		texture.colorSpace = THREE.SRGBColorSpace;
@@ -216,7 +226,7 @@ export function usePositionPuck(
 					mesh.material = body;
 				});
 				if (!disposed) {
-					scene.add(gltf.scene);
+					shuttle = gltf.scene; scene.add(gltf.scene);
 					// The outline: the same shape, 8% bigger about its middle.
 					const centre = new THREE.Box3().setFromObject(gltf.scene).getCenter(new THREE.Vector3());
 					const copy = gltf.scene.clone(true);
@@ -261,7 +271,13 @@ export function usePositionPuck(
 			if (fogShown < 0.01) fogShown = 0;
 			for (const body of bodyMaterials) body.opacity = 1 - 0.85 * fogShown;
 			outlineMaterial.opacity = 0.9 * fogShown;
-			if (outline) outline.visible = fogShown > 0;
+			const pac = pacmanRef?.current ?? false;
+			if (outline) outline.visible = fogShown > 0 && !pac;
+			if (shuttle) shuttle.visible = !pac;
+			pacman.group.visible = pac;
+			const frameAt = performance.now();
+			if (pac) pacman.update(Math.min((frameAt - lastRenderAt) / 1000, 0.1), speedMsRef.current);
+			lastRenderAt = frameAt;
 			pulseMat.opacity *= 1 - 0.7 * fogShown;
 
 			rotY.makeRotationAxis(new THREE.Vector3(0, 1, 0), -bearingRad);
@@ -332,6 +348,8 @@ export function usePositionPuck(
 
 				// ── Pulse ring ────────────────────────────────────────────────────────
 				const pt = (Date.now() % 1800) / 1800;
+				// The pulse is blue, or Pac-Man yellow in Pac-Man mode (where blue is the maze's walls).
+				pulseMat.color.copy(pacmanRef?.current ? pulseYellow : pulseBlue);
 				pulseRing.scale.setScalar(1 + pt * 3);
 				pulseMat.opacity = (1 - pt) * 0.7;
 
@@ -364,7 +382,8 @@ export function usePositionPuck(
 								recenter.anchor[1] + (goal[1] - recenter.anchor[1]) * e,
 							],
 							bearing: lerpBearing(recenter.bearing, goalBearing, e),
-							pitch: recenter.pitch + ((heading ? 45 : 0) - recenter.pitch) * e,
+							// Pac-Man mode looks straight down.
+							pitch: recenter.pitch + ((heading && !pacmanRef?.current ? 45 : 0) - recenter.pitch) * e,
 							zoom: recenter.zoom + (cameraZoomRef.current - recenter.zoom) * e,
 							offset: puckOffset(map, mapOffset.current),
 							duration: 0,
@@ -373,12 +392,19 @@ export function usePositionPuck(
 						lastCameraPosRef.current = [...goal] as [number, number];
 						lastCameraBearingRef.current = goalBearing;
 						lastCameraOffsetRef.current = mapOffset.current;
-						if (t >= 1) recenterRef.current = null;
+						if (t >= 1) {
+							recenterRef.current = null;
+							// Following carries on from where the recentre ended. In Pac-Man mode that is straight down: its remembered pitch
+							// (from before, perhaps 45 degrees) would otherwise snap the view back and then ease it down again.
+							if (pacmanRef?.current) cameraPitchRef.current = 0;
+						}
 					} else if (
 						followingRef.current === "following" &&
 						!isEasingRef.current &&
 						!cameraTransitionRef.current
 					) {
+					// Pac-Man mode looks straight down (the view still turns with the car's heading).
+					const topDown = pacmanRef?.current ?? false;
 					const targetBearing =
 						orientationRef.current === "heading" ? renderBearingRef.current : 0;
 					const lookAhead = lookAheadRef?.current;
@@ -389,9 +415,9 @@ export function usePositionPuck(
 						: { zoom: ZOOM_LEVEL, pitch: 45 };
 					// Close in fairly quickly for a turn, but ease back out slowly so back-to-back turns do not make the map breathe.
 					cameraZoomRef.current = smoothToward(cameraZoomRef.current, desired.zoom, dt * 1000, desired.zoom > cameraZoomRef.current ? 1200 : 3500);
-					cameraPitchRef.current = smoothToward(cameraPitchRef.current, desired.pitch, dt * 1000, 1500);
+					cameraPitchRef.current = smoothToward(cameraPitchRef.current, topDown ? 0 : desired.pitch, dt * 1000, 1500);
 					const targetZoom = cameraZoomRef.current;
-					const targetPitch = orientationRef.current === "heading" ? cameraPitchRef.current : 0;
+					const targetPitch = orientationRef.current === "heading" || topDown ? cameraPitchRef.current : 0;
 					const targetCenter = renderPosRef.current;
 					const cameraOffset = puckOffset(map, mapOffset.current);
 					// Padding changes too (a side dock appears, the screen resizes): the car has to be put back where it belongs.
@@ -482,6 +508,7 @@ export function usePositionPuck(
             ringGeo.dispose();
             pulseMat.dispose();
             outlineMaterial.dispose();
+            pacman.dispose();
             scene.traverse((child) => {
                 if (child instanceof THREE.Mesh && child !== pulseRing) {
                     child.geometry.dispose();

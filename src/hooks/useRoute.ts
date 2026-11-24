@@ -3,6 +3,7 @@ import type mapboxgl from "mapbox-gl";
 import { getRoute, NormalizedManeuver, type NormalizedRoute } from "../lib/routing";
 import type { RoutingProvider } from "../constants";
 import { alpha, useTheme } from "@mui/material";
+import { LOOK_EVENT, gameLookOn } from "../lib/mapStyle";
 import { routeLineMetrics, routeLineProgress, trafficGradient } from "../lib/routeLine";
 
 export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
@@ -30,8 +31,10 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   };
   map.on("style.load", restore);
   map.on("sourcedata", restoreWhenReady);
+  // A game look coming on or off changes the route's colour.
+  window.addEventListener(LOOK_EVENT, restore);
   if (map.isStyleLoaded()) restore();
-  return () => { map.off("style.load", restore); map.off("sourcedata", restoreWhenReady); };
+  return () => { map.off("style.load", restore); map.off("sourcedata", restoreWhenReady); window.removeEventListener(LOOK_EVENT, restore); };
  }, [mapRef.current, theme.palette.primary.main]);
 
  async function fetchRoute(origin: [number, number], dest: [number, number], provider: RoutingProvider, stops: [number, number][] = []) {
@@ -82,7 +85,8 @@ export function useRoute(mapRef: React.RefObject<mapboxgl.Map | null>) {
   else (map.getSource("route") as mapboxgl.GeoJSONSource).setData(data);
   const total = metrics.current.meters[metrics.current.meters.length - 1];
   // A bright core inside a thick white outline stands out on light and dark maps alike, in any weather.
-  const core = theme.palette.mode === "dark" ? "#3d8bff" : "#0b5ce6";
+  // (Pink in Pac-Man mode, where blue is the maze's walls.)
+  const core = gameLookOn() ? "#ff3ea5" : theme.palette.mode === "dark" ? "#3d8bff" : "#0b5ce6";
   const width: mapboxgl.ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 8, 5, 12, 9, 15, 14, 18, 22];
   const casingWidth: mapboxgl.ExpressionSpecification = ["interpolate", ["linear"], ["zoom"], 8, 9, 12, 15, 15, 22, 18, 34];
   const trim = { "line-trim-offset": [0, progress.current] as [number, number], "line-trim-fade-range": [0, total > 0 ? Math.min(0.02, 12 / total) : 0] as [number, number] };
