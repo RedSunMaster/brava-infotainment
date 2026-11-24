@@ -2,6 +2,8 @@ import mapboxgl from "mapbox-gl";
 import * as THREE from "three";
 import type { LngLat } from "./exploration";
 import { createGhost, type GhostModel, type Mood } from "./ghostModel";
+import { createFruit, type FruitModel } from "./fruitModel";
+import type { LiveFruit } from "./fruit";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { puckModelScale } from "./cameraLookAhead";
 import { toLocalMetres } from "./localMetres";
@@ -26,6 +28,12 @@ interface GhostEntry { model: GhostModel; root: THREE.Group; from: DrawnGhost; t
 const GHOST_RADIUS_UNITS = 3;
 /** Positions come in about this often, so the ghost is smoothed between them (milliseconds). */
 const GHOST_STEP_MS = 100;
+
+/** A bonus fruit on the map: its model, and where and until when. */
+interface FruitEntry { model: FruitModel; root: THREE.Group; fruit: LiveFruit; height: number }
+/** A fruit is drawn as big as a ghost, and flashes for its last few seconds (milliseconds). */
+const FRUIT_RADIUS_UNITS = 5;
+const FRUIT_FLASH_MS = 5_000;
 
 export interface DrawnDot { id: number; pos: LngLat; pellet: boolean }
 
@@ -100,6 +108,7 @@ export class DotsLayer {
 	private cacheZoom = 0;
 	private heightTimer: number | undefined;
 	private readonly ghosts = new Map<string, GhostEntry>();
+	private fruit: FruitEntry | null = null;
 	private enabled = true;
 	private appliedSize = 0;
 	private disposed = false;
@@ -191,6 +200,35 @@ export class DotsLayer {
 	private currentGhost(entry: GhostEntry, now: number): DrawnGhost {
 		const t = Math.min(1, (now - entry.at) / GHOST_STEP_MS);
 		return { ...entry.to, pos: [entry.from.pos[0] + (entry.to.pos[0] - entry.from.pos[0]) * t, entry.from.pos[1] + (entry.to.pos[1] - entry.from.pos[1]) * t] };
+	}
+
+	/** The bonus fruit on the map (null for none). */
+	setFruit(fruit: LiveFruit | null): void {
+		if (this.fruit && fruit && this.fruit.fruit.kind === fruit.kind && this.fruit.fruit.pos === fruit.pos) { this.fruit.fruit = fruit; return; }
+		if (this.fruit) { this.ghostScene.remove(this.fruit.root); this.fruit.model.dispose(); this.fruit = null; }
+		if (fruit) {
+			const model = createFruit(fruit.kind), root = new THREE.Group();
+			root.add(model.group);
+			this.ghostScene.add(root);
+			this.fruit = { model, root, fruit, height: 0 };
+		}
+		this.map.triggerRepaint();
+	}
+
+	/** Places the fruit for this frame: upright on the screen, bobbing a little, flashing as its time runs out. */
+	private placeFruit(now: number, zoom: number): void {
+		const entry = this.fruit;
+		if (!entry) return;
+		const radius = FRUIT_RADIUS_UNITS * puckModelScale(zoom);
+		const left = entry.fruit.expiresAt - now;
+		entry.root.visible = left > 0 && (left > FRUIT_FLASH_MS || Math.floor(now / 220) % 2 === 0);
+		let ground: number | null = null;
+		try { ground = this.map.queryTerrainElevation({ lng: entry.fruit.pos[0], lat: entry.fruit.pos[1] }); } catch { /* No terrain yet. */ }
+		if (ground !== null) entry.height = ground;
+		entry.root.scale.setScalar(radius);
+		const [east, north] = toLocalMetres(this.anchor, entry.fruit.pos);
+		entry.root.position.set(east, north, entry.height + radius * (0.1 + 0.08 * Math.sin(now / 280)));
+		entry.root.rotation.z = -(this.map.getBearing() * Math.PI) / 180;
 	}
 
 	/** Places every ghost model for this frame. */
@@ -305,7 +343,7 @@ export class DotsLayer {
 		if (this.disposed) return;
 		const map = this.map;
 		const zoom = map.getZoom();
-		if (!this.enabled || zoom < DOTS_FROM_ZOOM || (!this.dotsLocal.length && !this.pelletsLocal.length && !this.ghosts.size)) {
+		if (!this.enabled || zoom < DOTS_FROM_ZOOM || (!this.dotsLocal.length && !this.pelletsLocal.length && !this.ghosts.size && !this.fruit)) {
 			this.renderer.setClearColor(0x000000, 0);
 			this.renderer.clear();
 			return;
@@ -324,6 +362,7 @@ export class DotsLayer {
 		// The power pellets blink.
 		this.pelletMesh.visible = Math.floor(performance.now() / BLINK_MS) % 2 === 0;
 		this.placeGhosts(performance.now(), zoom);
+		this.placeFruit(performance.now(), zoom);
 		// Local metres (east, north, up) to Mercator (east, south, up).
 		this.m4.fromArray(matrix);
 		this.l4.makeTranslation(origin.x, origin.y, origin.z ?? 0).scale(new THREE.Vector3(metre, -metre, metre));
@@ -333,7 +372,7 @@ export class DotsLayer {
 		this.renderer.clearDepth();
 		this.renderer.render(this.ghostScene, this.camera);
 		// Pellets blink, so a frame is wanted whenever there are any in view.
-		if (this.pelletsLocal.length || this.ghosts.size) map.triggerRepaint();
+		if (this.pelletsLocal.length || this.ghosts.size || this.fruit) map.triggerRepaint();
 	}
 
 	dispose(): void {
@@ -350,6 +389,8 @@ export class DotsLayer {
 		this.canvas.remove();
 		for (const entry of this.ghosts.values()) entry.model.dispose();
 		this.ghosts.clear();
+		this.fruit?.model.dispose();
+		this.fruit = null;
 		this.dotMesh.dispose();
 		this.pelletMesh.dispose();
 		this.dotGeometry.dispose();

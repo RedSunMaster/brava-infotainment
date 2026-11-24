@@ -3,6 +3,7 @@ import { ipcRenderer } from "electron";
 import type mapboxgl from "mapbox-gl";
 import { distanceM, type LngLat } from "../lib/exploration";
 import { DOTS_FROM_ZOOM, DotsLayer } from "../lib/dotsLayer";
+import { FruitBonus, FRUIT_MAX_M, FRUIT_NAMES, fruitSpots } from "../lib/fruit";
 import { RoadGraph } from "../lib/roadGraph";
 import { GHOST_LABEL, GhostPack } from "../lib/ghosts";
 import { Pacman, dotsFromWays, tileBounds, tileKey, tileOf, tilesAround, type Dot, type PacmanSummary, type Regrow } from "../lib/pacman";
@@ -108,6 +109,7 @@ export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoade
 		if (!active) soundsRef.current?.stopAll();
 		wasActive.current = active;
 	}, [active]);
+	const fruitRef = useRef(new FruitBonus());
 	const ghostsRef = useRef(ghosts);
 	ghostsRef.current = ghosts;
 	const graphStale = useRef(false);
@@ -307,11 +309,28 @@ export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoade
 		}
 		m.at = nowMs;
 		lastFix.current = pos;
+		// Bonus fruit: eaten if the car drove through it; a new one appears every so many dots, on a road ahead.
+		const fruit = fruitRef.current, perf = performance.now();
+		const got = fruit.collect(moved, pos, perf);
+		if (got) {
+			game.ateFruit(got.points);
+			layerRef.current?.setFruit(null);
+			soundsRef.current?.play("extra");
+			notify({ kind: "pacman", name: `+${got.points} points`, detail: `${FRUIT_NAMES[got.kind][0].toUpperCase()}${FRUIT_NAMES[got.kind].slice(1)} bonus` });
+			dirty.current = true;
+			refreshStats(true);
+		}
+		fruit.addDots(result.eaten.length);
+		if (fruit.due) {
+			const spots = fruitSpots(pos, m.bearing, game.dotsNear(pos, FRUIT_MAX_M, nowMs).map(dot => dot.pos));
+			const placed = fruit.spawn(spots, game.liveStreak(nowMs), perf);
+			if (placed) { layerRef.current?.setFruit(placed); notify({ kind: "pacman", name: "Bonus fruit", detail: "On the road ahead" }); }
+		}
 		if (result.eaten.length) {
 			dirty.current = true;
 			redraw();
 			refreshStats();
-			soundsRef.current?.play(result.pellets || result.multiplierUp ? "extra" : "waka");
+			soundsRef.current?.play("waka");
 			if (result.pellets) {
 				notify({ kind: "pacman", name: `+${result.pelletPoints} points`, detail: result.pellets > 1 ? "Power pellets" : "Power pellet" });
 				// A power pellet turns every ghost blue.
@@ -385,16 +404,25 @@ export function usePacman(mapRef: React.RefObject<mapboxgl.Map | null>, mapLoade
 		return () => { window.clearInterval(timer); soundsRef.current?.setLoop("power", false); soundsRef.current?.setLoop("siren", false); huntRef.current.clear(); layerRef.current?.setGhosts([]); };
 	}, [active, ghosts, notify, refreshStats]);
 
+	// A fruit nobody ate goes away after a while; none stays when the mode is left.
+	useEffect(() => {
+		if (!active) { fruitRef.current.clear(); layerRef.current?.setFruit(null); return; }
+		const timer = window.setInterval(() => { if (fruitRef.current.expire(performance.now())) layerRef.current?.setFruit(null); }, 1_000);
+		return () => window.clearInterval(timer);
+	}, [active]);
+
 	// Lets the dev tools drive the game without a GPS receiver; never in packaged builds.
 	useEffect(() => {
 		if (process.env.NODE_ENV === "production") return;
-		(window as unknown as { __bravaPacman?: unknown }).__bravaPacman = { recordFix, stats: () => gameRef.current?.summary(Date.now()), ghost: () => huntRef.current.place(), ghosts: () => huntRef.current.places(), frightenedFor: () => huntRef.current.frightenedFor(), frighten: () => huntRef.current.frighten(performance.now() / 1000) };
+		(window as unknown as { __bravaPacman?: unknown }).__bravaPacman = { recordFix, fruit: () => fruitRef.current.live, giveFruit: (dots = 70) => fruitRef.current.addDots(dots), stats: () => gameRef.current?.summary(Date.now()), ghost: () => huntRef.current.place(), ghosts: () => huntRef.current.places(), frightenedFor: () => huntRef.current.frightenedFor(), frighten: () => huntRef.current.frighten(performance.now() / 1000) };
 	}, [recordFix]);
 
 	const reset = useCallback(() => {
 		const game = gameRef.current;
 		if (!game) return;
 		game.reset();
+		fruitRef.current.clear();
+		layerRef.current?.setFruit(null);
 		dirty.current = true;
 		save();
 		redraw();

@@ -133,6 +133,8 @@ export interface PacmanSaved {
 	/** How many times a ghost has caught the car, and how many ghosts the car has eaten. */
 	caught?: number;
 	ghostsEaten?: number;
+	/** How many bonus fruit the car has eaten. */
+	fruit?: number;
 	today: { day: string; dots: number };
 	bestDay: { day: string; dots: number };
 	/** Eaten dots as pairs: id, then the minute (since 1970) it was eaten. */
@@ -147,6 +149,7 @@ export interface PacmanSummary {
 	bestStreak: number;
 	caught: number;
 	ghostsEaten: number;
+	fruit: number;
 	multiplier: number;
 	today: number;
 	bestDay: number;
@@ -174,6 +177,7 @@ export class Pacman {
 	bestStreak = 0;
 	caughtCount = 0;
 	ghostsEatenCount = 0;
+	fruitCount = 0;
 	private lastEatAt = 0;
 	private today = { day: "", dots: 0 };
 	private bestDay = { day: "", dots: 0 };
@@ -316,18 +320,24 @@ export class Pacman {
 		this.ghostsEatenCount++;
 	}
 
+	/** The car ate a bonus fruit: its points are added (they do not touch the run). */
+	ateFruit(points: number): void {
+		this.score += points;
+		this.fruitCount++;
+	}
+
 	/** The run is over once this long has passed with no dot eaten (checked by the screen as well as by eating). */
 	liveStreak(now: number): number { return now - this.lastEatAt > STREAK_GAP_MS ? 0 : this.streak; }
 
 	summary(now: number): PacmanSummary {
 		const streak = this.liveStreak(now);
-		return { score: this.score, dots: this.dotsEaten, pellets: this.pelletsEaten, streak, bestStreak: this.bestStreak, caught: this.caughtCount, ghostsEaten: this.ghostsEatenCount, multiplier: multiplierFor(streak), today: this.today.day === dayOf(now) ? this.today.dots : 0, bestDay: this.bestDay.dots, startedAt: this.startedAt };
+		return { score: this.score, dots: this.dotsEaten, pellets: this.pelletsEaten, streak, bestStreak: this.bestStreak, caught: this.caughtCount, ghostsEaten: this.ghostsEatenCount, fruit: this.fruitCount, multiplier: multiplierFor(streak), today: this.today.day === dayOf(now) ? this.today.dots : 0, bestDay: this.bestDay.dots, startedAt: this.startedAt };
 	}
 
 	/** Forgets everything: score, stats and eaten dots. The loaded tiles stay. */
 	reset(): void {
 		this.eaten.clear();
-		this.score = this.dotsEaten = this.pelletsEaten = this.streak = this.bestStreak = this.caughtCount = this.ghostsEatenCount = this.lastEatAt = 0;
+		this.score = this.dotsEaten = this.pelletsEaten = this.streak = this.bestStreak = this.caughtCount = this.ghostsEatenCount = this.fruitCount = this.lastEatAt = 0;
 		this.today = { day: "", dots: 0 };
 		this.bestDay = { day: "", dots: 0 };
 		this.startedAt = Date.now();
@@ -339,7 +349,7 @@ export class Pacman {
 		const regrow = REGROW_MS[this.regrow];
 		const eaten: number[] = [];
 		for (const [id, at] of this.eaten) if (regrow === null || now - at < regrow) eaten.push(id, Math.floor(at / 60_000));
-		return { version: 1, startedAt: this.startedAt, score: this.score, dots: this.dotsEaten, pellets: this.pelletsEaten, bestStreak: this.bestStreak, caught: this.caughtCount, ghostsEaten: this.ghostsEatenCount, today: { ...this.today }, bestDay: { ...this.bestDay }, eaten };
+		return { version: 1, startedAt: this.startedAt, score: this.score, dots: this.dotsEaten, pellets: this.pelletsEaten, bestStreak: this.bestStreak, caught: this.caughtCount, ghostsEaten: this.ghostsEatenCount, fruit: this.fruitCount, today: { ...this.today }, bestDay: { ...this.bestDay }, eaten };
 	}
 
 	static canRead(data: unknown): boolean {
@@ -358,6 +368,7 @@ export class Pacman {
 		game.bestStreak = finite(saved.bestStreak);
 		game.caughtCount = finite(saved.caught);
 		game.ghostsEatenCount = finite(saved.ghostsEaten);
+		game.fruitCount = finite(saved.fruit);
 		const day = (value: unknown) => ({ day: typeof (value as { day?: unknown })?.day === "string" ? (value as { day: string }).day : "", dots: finite((value as { dots?: unknown })?.dots) });
 		game.today = day(saved.today);
 		game.bestDay = day(saved.bestDay);

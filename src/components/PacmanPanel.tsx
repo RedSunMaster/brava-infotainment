@@ -46,6 +46,7 @@ export default function PacmanPanel({ stats, regrow, onRegrowChange, ghosts, onG
 						<Stat label="Best day" value={count(stats.bestDay)} />
 						<Stat label="Caught by ghost" value={count(stats.caught)} />
 						<Stat label="Ghosts eaten" value={count(stats.ghostsEaten)} />
+						<Stat label="Fruit eaten" value={count(stats.fruit)} />
 						{playing && <Stat label="Dots within 1 km" value={stats.nearby === null ? (stats.loading ? "Loading…" : "—") : count(stats.nearby)} />}
 					</Box>
 				)}
@@ -87,7 +88,7 @@ export default function PacmanPanel({ stats, regrow, onRegrowChange, ghosts, onG
 				<Box>
 					<Typography sx={{ fontSize: 25, fontWeight: 700 }}>How it works</Typography>
 					<Typography sx={{ fontSize: 20, color: "text.secondary" }}>
-						Each dot is 10 points, and a big dot is 50. A run of dots builds a multiplier (one more for every 50, up to 5×), and the run ends if 45 seconds pass without one. Points are for dots and ghosts, never speed. Roads come from OpenStreetMap and are saved once seen, so they work offline afterwards.
+						Each dot is 10 points, and a big dot is 50. A run of dots builds a multiplier (one more for every 50, up to 5×), and the run ends if 45 seconds pass without one. Every 70 dots a bonus fruit appears on a road ahead for 25 seconds: cherry 100, strawberry 300, orange 500, apple 700, melon 1,000, Galaxian 2,000, bell 3,000, key 5,000, and the longer your run the better the fruit. Points are for dots, fruit and ghosts, never speed. Roads come from OpenStreetMap and are saved once seen, so they work offline afterwards.
 					</Typography>
 				</Box>
 			</Box>
