@@ -18,9 +18,13 @@ export function registerWifiIpc() {
   const networks: { ssid: string; signal: number; security: string; connected: boolean }[] = [];
   for (const line of output.split("\n")) {
    const [active, ssid, signal, security] = fields(line);
-   if (!ssid || networks.some(n => n.ssid === ssid)) continue;
-   networks.push({ ssid, signal: Number(signal) || 0, security: security || "", connected: active === "*" });
+   if (!ssid) continue;
+   const network = { ssid, signal: Number(signal) || 0, security: security || "", connected: active === "*" };
+   const existing = networks.findIndex(n => n.ssid === ssid);
+   if (existing < 0) networks.push(network);
+   else if (network.connected || (!networks[existing].connected && network.signal > networks[existing].signal)) networks[existing] = network;
   }
+  networks.sort((a, b) => Number(b.connected) - Number(a.connected));
   return { error: null, networks };
  });
  ipcMain.handle("tether:state", async () => {

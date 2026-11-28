@@ -11,6 +11,21 @@ test("Wi-Fi scan fields preserve escaped colons and backslashes", () => {
  assert.deepEqual(module.exports.fields(String.raw`*:My\:network\\name:80:WPA2`), ["*", "My:network\\name", "80", "WPA2"]);
 });
 
+test("the connected access point wins when an SSID appears more than once", async () => {
+ const handlers = {};
+ const mock = { exports: {} };
+ const require = name => name === "electron" ? { ipcMain: { handle: (key, fn) => { handlers[key] = fn; } } } : {
+  execFile: (_cmd, _args, _options, cb) => cb(null, ":Home:90:WPA2\n*:Home:45:WPA2\n:Other:60:WPA2\n:Home:99:WPA2\n"),
+ };
+ new Function("require", "module", "exports", "process", js)(require, mock, mock.exports, { platform: "linux", env: {} });
+ mock.exports.registerWifiIpc();
+ const state = await handlers["wifi:state"]();
+ assert.deepEqual(state.networks, [
+  {ssid: "Home", signal: 45, security: "WPA2", connected: true},
+  {ssid: "Other", signal: 60, security: "WPA2", connected: false},
+ ]);
+});
+
 test("Wi-Fi connects with a password and disconnects without deleting the profile", async () => {
  const handlers = {};
  const calls = [];

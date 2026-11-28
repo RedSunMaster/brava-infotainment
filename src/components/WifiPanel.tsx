@@ -10,12 +10,14 @@ export default function WifiPanel({ isDriving }: { isDriving: boolean }) {
  const [tethers, setTethers] = useState<Tether[]>([]);
  const [tetherError, setTetherError] = useState("");
  const [networks, setNetworks] = useState<Network[]>([]);
+ const [wifiError, setWifiError] = useState<string | null>(null);
+ const [wifiLoaded, setWifiLoaded] = useState(false);
  const [message, setMessage] = useState("");
  const [selected, setSelected] = useState<Network | null>(null);
  const [password, setPassword] = useState("");
  const [busy, setBusy] = useState(false);
  const { showKeyboard, hideKeyboard } = useKeyboard();
- const refresh = useCallback(async () => { const [state, tether] = await Promise.all([ipcRenderer.invoke("wifi:state"), ipcRenderer.invoke("tether:state")]); setNetworks(state.networks); if (state.error) setMessage(state.error); setTethers(tether.connections); setTetherError(tether.error ?? ""); }, []);
+ const refresh = useCallback(async () => { const [state, tether] = await Promise.all([ipcRenderer.invoke("wifi:state"), ipcRenderer.invoke("tether:state")]); setNetworks(state.networks); setWifiError(state.error); setWifiLoaded(true); setTethers(tether.connections); setTetherError(tether.error ?? ""); }, []);
  useEffect(() => { void refresh(); const timer = setInterval(() => void refresh(), 10000); return () => { clearInterval(timer); hideKeyboard(); }; }, [refresh, hideKeyboard]);
  async function connect(network: Network, secret = "") {
   setBusy(true); setMessage("Connecting…"); hideKeyboard();
@@ -34,6 +36,7 @@ export default function WifiPanel({ isDriving }: { isDriving: boolean }) {
  }
  return <Box sx={{ display: "grid", gap: 2 }}>
   <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}><Box sx={{ flex: 1 }}><Typography sx={{ fontSize: 25, fontWeight: 700 }}>Wi-Fi</Typography><Typography sx={{ fontSize: 20, color: "text.secondary" }}>Choose a network while parked. Signal strength is shown as a percentage.</Typography></Box><DriveButton variant="outlined" disabled={busy || isDriving} onClick={() => { setBusy(true); void ipcRenderer.invoke("wifi:scan").then(refresh).finally(() => setBusy(false)); }}>Refresh</DriveButton></Box>
+  <Typography role="status" sx={{ fontSize: 22, fontWeight: 700 }}>{wifiError ? wifiError : !wifiLoaded ? "Checking Wi-Fi…" : networks.find(network => network.connected) ? `Connected to ${networks.find(network => network.connected)!.ssid}` : "Not connected to Wi-Fi"}</Typography>
   {message && <Typography role="status" sx={{ fontSize: 20 }}>{message}</Typography>}
   {networks.map(network => <Box key={network.ssid} sx={{ display: "flex", alignItems: "center", gap: 1 }}><Box sx={{ flex: 1, minWidth: 0 }}><Typography noWrap sx={{ fontSize: 24, fontWeight: 700 }}>{network.ssid}</Typography><Typography sx={{ fontSize: 19, color: "text.secondary" }}>{network.connected ? "Connected · " : ""}{network.signal}% · {network.security || "Open"}</Typography></Box>{network.connected ? <DriveButton variant="outlined" disabled={busy || isDriving} onClick={() => void disconnect()}>Disconnect</DriveButton> : <DriveButton variant="contained" disabled={busy || isDriving} onClick={() => { setSelected(network); setPassword(""); if (!network.security) void connect(network); }}>Connect</DriveButton>}</Box>)}
   <Box sx={{ display: "grid", gap: 1 }}>
