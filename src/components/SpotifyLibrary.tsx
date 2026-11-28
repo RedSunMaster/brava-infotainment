@@ -262,8 +262,6 @@ const SpotifyLibrary = ({
 		search,
 		playTrack,
 		playContext,
-		liked,
-		fetchLiked,
 		playLiked,
 		addToQueue,
 		albums,
@@ -300,24 +298,39 @@ const SpotifyLibrary = ({
 	const [collection, setCollection] = useState<Collection | null>(null);
 	const [collectionTracks, setCollectionTracks] = useState<SpotifyQueueItem[]>([]);
 	const [collectionLoading, setCollectionLoading] = useState(false);
+	const [nextOffset, setNextOffset] = useState<number | null>(null);
+	const collectionGeneration = useRef(0);
+	const loadingPage = useRef(false);
 	useEffect(() => { setCollection(null); }, [tab]);
 	useEffect(() => {
-		if (!collection) return;
-		if (collection.kind === "liked") { void fetchLiked(); return; }
-		let cancelled = false;
-		setCollectionTracks([]);
-		setCollectionLoading(true);
-		fetchCollectionTracks(collection.kind, collection.id, collection.imageUrl)
-			.then(list => { if (!cancelled) setCollectionTracks(list); })
-			.catch((): void => undefined)
-			.finally(() => { if (!cancelled) setCollectionLoading(false); });
-		return () => { cancelled = true; };
-	}, [collection, fetchCollectionTracks, fetchLiked]);
+		const generation = ++collectionGeneration.current;
+		setCollectionTracks([]); setNextOffset(null); loadingPage.current = false;
+		if (!collection) { setCollectionLoading(false); return; }
+		loadingPage.current = true; setCollectionLoading(true);
+		const id = collection.kind === "liked" ? "" : collection.id;
+		const art = collection.kind === "liked" ? "" : collection.imageUrl;
+		void fetchCollectionTracks(collection.kind, id, art, 0).then(page => {
+			if (generation === collectionGeneration.current) { setCollectionTracks(page.items); setNextOffset(page.nextOffset); }
+		}).catch((): void => undefined).finally(() => { if (generation === collectionGeneration.current) { loadingPage.current = false; setCollectionLoading(false); } });
+		return () => { collectionGeneration.current++; };
+	}, [collection, fetchCollectionTracks]);
+	async function loadMoreSongs() {
+		if (!collection || nextOffset === null || loadingPage.current) return;
+		const generation = collectionGeneration.current;
+		loadingPage.current = true; setCollectionLoading(true);
+		try {
+			const page = await fetchCollectionTracks(collection.kind, collection.kind === "liked" ? "" : collection.id, collection.kind === "liked" ? "" : collection.imageUrl, nextOffset);
+			if (generation === collectionGeneration.current) { setCollectionTracks(previous => [...previous, ...page.items]); setNextOffset(page.nextOffset); }
+		} catch { /* Spotify reports the error in the library banner. */ }
+		finally { if (generation === collectionGeneration.current) { loadingPage.current = false; setCollectionLoading(false); } }
+	}
 	const [actionError, setActionError] = useState<string | null>(null);
 	async function playItem(action: () => Promise<void>, thenGoBack = false) {
 		setActionError(null);
-		if (thenGoBack) { hideKeyboard(); onBack(); } // Back to the player at once; its own banner reports a failure.
-		try { await action(); } catch (error) { setActionError(error instanceof Error ? error.message : "Playback unavailable. Try again."); }
+		try {
+			await action();
+			if (thenGoBack) { hideKeyboard(); onBack(); }
+		} catch (error) { setActionError(error instanceof Error ? error.message : "Playback unavailable. Try again."); }
 	}
 	// Podcasts and books: a list of shows, and one opened to see its episodes or chapters.
 	const [openShow, setOpenShow] = useState<SpotifyShow | null>(null);
@@ -476,21 +489,22 @@ const SpotifyLibrary = ({
 				}}
 			>
 				{collection && (tab === "playlists" || tab === "albums") ? (() => {
-					const songs = collection.kind === "liked" ? liked : collectionTracks;
-					const loading = collection.kind === "liked" ? isLibraryLoading : collectionLoading;
-					const playFrom = (i: number) => collection.kind === "liked" ? playLiked(i) : playContext(collection.uri, songs[i]?.uri);
+					const songs = collectionTracks;
+					const loading = collectionLoading && songs.length === 0;
+					const playFrom = (i: number) => collection.kind === "liked" ? playLiked(songs, i) : playContext(collection.uri, songs[i]?.uri);
 					return <Box>
 						<Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
 							<DriveButton color="inherit" aria-label="Back to the list" onClick={() => setCollection(null)} sx={{ flexShrink: 0, minWidth: 0, width: 64, minHeight: 64 }}><ArrowBackRounded /></DriveButton>
 							<Box sx={{ flex: 1, minWidth: 0 }}>
 								<Typography noWrap sx={{ fontSize: 26, fontWeight: 800 }}>{collection.kind === "liked" ? "Liked Songs" : collection.name}</Typography>
-								<Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{collection.kind === "liked" ? `${liked.length} songs` : collection.subtitle}</Typography>
+								<Typography noWrap sx={{ fontSize: 20, color: "text.secondary" }}>{collection.kind === "liked" ? `${songs.length}${nextOffset !== null ? "+" : ""} songs loaded` : collection.subtitle}</Typography>
 							</Box>
-							<DriveButton variant="contained" disabled={songs.length === 0} onClick={() => void playItem(() => (collection.kind === "liked" ? playLiked(0) : playContext(collection.uri)), true)} startIcon={<PlayArrowRounded />} sx={{ flexShrink: 0, minHeight: 64, px: 3, fontSize: 24, fontWeight: 700 }}>Play</DriveButton>
+							<DriveButton variant="contained" disabled={songs.length === 0} onClick={() => void playItem(() => (collection.kind === "liked" ? playLiked(songs, 0) : playContext(collection.uri)), true)} startIcon={<PlayArrowRounded />} sx={{ flexShrink: 0, minHeight: 64, px: 3, fontSize: 24, fontWeight: 700 }}>Play</DriveButton>
 						</Box>
 						{loading ? <Box sx={{ display: "flex", justifyContent: "center", pt: 4 }}><CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} /></Box>
-							: songs.length === 0 ? <EmptyState text={collection.kind === "liked" ? "No liked songs yet." : "No songs to show here."} />
-							: songs.map((item, i) => <TrackRow key={`${item.id}-${i}`} item={item} onPlay={() => void playItem(() => playFrom(i), true)} actions={queueActions(item)} playing={item.id === playingId} />)}
+							: songs.length === 0 && nextOffset === null ? <EmptyState text={collection.kind === "liked" ? "No liked songs yet." : "No songs to show here."} />
+							: <>{songs.map((item, i) => <TrackRow key={`${item.id}-${i}`} item={item} onPlay={() => void playItem(() => playFrom(i), true)} actions={queueActions(item)} playing={item.id === playingId} />)}
+							{nextOffset !== null && <LoadMore onVisible={() => void loadMoreSongs()} loading={collectionLoading} />}</>}
 					</Box>;
 				})() : isLibraryLoading ? (
 					<Box sx={{ display: "flex", justifyContent: "center", pt: 4 }}>
@@ -577,7 +591,7 @@ const SpotifyLibrary = ({
 						<TrackRow
 							key={`${item.id}-${i}`}
 							item={item}
-							onPlay={() => void playTrack(item.uri).catch((): void => {})}
+							onPlay={() => void playItem(() => playTrack(item.uri), true)}
 							actions={queueActions(item)}
 							playing={item.id === playingId}
 						/>

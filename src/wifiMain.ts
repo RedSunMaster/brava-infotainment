@@ -1,8 +1,8 @@
 import { execFile, spawn } from "node:child_process";
 import { ipcMain } from "electron";
 
-function nm(args: string[]): Promise<string | null> {
- return new Promise(resolve => execFile("nmcli", args, { timeout: 15000, env: { ...process.env, LC_ALL: "C" } }, (error, out) => resolve(error ? null : out)));
+function nm(args: string[], timeout = 15000): Promise<string | null> {
+ return new Promise(resolve => execFile("nmcli", args, { timeout, env: { ...process.env, LC_ALL: "C" } }, (error, out) => resolve(error ? null : out)));
 }
 // nmcli escapes colons and backslashes in its terse output.
 export function fields(line: string): string[] {
@@ -22,6 +22,27 @@ export function registerWifiIpc() {
    networks.push({ ssid, signal: Number(signal) || 0, security: security || "", connected: active === "*" });
   }
   return { error: null, networks };
+ });
+ ipcMain.handle("tether:state", async () => {
+  if (process.platform !== "linux") return { error: "Bluetooth tethering is only available on the car computer.", connections: [] };
+  const output = await nm(["-t", "-f", "NAME,UUID,TYPE,DEVICE", "connection", "show"]);
+  if (output === null) return { error: "NetworkManager is unavailable.", connections: [] };
+  const profiles = output.split("\n").map(fields).filter(([, uuid, type]) => type === "bluetooth" && /^[0-9a-f-]{36}$/i.test(uuid));
+  const connections = await Promise.all(profiles.map(async ([name, uuid, , device]) => {
+   const type = await nm(["-g", "bluetooth.type", "connection", "show", "uuid", uuid]);
+   if (type?.trim() !== "panu") return null;
+   const connected = !!device && device !== "--";
+   const preferred = connected && (await nm(["-g", "GENERAL.DEFAULT", "connection", "show", "uuid", uuid]))?.trim() === "yes";
+   return { name, uuid, connected, preferred };
+  }));
+  return { error: null, connections: connections.filter(Boolean) };
+ });
+ ipcMain.handle("tether:action", async (_event, uuid: unknown, connect: unknown) => {
+  if (process.platform !== "linux" || typeof uuid !== "string" || !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(uuid) || typeof connect !== "boolean") return { ok: false, message: "Invalid Bluetooth connection." };
+  const type = await nm(["-g", "connection.type,bluetooth.type", "connection", "show", "uuid", uuid]);
+  if (type?.trim() !== "bluetooth\npanu") return { ok: false, message: "Bluetooth tethering connection not found." };
+  const ok = (await nm(["--wait", "35", "connection", connect ? "up" : "down", "uuid", uuid], 40000)) !== null;
+  return { ok, message: ok ? (connect ? "Bluetooth tethering connected." : "Bluetooth tethering disconnected.") : (connect ? "Could not connect. Check that Bluetooth tethering is enabled on your phone." : "Could not disconnect Bluetooth tethering.") };
  });
  ipcMain.handle("wifi:disconnect", async () => {
   if (process.platform !== "linux") return { ok: false, message: "Wi-Fi settings are only available on the car computer." };

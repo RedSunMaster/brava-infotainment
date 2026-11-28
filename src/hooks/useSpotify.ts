@@ -217,12 +217,10 @@ export interface UseSpotifyReturn {
 	albums: SpotifyAlbum[];
 	fetchAlbums: () => Promise<void>;
 	/** The songs of a playlist or album (an album's songs carry the album's own artwork). */
-	fetchCollectionTracks: (kind: "playlist" | "album", id: string, albumArt?: string) => Promise<SpotifyQueueItem[]>;
+	fetchCollectionTracks: (kind: "playlist" | "album" | "liked", id: string, albumArt: string, offset: number) => Promise<{ items: SpotifyQueueItem[]; nextOffset: number | null }>;
 	/** Liked songs, newest first (up to 500). */
-	liked: SpotifyQueueItem[];
-	fetchLiked: () => Promise<void>;
 	/** Plays the liked songs from index onwards. */
-	playLiked: (index?: number) => Promise<void>;
+	playLiked: (items: SpotifyQueueItem[], index?: number) => Promise<void>;
 	/** Adds a song to the end of the play queue. */
 	addToQueue: (uri: string) => Promise<void>;
 	/** Saved podcasts and audiobooks. They need the extra permissions, so an older sign-in has to reconnect once. */
@@ -561,22 +559,6 @@ export function useSpotify(): UseSpotifyReturn {
 	);
 
 	// ── Liked songs and the queue ────────────────────────────────────────────
-	const [liked, setLiked] = useState<SpotifyQueueItem[]>([]);
-	const fetchLiked = useCallback(async () => {
-		setIsLibraryLoading(true);
-		try {
-			const entries: any[] = [];
-			let loaded = false;
-			for (let offset = 0; offset < 500; offset += 50) {
-				const page = await spotifyFetch(`/me/tracks?limit=50&offset=${offset}`);
-				if (!page?.items) break;
-				loaded = true;
-				entries.push(...page.items);
-				if (!page.next) break;
-			}
-			if (loaded) setLiked(entries.map(entry => entry?.track).filter(item => item?.uri).map(item => toQueueItem(item)));
-		} finally { setIsLibraryLoading(false); }
-	}, [spotifyFetch]);
 	const [albums, setAlbums] = useState<SpotifyAlbum[]>([]);
 	const fetchAlbums = useCallback(async () => {
 		setIsLibraryLoading(true);
@@ -592,19 +574,13 @@ export function useSpotify(): UseSpotifyReturn {
 			})));
 		} finally { setIsLibraryLoading(false); }
 	}, [spotifyFetch]);
-	const fetchCollectionTracks = useCallback(async (kind: "playlist" | "album", id: string, albumArt = ""): Promise<SpotifyQueueItem[]> => {
-		const out: SpotifyQueueItem[] = [];
-		const limit = kind === "playlist" ? 100 : 50;
-		for (let offset = 0; offset < 500; offset += limit) {
-			const page = await spotifyFetch(kind === "playlist" ? `/playlists/${id}/tracks?limit=${limit}&offset=${offset}` : `/albums/${id}/tracks?limit=${limit}&offset=${offset}`);
-			if (!page?.items) break;
-			for (const entry of page.items as any[]) {
-				const item = kind === "playlist" ? entry?.track : entry;
-				if (item?.uri && item.type !== "episode") out.push(toQueueItem(item, albumArt));
-			}
-			if (!page.next) break;
-		}
-		return out;
+	const fetchCollectionTracks = useCallback(async (kind: "playlist" | "album" | "liked", id: string, albumArt: string, offset: number): Promise<{ items: SpotifyQueueItem[]; nextOffset: number | null }> => {
+		const base = kind === "liked" ? "/me/tracks" : kind === "playlist" ? `/playlists/${id}/tracks` : `/albums/${id}/tracks`;
+		const page = await spotifyFetch(`${base}?limit=10&offset=${offset}`);
+		if (!page?.items) throw new Error("Could not load songs. Try again.");
+		const items = (page.items as any[]).map(entry => kind === "album" ? entry : entry?.track)
+			.filter(item => item?.uri && item.type !== "episode").map(item => toQueueItem(item, albumArt));
+		return { items, nextOffset: page.next ? offset + page.items.length : null };
 	}, [spotifyFetch]);
 
 	// ── Podcasts and audiobooks ──────────────────────────────────────────────
@@ -890,13 +866,13 @@ export function useSpotify(): UseSpotifyReturn {
 		[spotifyFetch, fetchPlayback, onCarDevice],
 	);
 
-	const playLiked = useCallback(async (index = 0) => {
+	const playLiked = useCallback(async (liked: SpotifyQueueItem[], index = 0) => {
 		const start = Math.max(0, index);
 		const uris = liked.map(item => item.uri).slice(start, start + 100);
 		if (!uris.length) return;
 		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris });
 		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
-	}, [liked, spotifyFetch, fetchPlayback, onCarDevice]);
+	}, [spotifyFetch, fetchPlayback, onCarDevice]);
 
 	const addToQueue = useCallback(async (uri: string) => {
 		await spotifyFetch(await onCarDevice(`/me/player/queue?uri=${encodeURIComponent(uri)}`), "POST");
@@ -906,7 +882,7 @@ export function useSpotify(): UseSpotifyReturn {
 	const restartWith = useCallback(async (now: SpotifyQueueItem | null, next: SpotifyQueueItem[], progressMs: number) => {
 		const uris = [...(now ? [now.uri] : []), ...next.map(item => item.uri)].slice(0, 100);
 		if (!uris.length) return;
-		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris, offset: { position: 0 }, ...(now && progressMs > 0 ? { position_ms: Math.round(progressMs) } : {}) });
+		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris, ...(now && progressMs > 0 ? { position_ms: Math.round(progressMs) } : {}) });
 		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
 	}, [spotifyFetch, onCarDevice, fetchPlayback]);
 	const removeFromQueue = useCallback(async (index: number) => {
@@ -998,8 +974,6 @@ export function useSpotify(): UseSpotifyReturn {
 		albums,
 		fetchAlbums,
 		fetchCollectionTracks,
-		liked,
-		fetchLiked,
 		playLiked,
 		addToQueue,
 		volume,
