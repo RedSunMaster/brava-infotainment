@@ -48,27 +48,49 @@ export function createMasterVolume(storage: StorageLike | null, mixer: SystemMix
 	// The first run adopts the old Spotify volume so the car does not suddenly get louder or quieter.
 	const saved = read(storage, LEVEL_KEY) ?? read(storage, "brava-spotify-volume");
 	let state: MasterState = { level: saved === null ? DEFAULT_LEVEL : clamp(Number(saved)), muted: read(storage, MUTE_KEY) === "true", system: false };
+	// Freeze the legacy value before Spotify writes a transient ducking or full-gain level.
+	if (saved !== null && read(storage, LEVEL_KEY) === null) write(storage, LEVEL_KEY, String(state.level));
 	const listeners = new Set<() => void>();
 	const emit = () => listeners.forEach((listener) => listener());
 	const set = (next: MasterState) => { state = next; emit(); };
 
 	// Slider drags send many levels; only the newest matters, so one request is in flight and the rest collapse.
 	let sending = false;
-	let wanted: { level: number; muted: boolean } | null = null;
-	let sent = { level: -1, muted: false };
-	async function flush() {
-		if (sending || !mixer || !state.system) return;
+	let sent: { level: number; muted: boolean } | null = null;
+	async function sync(probe = false) {
+		if (sending || !mixer || (!probe && !sent)) return;
 		sending = true;
 		try {
-			while (wanted) {
-				const next = wanted;
-				wanted = null;
-				if (outputLevel(next.level) !== sent.level) { if (await mixer.setLevel(outputLevel(next.level))) sent.level = outputLevel(next.level); }
-				if (next.muted !== sent.muted) { if (await mixer.setMuted(next.muted)) sent.muted = next.muted; }
+			if (probe) {
+				sent = await mixer.get();
+				if (!sent) throw new Error("Mixer unavailable");
+				if (saved === null && read(storage, LEVEL_KEY) === null && !state.system) {
+					state = { ...state, level: displayLevel(sent.level), muted: read(storage, MUTE_KEY) === null ? sent.muted : state.muted };
+					write(storage, LEVEL_KEY, String(state.level));
+				}
 			}
+			while (sent) {
+				const level = outputLevel(state.level);
+				if (sent.level !== level) {
+					if (!await mixer.setLevel(level)) throw new Error("Volume unavailable");
+					sent.level = level;
+					continue;
+				}
+				const muted = state.muted;
+				if (sent.muted !== muted) {
+					if (!await mixer.setMuted(muted)) throw new Error("Mute unavailable");
+					sent.muted = muted;
+					continue;
+				}
+				// Lift the app's own attenuation only after the output is at its mapped level.
+				if (!state.system) set({ ...state, system: true });
+				break;
+			}
+		} catch {
+			sent = null;
+			if (state.system) set({ ...state, system: false });
 		} finally { sending = false; }
 	}
-	function push() { wanted = { level: state.level, muted: state.muted }; void flush(); }
 
 	return {
 		get(): MasterState { return state; },
@@ -79,26 +101,16 @@ export function createMasterVolume(storage: StorageLike | null, mixer: SystemMix
 			// Raising the volume ends a mute, as it does on a phone or a car radio.
 			if (state.muted && next > state.level) write(storage, MUTE_KEY, "false");
 			set({ ...state, level: next, muted: state.muted && next <= state.level });
-			push();
+			void sync();
 		},
 		setMuted(muted: boolean): void {
 			write(storage, MUTE_KEY, String(muted));
 			set({ ...state, muted });
-			push();
+			void sync();
 		},
 		toggleMute(): void { this.setMuted(!state.muted); },
-		/** Looks for a system mixer. Call once at start-up; the saved level is applied to the system so the car starts as it was left. */
-		async connect(): Promise<void> {
-			if (!mixer) return;
-			let current: { level: number; muted: boolean } | null = null;
-			try { current = await mixer.get(); } catch { current = null; }
-			if (!current) return;
-			const hasSaved = read(storage, LEVEL_KEY) !== null || read(storage, "brava-spotify-volume") !== null;
-			sent = { level: current.level, muted: current.muted };
-			// With nothing saved, trust what the system says; otherwise put the system back where the driver left it.
-			set(hasSaved ? { ...state, system: true } : { level: displayLevel(current.level), muted: current.muted, system: true });
-			push();
-		},
+		/** Reconcile the current default output, including one restored or replaced after boot. */
+		connect: () => sync(true),
 	};
 }
 

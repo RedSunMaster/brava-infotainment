@@ -18,8 +18,8 @@ export const CELL_ZOOM = 20;
 export const CELLS = 2 ** CELL_ZOOM;
 /** How far either side of the road counts as seen. */
 export const REVEAL_RADIUS_M = 50;
-/** The biggest loop that fills in. About a square kilometre: a big park, never a whole suburb. */
-export const MAX_LOOP_AREA_M2 = 1_000_000;
+/** The biggest loop that fills in. Allow the surrounding roads of large parks while excluding town-sized loops. */
+export const MAX_LOOP_AREA_M2 = 2_000_000;
 /** Smaller loops (a U-turn, a roundabout) uncover nothing that line of sight has not already. */
 const MIN_LOOP_AREA_M2 = 3_000;
 /** A loop closes when the car comes back within this distance of where it has been. */
@@ -74,11 +74,16 @@ export function distanceM(a: LngLat, b: LngLat): number {
 	return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/** Distance (squared) from point p to segment ab, all in the same flat units. */
-function segmentDistance2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+/** Fraction along segment ab nearest to point p. */
+function segmentFraction(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
 	const dx = bx - ax, dy = by - ay;
 	const length2 = dx * dx + dy * dy;
-	const t = length2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length2)) : 0;
+	return length2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length2)) : 0;
+}
+
+function segmentDistance2(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+	const dx = bx - ax, dy = by - ay;
+	const t = segmentFraction(px, py, ax, ay, bx, by);
 	const cx = ax + t * dx - px, cy = ay + t * dy - py;
 	return cx * cx + cy * cy;
 }
@@ -187,7 +192,7 @@ export class Explorer {
 		if (last) {
 			const step = distanceM(last.pos, pos);
 			if (time - this.lastTime > MAX_JOIN_MS || step > MAX_JOIN_M) {
-				this.track = [];
+				this.endDrive();
 			} else if (step < MIN_STEP_M) {
 				this.lastTime = time;
 				return { added };
@@ -217,7 +222,7 @@ export class Explorer {
 	}
 
 	/** Forgets the drive in progress (so a loop never joins two separate drives). */
-	endDrive(): void { this.track = []; }
+	endDrive(): void { this.track = []; this.loopCooldownUntil = 0; }
 
 	/** Marks a cell as explored. True when it was new. */
 	add(key: number): boolean {
@@ -252,16 +257,23 @@ export class Explorer {
 		for (let i = n - 3; i >= 1; i--) {
 			const a = this.track[i - 1], b = this.track[i];
 			if (point.along - b.along < MIN_LOOP_LENGTH_M) continue;
-			const t = crossing(previous.x, previous.y, point.x, point.y, a.x, a.y, b.x, b.y);
+			let t = crossing(previous.x, previous.y, point.x, point.y, a.x, a.y, b.x, b.y);
+			// A sparse GPS update can pass beside the start with neither fix near it.
+			if (t === null && segmentDistance2(a.x, a.y, previous.x, previous.y, point.x, point.y) <= close * close) {
+				t = segmentFraction(a.x, a.y, previous.x, previous.y, point.x, point.y);
+			}
 			const near = t === null && segmentDistance2(point.x, point.y, a.x, a.y, b.x, b.y) <= close * close;
 			if (t === null && !near) continue;
 			const ring: [number, number][] = this.track.slice(i, n - (t === null ? 0 : 1)).map(p => [p.x, p.y]);
 			if (t !== null) ring.push([previous.x + t * (point.x - previous.x), previous.y + t * (point.y - previous.y)]);
+			const [endX, endY] = ring[ring.length - 1];
+			const join = segmentFraction(endX, endY, a.x, a.y, b.x, b.y);
+			ring.push([a.x + join * (b.x - a.x), a.y + join * (b.y - a.y)]);
 			const areaM2 = ringArea(ring) * metersPerCell(point.pos[1]) ** 2;
-			if (areaM2 < MIN_LOOP_AREA_M2 || areaM2 > MAX_LOOP_AREA_M2) return undefined;
+			if (areaM2 < MIN_LOOP_AREA_M2 || areaM2 > MAX_LOOP_AREA_M2) continue;
 			const added = cellsInRing(ring).filter(key => this.add(key));
+			if (!added.length) continue;
 			this.loopCooldownUntil = point.along + LOOP_COOLDOWN_M;
-			if (!added.length) return undefined;
 			let sx = 0, sy = 0;
 			for (const [rx, ry] of ring) { sx += rx; sy += ry; }
 			return { ring: ring.map(([rx, ry]) => fromCellSpace(rx, ry)), centroid: fromCellSpace(sx / ring.length, sy / ring.length), areaM2, added };

@@ -93,3 +93,42 @@ test("100 in the app is 80 on the output, and the two map back", () => {
 	assert.equal(displayLevel(90), 100);
 	assert.equal(displayLevel(40), 50);
 });
+
+test("a late mixer takes over only after the latest slider level reaches the output", async () => {
+	let output = null;
+	let finish;
+	const levels = [];
+	const master = createMasterVolume(memory({ "brava-master-volume": "100" }), {
+		get: async () => output && { ...output },
+		setLevel: async level => {
+			levels.push(level);
+			if (levels.length === 1) await new Promise(resolve => { finish = resolve; });
+			output.level = level;
+			return true;
+		},
+		setMuted: async () => true,
+	});
+	await master.connect();
+	assert.equal(master.get().system, false);
+	output = { level: 95, muted: false };
+	const connecting = master.connect();
+	await settle();
+	assert.equal(master.get().system, false);
+	master.setLevel(25);
+	finish();
+	await connecting;
+	assert.deepEqual(levels, [80, 20]);
+	assert.equal(master.get().system, true);
+	output.level = 5;
+	await master.connect();
+	assert.equal(output.level, 20);
+	output = null;
+	await master.connect();
+	assert.equal(appScale(master.get()), 0.2);
+});
+test("Spotify gain changes cannot overwrite the migrated master level on restart", () => {
+	const store = memory({ "brava-spotify-volume": "35" });
+	createMasterVolume(store);
+	store.setItem("brava-spotify-volume", "100");
+	assert.equal(createMasterVolume(store).get().level, 35);
+});

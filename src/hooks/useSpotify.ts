@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { likedPlaybackUris, loadLikedUris, playSelectedWithShuffle } from "../lib/spotifySelection";
+import { masterVolume } from "./useMasterVolume";
+import { appScale } from "../lib/masterVolume";
+import { playLikedSelection, loadLikedUris, playSelectedWithShuffle } from "../lib/spotifySelection";
 import { inProgress, parseAudiobooks, parseEpisodes, parseShows, playBody, type SpotifyEpisode, type SpotifyShow } from "../lib/spotifyShows";
 export type { SpotifyEpisode, SpotifyShow } from "../lib/spotifyShows";
 
@@ -276,11 +278,7 @@ function trackFromSdkState(state: any): SpotifyTrack | null {
 	};
 }
 
-/** The last volume set in the app, so the player starts at it instead of a fixed 50. */
-function savedVolume(): number {
-	try { const v = Number(localStorage.getItem("brava-spotify-volume")); if (localStorage.getItem("brava-spotify-volume") !== null && Number.isFinite(v)) return Math.min(100, Math.max(0, Math.round(v))); } catch { /* Use the default. */ }
-	return 50;
-}
+const initialPlayerVolume = () => Math.round(100 * appScale(masterVolume.get()));
 
 /** Setting key: resume the last music shortly after the app starts. Off unless switched on in Settings. */
 export const RESUME_KEY = "brava-resume-music";
@@ -305,7 +303,7 @@ export function useSpotify(): UseSpotifyReturn {
 	const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
 	const [searchResults, setSearchResults] = useState<SpotifyQueueItem[]>([]);
 	const [isLibraryLoading, setIsLibraryLoading] = useState(false);
-	const [volume, setVolumeState] = useState(savedVolume);
+	const [volume, setVolumeState] = useState(initialPlayerVolume);
 	/** Bumped after each fresh sign-in so the in-app player restarts with the new permissions. */
 	const [playerEpoch, setPlayerEpoch] = useState(0);
 	const volumeSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -455,7 +453,7 @@ export function useSpotify(): UseSpotifyReturn {
 					return res.headers.get("content-type")?.includes("json")
 						? res.json().catch((): null => null)
 						: null;
-				throw new Error(
+				throw Object.assign(new Error(
 					res.status === 404
 						? "No Spotify playback device is active."
 						: res.status === 429
@@ -463,7 +461,7 @@ export function useSpotify(): UseSpotifyReturn {
 							: res.status === 403
 							? "Spotify needs more permission for this. Reconnect when parked."
 							: "Spotify could not complete this action.",
-				);
+				), { status: res.status });
 			} catch (cause) {
 				setError(
 					cause instanceof Error ? cause.message : "Spotify is unavailable.",
@@ -580,7 +578,7 @@ export function useSpotify(): UseSpotifyReturn {
 		const page = await spotifyFetch(`${base}?limit=10&offset=${offset}`);
 		if (!page?.items) throw new Error("Could not load songs. Try again.");
 		const items = (page.items as any[]).map(entry => kind === "album" ? entry : entry?.track)
-			.filter(item => item?.uri && item.type !== "episode").map(item => toQueueItem(item, albumArt));
+			.filter(item => item?.uri && item.type !== "episode" && (kind !== "liked" || (item.type === "track" && !item.is_local))).map(item => toQueueItem(item, albumArt));
 		return { items, nextOffset: page.next ? offset + page.items.length : null };
 	}, [spotifyFetch]);
 
@@ -687,7 +685,10 @@ export function useSpotify(): UseSpotifyReturn {
 					if (current) cb(current);
 					else void renewAccessToken().then((t) => { if (t) cb(t); });
 				},
-				volume: savedVolume() / 100,
+				volume: initialPlayerVolume() / 100,
+			});
+			player.addListener("player_state_changed", state => {
+				if (!cancelled && state) setTrack(trackFromSdkState(state));
 			});
 			player.addListener("ready", ({ device_id }) => { ownDeviceRef.current = device_id; setOwnReady(true); });
 			player.addListener("not_ready", () => { ownDeviceRef.current = null; setOwnReady(false); });
@@ -833,16 +834,18 @@ export function useSpotify(): UseSpotifyReturn {
 	const setVolume = useCallback(
 		async (pct: number) => {
 			setVolumeState(pct);
-			try { localStorage.setItem("brava-spotify-volume", String(pct)); } catch { /* Keep it for this session. */ }
-			if (await localPlayer()) await playerRef.current!.setVolume(pct / 100);
-			else await spotifyFetch(`/me/player/volume?volume_percent=${pct}`, "PUT");
+			if (inApp) {
+				if (playerRef.current) await playerRef.current.setVolume(pct / 100);
+			} else {
+				await spotifyFetch(await onCarDevice(`/me/player/volume?volume_percent=${pct}`), "PUT");
+			}
 			// Block fetchPlayback from overwriting this for 2s
 			if (volumeSettleRef.current) clearTimeout(volumeSettleRef.current);
 			volumeSettleRef.current = setTimeout(() => {
 				volumeSettleRef.current = null;
 			}, 2000);
 		},
-		[spotifyFetch],
+		[inApp, onCarDevice, spotifyFetch],
 	);
 
 	const playTrack = useCallback(
@@ -863,20 +866,34 @@ export function useSpotify(): UseSpotifyReturn {
 			const playPath = await onCarDevice("/me/player/play");
 			const query = playPath.includes("?") ? playPath.slice(playPath.indexOf("?")) : "";
 			const deviceId = new URLSearchParams(query).get("device_id");
-			const waitFor = async (matches: (state: any) => boolean) => {
-				for (let attempt = 0; attempt < 20; attempt++) {
-					const state = await spotifyFetch("/me/player");
-					if (state && (!deviceId || state.device?.id === deviceId) && matches(state)) return;
-					await new Promise(resolve => setTimeout(resolve, 250));
+			const waitFor = async (matches: (state: any) => boolean, attempts: number, interval: number) => {
+				for (let attempt = 0; attempt < attempts; attempt++) {
+					const local = deviceId && deviceId === ownDeviceRef.current
+						? await playerRef.current?.getCurrentState().catch((): null => null) : null;
+					const state = local ? { device: { id: deviceId }, shuffle_state: local.shuffle, item: local.track_window?.current_track, context: local.context } : await spotifyFetch("/me/player");
+					if (state && (!deviceId || state.device?.id === deviceId) && matches(state)) return true;
+					if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, interval));
 				}
-				throw new Error("Spotify did not confirm the selected song. Try again.");
+				return false;
 			};
+			const confirm = async (matches: (state: any) => boolean) => {
+				if (!await waitFor(matches, 20, 250)) throw new Error("Spotify did not confirm the selected song. Try again.");
+			};
+			const start = async () => { await spotifyFetch(playPath, "PUT", body); };
+			const matchesSelection = (state: any) => state.item?.uri === selected && (!body.context_uri || state.context?.uri === body.context_uri ||
+				(body.context_uri === "spotify:collection:tracks" && state.context?.uri?.endsWith(":collection")));
+			// The embedded player normally honours native context offsets with shuffle already on.
+			// Confirm locally before using the slower shuffle-off sequence for players that ignore them.
+			if (selected && track?.shuffle && body.offset && deviceId && deviceId === ownDeviceRef.current) {
+				await start();
+				if (await waitFor(matchesSelection, 5, 150)) return;
+			}
 			await playSelectedWithShuffle({
 				shuffle: !!selected && !!track?.shuffle,
 				setShuffle: async enabled => { await spotifyFetch(`/me/player/shuffle?state=${enabled}${deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : ""}`, "PUT"); },
-				start: async () => { await spotifyFetch(playPath, "PUT", body); },
-				waitForShuffleOff: () => waitFor(state => state.shuffle_state === false),
-				waitForSelection: () => waitFor(state => state.item?.uri === selected && (!body.context_uri || state.context?.uri === body.context_uri)),
+				start,
+				waitForShuffleOff: () => confirm(state => state.shuffle_state === false),
+				waitForSelection: () => confirm(matchesSelection),
 			});
 			setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
 		} finally { selectingRef.current = false; }
@@ -893,9 +910,8 @@ export function useSpotify(): UseSpotifyReturn {
 
 	const playLiked = useCallback(async (liked: SpotifyQueueItem[], index = 0) => {
 		const selected = liked[index]?.uri;
-		const uris = await loadLikedUris(offset => spotifyFetch(`/me/tracks?limit=50&offset=${offset}`));
-		if (!uris.length) return;
-		await startSelection({ uris: likedPlaybackUris(uris, selected) }, selected);
+		if (!selected) return;
+		await playLikedSelection(selected, startSelection, () => loadLikedUris(offset => spotifyFetch(`/me/tracks?limit=50&offset=${offset}`)));
 	}, [spotifyFetch, startSelection]);
 
 	const addToQueue = useCallback(async (uri: string) => {

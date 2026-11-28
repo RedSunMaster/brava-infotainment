@@ -39,7 +39,7 @@ import { ipcRenderer } from "electron";
 };
 
 // ── Master volume (system output; see audioMain.ts) ──────────────────────────
-(window as any).electronAudio = {
+(window as any).electronAudio = process.platform !== "linux" ? null : {
 	get: () => ipcRenderer.invoke("audio:get"),
 	setLevel: (level: number) => ipcRenderer.invoke("audio:set-level", level),
 	setMuted: (muted: boolean) => ipcRenderer.invoke("audio:set-muted", muted),

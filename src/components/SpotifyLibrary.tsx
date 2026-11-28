@@ -325,12 +325,16 @@ const SpotifyLibrary = ({
 		finally { if (generation === collectionGeneration.current) { loadingPage.current = false; setCollectionLoading(false); } }
 	}
 	const [actionError, setActionError] = useState<string | null>(null);
+	const [startingPlayback, setStartingPlayback] = useState(false);
 	async function playItem(action: () => Promise<void>, thenGoBack = false) {
+		if (startingPlayback) return;
+		setStartingPlayback(true);
 		setActionError(null);
 		try {
 			await action();
 			if (thenGoBack) { hideKeyboard(); onBack(); }
 		} catch (error) { setActionError(error instanceof Error ? error.message : "Playback unavailable. Try again."); }
+		finally { setStartingPlayback(false); }
 	}
 	// Podcasts and books: a list of shows, and one opened to see its episodes or chapters.
 	const [openShow, setOpenShow] = useState<SpotifyShow | null>(null);
@@ -379,6 +383,7 @@ const SpotifyLibrary = ({
 
 	return (
 		<Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
+			{startingPlayback && <Typography role="status" sx={{ mb: 1 }}>Starting playback…</Typography>}
 			{(actionError || (spotify.error && !permissionProblem)) && <Box sx={{ mb: 1 }}><QuietNotice onClose={actionError ? () => setActionError(null) : undefined}>{actionError || spotify.error}</QuietNotice></Box>}
 			{permissionProblem && <Box role="status" sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1, px: 1.5, py: 1, borderRadius: 2, bgcolor: "action.hover", border: "1px solid", borderColor: "warning.main" }}>
 				<WarningAmberRounded aria-hidden sx={{ color: "warning.main", fontSize: 30, flexShrink: 0 }} />

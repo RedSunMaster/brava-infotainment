@@ -4,7 +4,21 @@ import test from "node:test";
 import ts from "typescript";
 const source = await readFile(new URL("../src/lib/spotifySelection.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-const { loadLikedUris, likedPlaybackUris, playSelectedWithShuffle } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+const { playLikedSelection, loadLikedUris, likedPlaybackUris, playSelectedWithShuffle } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+test("a liked-song tap plays its Spotify collection offset without reading the library", async () => {
+ const calls = [];
+ await playLikedSelection("b", async body => calls.push(body), () => assert.fail("read library"));
+ assert.deepEqual(calls, [{context_uri: "spotify:collection:tracks", offset: {uri: "b"}}]);
+});
+test("only an unsupported collection request falls back to the full URI list", async () => {
+ const calls = [];
+ await playLikedSelection("b", async (body, selected) => {
+  if (body.context_uri) throw Object.assign(new Error("unsupported"), {status: 400});
+  calls.push([body, selected]);
+ }, async () => ["a", "b"]);
+ assert.deepEqual(calls, [[{uris: ["b", "a"]}, "b"]]);
+ await assert.rejects(playLikedSelection("b", async () => { throw new Error("offline"); }, () => assert.fail("read library")), /offline/);
+});
 test("loads every page of liked songs and skips unavailable and local tracks", async () => {
  const offsets = [];
  const uris = await loadLikedUris(async offset => {

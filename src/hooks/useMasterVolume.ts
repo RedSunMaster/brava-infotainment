@@ -21,7 +21,13 @@ function start() {
 	started = true;
 	const unmute = () => { if (masterVolume.get().muted) masterVolume.setMuted(false); };
 	unmute();
-	void masterVolume.connect().then(unmute, unmute);
+	if (!bridge()) return;
+	const reconcile = async () => {
+		await masterVolume.connect();
+		unmute();
+		window.setTimeout(reconcile, masterVolume.get().system ? 10_000 : 2_000);
+	};
+	void reconcile();
 }
 
 export function useMasterVolume() {

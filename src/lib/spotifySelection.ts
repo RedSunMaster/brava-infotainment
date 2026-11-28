@@ -36,3 +36,15 @@ export async function playSelectedWithShuffle(options: {
   await options.setShuffle(true);
  }
 }
+
+
+/** Spotify resolves the entire Liked Songs collection on the player, including unloaded pages. */
+export async function playLikedSelection(selected: string, start: (body: Record<string, unknown>, verifyShuffle?: string) => Promise<void>, loadUris: () => Promise<string[]>) {
+ try {
+  await start({ context_uri: "spotify:collection:tracks", offset: { uri: selected } }, selected);
+ } catch (error) {
+  // Older Connect players can reject the collection context as an invalid request.
+  if ((error as { status?: number })?.status !== 400) throw error;
+  await start({ uris: likedPlaybackUris(await loadUris(), selected) }, selected);
+ }
+}

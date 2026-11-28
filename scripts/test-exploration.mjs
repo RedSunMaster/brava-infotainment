@@ -59,13 +59,29 @@ test("driving round a park uncovers its middle", () => {
 	assert.ok(seen(explorer, at(350, 350)));
 });
 
+test("passing the starting point between GPS fixes on the opposite carriageway closes the park", () => {
+	const explorer = new Explorer();
+	const corners = [[0, 0], [900, 0], [900, 800], [-20, 800], [-20, 150], [-20, -120]];
+	corners.forEach(([x, y], i) => explorer.addFix(at(x, y), i * 10_000));
+	assert.ok(seen(explorer, at(450, 400)));
+});
+
 test("the middle stays fogged until the loop is closed", () => {
 	const explorer = new Explorer();
 	drive(explorer, [[0, 0], [700, 0], [700, 700], [0, 700], [0, 200]]);
 	assert.ok(!seen(explorer, at(350, 350)));
 });
 
-test("a loop bigger than a square kilometre does not fill", () => {
+test("a large park circuit fills even after a previous drive closed a loop", () => {
+	const explorer = new Explorer();
+	drive(explorer, [[0, 0], [1400, 0], [1400, 1400], [0, 1400], [0, 0]]);
+	// After a GPS gap, distance along the new drive starts at zero.
+	drive(explorer, [[3000, 0], [4300, 0], [4300, 1000], [3000, 1000], [3000, 0]], 20, 600_000);
+	assert.ok(seen(explorer, at(3650, 500)));
+	assert.ok(!seen(explorer, at(4500, 500)));
+});
+
+test("a loop bigger than two square kilometres does not fill", () => {
 	const explorer = new Explorer();
 	const results = drive(explorer, [[0, 0], [1500, 0], [1500, 1500], [0, 1500], [0, 0], [100, 0]]);
 	assert.ok(!results.some(item => item.loop));

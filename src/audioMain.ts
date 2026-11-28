@@ -36,7 +36,8 @@ export function registerAudioIpc(): void {
 	ipcMain.handle("audio:get", async () => {
 		const [volume, mute] = await Promise.all([pactl(["get-sink-volume", SINK]), pactl(["get-sink-mute", SINK])]);
 		const level = volume ? parseVolume(volume) : null;
-		return level === null ? null : { level, muted: mute ? parseMute(mute) === true : false };
+		const muted = mute ? parseMute(mute) : null;
+		return level === null || muted === null ? null : { level, muted };
 	});
 	ipcMain.handle("audio:set-level", async (_event, level: number) => {
 		if (!Number.isFinite(level)) return false;
