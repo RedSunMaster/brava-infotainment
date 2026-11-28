@@ -19,9 +19,9 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 test("without a system mixer the master level scales the app's own sound", () => {
 	const master = createMasterVolume(memory());
 	master.setLevel(100);
-	assert.equal(appScale(master.get()), 0.6);
+	assert.equal(appScale(master.get()), 0.8);
 	master.setLevel(50);
-	assert.equal(appScale(master.get()), 0.3);
+	assert.equal(appScale(master.get()), 0.4);
 	master.setMuted(true);
 	assert.equal(appScale(master.get()), 0);
 });
@@ -46,10 +46,10 @@ test("with a system mixer the saved level is applied to it and the app does not 
 	await settle();
 	assert.equal(master.get().system, true);
 	assert.equal(appScale(master.get()), 1);
-	assert.deepEqual(m.calls, [["level", 15]]);
+	assert.deepEqual(m.calls, [["level", 20]]);
 });
 test("with nothing saved the system level is adopted", async () => {
-	const master = createMasterVolume(memory(), mixer({ level: 30, muted: true }));
+	const master = createMasterVolume(memory(), mixer({ level: 40, muted: true }));
 	await master.connect();
 	assert.deepEqual([master.get().level, master.get().muted, master.get().system], [50, true, true]);
 });
@@ -86,10 +86,10 @@ test("pactl output is read", async () => {
 	assert.equal(parseMute("Mute: yes"), true);
 	assert.equal(parseMute("Mute: no"), false);
 });
-test("100 in the app is 60 on the output, and the two map back", () => {
-	assert.equal(outputLevel(100), 60);
+test("100 in the app is 80 on the output, and the two map back", () => {
+	assert.equal(outputLevel(100), 80);
 	assert.equal(outputLevel(0), 0);
-	assert.equal(displayLevel(60), 100);
+	assert.equal(displayLevel(80), 100);
 	assert.equal(displayLevel(90), 100);
-	assert.equal(displayLevel(30), 50);
+	assert.equal(displayLevel(40), 50);
 });

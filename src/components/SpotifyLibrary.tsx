@@ -121,22 +121,25 @@ const RowActionButton = ({ action, name }: { action: RowAction; name: string }) 
 };
 
 /** A song: tap to play it; the buttons at the end act on it (add to queue, play next, and so on). */
-const TrackRow = ({
-	item,
-	onPlay,
-	actions = [],
-	playing = false,
-}: {
+interface TrackRowProps {
 	item: SpotifyQueueItem;
 	onPlay: () => void;
 	actions?: RowAction[];
 	playing?: boolean;
-}) => (
-	<Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-		<Box sx={{ flex: 1, minWidth: 0 }}><TrackButton item={item} onPlay={onPlay} playing={playing} /></Box>
-		{actions.map(action => <RowActionButton key={action.label} action={action} name={item.name} />)}
+}
+
+// Playback progress updates every second. Keep the latest actions without rebuilding every song row.
+const TrackRow = ({ item, onPlay, actions = [], playing = false }: TrackRowProps) => {
+	const latest = useRef({ onPlay, actions });
+	latest.current = { onPlay, actions };
+	return <MemoTrackRow item={item} playing={playing} labels={actions.map(action => action.label).join("\0")} latest={latest} />;
+};
+const MemoTrackRow = React.memo(({ item, playing, latest }: { item: SpotifyQueueItem; playing: boolean; labels: string; latest: React.MutableRefObject<{ onPlay: () => void; actions: RowAction[] }> }) => (
+	<Box sx={{ display: "flex", alignItems: "center", gap: 0.5, contentVisibility: "auto", containIntrinsicSize: "auto 104px" }}>
+		<Box sx={{ flex: 1, minWidth: 0 }}><TrackButton item={item} onPlay={() => latest.current.onPlay()} playing={playing} /></Box>
+		{latest.current.actions.map((action, index) => <RowActionButton key={action.label} action={{ ...action, run: () => latest.current.actions[index].run() }} name={item.name} />)}
 	</Box>
-);
+), (previous, next) => previous.item === next.item && previous.playing === next.playing && previous.labels === next.labels);
 
 const TrackButton = ({
 	item,

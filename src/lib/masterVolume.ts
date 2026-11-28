@@ -21,9 +21,9 @@ export const DEFAULT_LEVEL = 50;
 
 /**
  * The loudest the car output is allowed to be, in percent of the real output. The volume shown and set in the app runs 0 to 100, and
- * 100 means this: the full output was far too loud in the car, so what the app calls 100 is 60 on the output itself.
+ * 100 means this: the full output was far too loud in the car, so what the app calls 100 is 80 on the output itself.
  */
-export const OUTPUT_CEILING = 60;
+export const OUTPUT_CEILING = 80;
 /** The real output level (0-100) for a level shown in the app. */
 export const outputLevel = (level: number): number => Math.round((Math.min(100, Math.max(0, level)) * OUTPUT_CEILING) / 100);
 /** The level to show in the app for a real output level. */
