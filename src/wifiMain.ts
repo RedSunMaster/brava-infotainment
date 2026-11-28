@@ -23,6 +23,15 @@ export function registerWifiIpc() {
   }
   return { error: null, networks };
  });
+ ipcMain.handle("wifi:disconnect", async () => {
+  if (process.platform !== "linux") return { ok: false, message: "Wi-Fi settings are only available on the car computer." };
+  const devices = await nm(["-t", "-f", "DEVICE,TYPE,STATE", "device", "status"]);
+  if (devices === null) return { ok: false, message: "Wi-Fi is unavailable. Check NetworkManager." };
+  const device = devices.split("\n").map(fields).find(([, type, state]) => type === "wifi" && state === "connected")?.[0];
+  if (!device) return { ok: false, message: "Wi-Fi is not connected." };
+  const ok = (await nm(["device", "disconnect", device])) !== null;
+  return { ok, message: ok ? "Wi-Fi disconnected." : "Could not disconnect Wi-Fi." };
+ });
  ipcMain.handle("wifi:scan", async () => (await nm(["device", "wifi", "rescan"])) !== null);
  ipcMain.handle("wifi:connect", async (_event, ssid: unknown, password: unknown) => {
   if (process.platform !== "linux" || typeof ssid !== "string" || !ssid || ssid.length > 128 || typeof password !== "string" || password.length > 128 || /[\r\n]/.test(password)) return { ok: false, message: "Invalid network or password." };
