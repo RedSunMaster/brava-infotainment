@@ -39,6 +39,8 @@ import PhoneSettings from "./PhoneSettings";
 import PhoneAndroidRounded from "@mui/icons-material/PhoneAndroidRounded";
 import GpsDebugPanel from "./GpsDebugPanel";
 import BluetoothPanel from "./BluetoothPanel";
+import WifiPanel from "./WifiPanel";
+import WifiRounded from "@mui/icons-material/WifiRounded";
 import BluetoothRounded from "@mui/icons-material/BluetoothRounded";
 import type { GpsStatus } from "../hooks/useGps";
 import { useKeyboard } from "../contexts/KeyboardContext";
@@ -49,7 +51,7 @@ import { defaultMarker } from "../lib/savedPlaces";
 import type { Favourite } from "../lib/favourites";
 import type { RoutePreference } from "../lib/routing";
 import type { PlaceDetails, Coordinates } from "../lib/locationSearch";
-type SettingsTab = "display" | "sound" | "drive" | "places" | "games" | "trips" | "gps" | "bluetooth" | "phone" | "system";
+type SettingsTab = "display" | "sound" | "drive" | "places" | "games" | "trips" | "gps" | "bluetooth" | "wifi" | "phone" | "system";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
 	{ id: "display", label: "Display", icon: <PaletteRounded /> },
 	{ id: "sound", label: "Sound", icon: <MusicNoteRounded /> },
@@ -59,6 +61,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: React.ReactNode }[]
 	{ id: "trips", label: "Trips", icon: <HistoryRounded /> },
 	{ id: "gps", label: "GPS", icon: <SatelliteAltRounded /> },
 	{ id: "bluetooth", label: "Bluetooth", icon: <BluetoothRounded /> },
+	{ id: "wifi", label: "Wi-Fi", icon: <WifiRounded /> },
 	{ id: "phone", label: "Phone", icon: <PhoneAndroidRounded /> },
 	{ id: "system", label: "System", icon: <TuneRounded /> },
 ];
@@ -390,6 +393,7 @@ export default function MapControls({
 							{tab === "trips" && tripsPanel}
 							{tab === "gps" && <GpsDebugPanel active status={gpsStatus} />}
 							{tab === "bluetooth" && <BluetoothPanel active />}
+							{tab === "wifi" && <WifiPanel isDriving={isDriving} />}
 							{tab === "phone" && <PhoneSettings />}
 							{tab === "system" && <>
 								<Section title="Routing" hint="Local routing requires Valhalla. Place search needs internet.">

@@ -755,11 +755,6 @@ export function useSpotify(): UseSpotifyReturn {
 		const data = await spotifyFetch("/me/player/devices");
 		return ((data?.devices ?? []) as { name: string; id: string | null; type: string; is_active: boolean; is_restricted: boolean }[]).filter(item => item.id && !item.is_restricted);
 	}, [spotifyFetch]);
-	/** The car's own player (spotifyd or librespot, called "Brava"), never this app's own in-window player (which has the same name, so the two are told apart by id). */
-	const findRealCar = useCallback(async (): Promise<string | null> => {
-		const own = ownDeviceRef.current;
-		return (await listDevices()).find(item => item.id !== own && item.name.toLowerCase() === CAR_DEVICE_NAME)?.id ?? null;
-	}, [listDevices]);
 	const findCarDevice = useCallback(async (): Promise<string | null> => {
 		const devices = await listDevices();
 		const own = ownDeviceRef.current;
@@ -772,16 +767,12 @@ export function useSpotify(): UseSpotifyReturn {
 			?? devices[0];
 		return device?.id ?? own ?? null;
 	}, [listDevices]);
-	/** Adds the car's player to a play request when nothing is active yet, or when something else is playing but the car's player is available. */
+	/** Send selections to the selected car player, even if another Spotify device is active. */
 	const onCarDevice = useCallback(async (path: string): Promise<string> => {
-		const withDevice = (id: string) => `${path}${path.includes("?") ? "&" : "?"}device_id=${id}`;
-		if (track) {
-			const car = await findRealCar();
-			return car && car !== activeDeviceRef.current ? withDevice(car) : path;
-		}
-		const id = await findCarDevice();
-		return id ? withDevice(id) : path;
-	}, [track, findCarDevice, findRealCar]);
+		const id = inApp ? ownDeviceRef.current : await findCarDevice();
+		if (inApp && !id) throw new Error("The car player is starting. Try again shortly.");
+		return id ? `${path}${path.includes("?") ? "&" : "?"}device_id=${encodeURIComponent(id)}` : path;
+	}, [inApp, findCarDevice]);
 
 	// ── Optional: carry on with the last music a few seconds after start-up (Settings > Music on start) ──
 	// Once per launch, and never takes over a phone or other device that is already playing.
