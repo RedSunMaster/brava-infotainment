@@ -4,7 +4,7 @@ import test from "node:test";
 import ts from "typescript";
 const source = await readFile(new URL("../src/lib/spotifySelection.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-const { loadLikedUris } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+const { loadLikedUris, likedPlaybackUris } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 test("loads every page of liked songs and skips unavailable and local tracks", async () => {
  const offsets = [];
  const uris = await loadLikedUris(async offset => {
@@ -17,4 +17,8 @@ test("loads every page of liked songs and skips unavailable and local tracks", a
 });
 test("fails rather than playing a partial collection when a page is unavailable", async () => {
  await assert.rejects(loadLikedUris(async offset => offset ? null : {items: [{track: {uri: "a", type: "track"}}], next: "next"}), /all liked songs/);
+});
+test("places the selected track first while retaining the rest of the collection", () => {
+ assert.deepEqual(likedPlaybackUris(["a", "b", "c"], "b"), ["b", "a", "c"]);
+ assert.deepEqual(likedPlaybackUris(["a", "b"], "missing"), ["a", "b"]);
 });

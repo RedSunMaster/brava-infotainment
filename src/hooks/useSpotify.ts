@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadLikedUris } from "../lib/spotifySelection";
+import { likedPlaybackUris, loadLikedUris } from "../lib/spotifySelection";
 import { inProgress, parseAudiobooks, parseEpisodes, parseShows, playBody, type SpotifyEpisode, type SpotifyShow } from "../lib/spotifyShows";
 export type { SpotifyEpisode, SpotifyShow } from "../lib/spotifyShows";
 
@@ -200,7 +200,7 @@ export interface UseSpotifyReturn {
 	fetchQueue: () => Promise<void>; // ← new
 	/** The song playing now, as the queue sees it. */
 	queueNow: SpotifyQueueItem | null;
-	/** Take a song out of "Next up". Spotify cannot edit its queue, so this restarts playback at the same spot with the new list. */
+	/** Spotify cannot remove or reorder its queue through the Web API. */
 	removeFromQueue: (index: number) => Promise<void>;
 	/** Move a song in "Next up" to the front. */
 	moveToNext: (index: number) => Promise<void>;
@@ -871,7 +871,7 @@ export function useSpotify(): UseSpotifyReturn {
 		const selected = liked[index]?.uri;
 		const uris = await loadLikedUris(offset => spotifyFetch(`/me/tracks?limit=50&offset=${offset}`));
 		if (!uris.length) return;
-		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris, ...(selected && uris.includes(selected) ? { offset: { uri: selected } } : {}) });
+		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris: likedPlaybackUris(uris, selected) });
 		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
 	}, [spotifyFetch, fetchPlayback, onCarDevice]);
 
@@ -879,29 +879,14 @@ export function useSpotify(): UseSpotifyReturn {
 		await spotifyFetch(await onCarDevice(`/me/player/queue?uri=${encodeURIComponent(uri)}`), "POST");
 	}, [spotifyFetch, onCarDevice]);
 
-	/** Spotify has no call to edit its queue, so restart playback on [current, ...next] at the same point in the song. */
-	const restartWith = useCallback(async (now: SpotifyQueueItem | null, next: SpotifyQueueItem[], progressMs: number) => {
-		const uris = [...(now ? [now.uri] : []), ...next.map(item => item.uri)].slice(0, 100);
-		if (!uris.length) return;
-		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris, ...(now && progressMs > 0 ? { position_ms: Math.round(progressMs) } : {}) });
-		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
-	}, [spotifyFetch, onCarDevice, fetchPlayback]);
-	const removeFromQueue = useCallback(async (index: number) => {
-		const next = queue.filter((_, i) => i !== index);
-		setQueue(next);
-		await restartWith(queueNow, next, track?.progressMs ?? 0);
-	}, [queue, queueNow, track?.progressMs, restartWith]);
-	const moveToNext = useCallback(async (index: number) => {
-		if (!queue[index] || index === 0) return;
-		const next = [queue[index], ...queue.filter((_, i) => i !== index)];
-		setQueue(next);
-		await restartWith(queueNow, next, track?.progressMs ?? 0);
-	}, [queue, queueNow, track?.progressMs, restartWith]);
-	const playNext = useCallback(async (item: SpotifyQueueItem) => {
-		const current = await readQueue();
-		if (!current?.now) { await playTrack(item.uri); return; }
-		await restartWith(current.now, [item, ...current.next.filter(other => other.uri !== item.uri)], track?.progressMs ?? 0);
-	}, [readQueue, restartWith, playTrack, track?.progressMs]);
+	const queueEditingUnavailable = useCallback(async () => {
+		const message = "Spotify does not support editing the queue here. Use Spotify to remove or reorder songs.";
+		setError(message);
+		throw new Error(message);
+	}, []);
+	const removeFromQueue = queueEditingUnavailable;
+	const moveToNext = queueEditingUnavailable;
+	const playNext = queueEditingUnavailable;
 
 	// ── Is the playing song liked, and a heart to change it ──────────────────
 	const [trackLiked, setTrackLiked] = useState<boolean | null>(null);

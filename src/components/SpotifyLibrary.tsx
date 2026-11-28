@@ -224,7 +224,7 @@ const LoadMore = ({ onVisible, loading }: { onVisible: () => void; loading: bool
 		observer.observe(node);
 		return () => observer.disconnect();
 	}, [loading]);
-	return <Box ref={ref} sx={{ gridColumn: "1 / -1", display: "flex", justifyContent: "center", py: 2, minHeight: 40 }}>{loading && <CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} />}</Box>;
+	return <Box ref={ref} sx={{ gridColumn: "1 / -1", display: "flex", justifyContent: "center", py: 2, minHeight: 40 }}>{loading ? <CircularProgress size={24} sx={{ color: SPOTIFY_GREEN }} /> : <DriveButton variant="outlined" onClick={onVisible}>Load more</DriveButton>}</Box>;
 };
 
 const EmptyState = ({ text }: { text: string }) => (

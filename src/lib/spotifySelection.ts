@@ -11,3 +11,9 @@ export async function loadLikedUris(fetchPage: (offset: number) => Promise<{ ite
   offset += page.items.length;
  }
 }
+
+/** A URI list cannot use Spotify's context offset; put the selected song first instead. */
+export function likedPlaybackUris(uris: string[], selected?: string): string[] {
+ const index = selected ? uris.indexOf(selected) : -1;
+ return index < 0 ? uris : [uris[index], ...uris.slice(0, index), ...uris.slice(index + 1)];
+}
