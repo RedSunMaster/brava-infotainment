@@ -17,3 +17,22 @@ export function likedPlaybackUris(uris: string[], selected?: string): string[] {
  const index = selected ? uris.indexOf(selected) : -1;
  return index < 0 ? uris : [uris[index], ...uris.slice(0, index), ...uris.slice(index + 1)];
 }
+
+/** Spotify can choose another track if a new context starts while shuffle is on. */
+export async function playSelectedWithShuffle(options: {
+ shuffle: boolean;
+ setShuffle: (enabled: boolean) => Promise<void>;
+ start: () => Promise<void>;
+ waitForShuffleOff: () => Promise<void>;
+ waitForSelection: () => Promise<void>;
+}): Promise<void> {
+ if (!options.shuffle) { await options.start(); return; }
+ await options.setShuffle(false);
+ try {
+  await options.waitForShuffleOff();
+  await options.start();
+  await options.waitForSelection();
+ } finally {
+  await options.setShuffle(true);
+ }
+}

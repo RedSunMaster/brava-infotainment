@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { likedPlaybackUris, loadLikedUris } from "../lib/spotifySelection";
+import { likedPlaybackUris, loadLikedUris, playSelectedWithShuffle } from "../lib/spotifySelection";
 import { inProgress, parseAudiobooks, parseEpisodes, parseShows, playBody, type SpotifyEpisode, type SpotifyShow } from "../lib/spotifyShows";
 export type { SpotifyEpisode, SpotifyShow } from "../lib/spotifyShows";
 
@@ -855,25 +855,48 @@ export function useSpotify(): UseSpotifyReturn {
 		[spotifyFetch, fetchPlayback, onCarDevice],
 	);
 
+	const selectingRef = useRef(false);
+	const startSelection = useCallback(async (body: Record<string, unknown>, selected?: string) => {
+		if (selectingRef.current) throw new Error("A song selection is already in progress.");
+		selectingRef.current = true;
+		try {
+			const playPath = await onCarDevice("/me/player/play");
+			const query = playPath.includes("?") ? playPath.slice(playPath.indexOf("?")) : "";
+			const deviceId = new URLSearchParams(query).get("device_id");
+			const waitFor = async (matches: (state: any) => boolean) => {
+				for (let attempt = 0; attempt < 20; attempt++) {
+					const state = await spotifyFetch("/me/player");
+					if (state && (!deviceId || state.device?.id === deviceId) && matches(state)) return;
+					await new Promise(resolve => setTimeout(resolve, 250));
+				}
+				throw new Error("Spotify did not confirm the selected song. Try again.");
+			};
+			await playSelectedWithShuffle({
+				shuffle: !!selected && !!track?.shuffle,
+				setShuffle: async enabled => { await spotifyFetch(`/me/player/shuffle?state=${enabled}${deviceId ? `&device_id=${encodeURIComponent(deviceId)}` : ""}`, "PUT"); },
+				start: async () => { await spotifyFetch(playPath, "PUT", body); },
+				waitForShuffleOff: () => waitFor(state => state.shuffle_state === false),
+				waitForSelection: () => waitFor(state => state.item?.uri === selected && (!body.context_uri || state.context?.uri === body.context_uri)),
+			});
+			setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
+		} finally { selectingRef.current = false; }
+	}, [onCarDevice, spotifyFetch, track?.shuffle, fetchPlayback]);
+
 	const playContext = useCallback(
 		async (contextUri: string, offsetTrackUri?: string) => {
 			const body: Record<string, unknown> = { context_uri: contextUri };
 			if (offsetTrackUri) body.offset = { uri: offsetTrackUri };
-			await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", body);
-			setTimeout(() => {
-				void fetchPlayback().catch(() => setTrack(null));
-			}, 600);
+			await startSelection(body, offsetTrackUri);
 		},
-		[spotifyFetch, fetchPlayback, onCarDevice],
+		[startSelection],
 	);
 
 	const playLiked = useCallback(async (liked: SpotifyQueueItem[], index = 0) => {
 		const selected = liked[index]?.uri;
 		const uris = await loadLikedUris(offset => spotifyFetch(`/me/tracks?limit=50&offset=${offset}`));
 		if (!uris.length) return;
-		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris: likedPlaybackUris(uris, selected) });
-		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
-	}, [spotifyFetch, fetchPlayback, onCarDevice]);
+		await startSelection({ uris: likedPlaybackUris(uris, selected) }, selected);
+	}, [spotifyFetch, startSelection]);
 
 	const addToQueue = useCallback(async (uri: string) => {
 		await spotifyFetch(await onCarDevice(`/me/player/queue?uri=${encodeURIComponent(uri)}`), "POST");

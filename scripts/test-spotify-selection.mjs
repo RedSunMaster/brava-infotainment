@@ -4,7 +4,7 @@ import test from "node:test";
 import ts from "typescript";
 const source = await readFile(new URL("../src/lib/spotifySelection.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-const { loadLikedUris, likedPlaybackUris } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+const { loadLikedUris, likedPlaybackUris, playSelectedWithShuffle } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 test("loads every page of liked songs and skips unavailable and local tracks", async () => {
  const offsets = [];
  const uris = await loadLikedUris(async offset => {
@@ -21,4 +21,19 @@ test("fails rather than playing a partial collection when a page is unavailable"
 test("places the selected track first while retaining the rest of the collection", () => {
  assert.deepEqual(likedPlaybackUris(["a", "b", "c"], "b"), ["b", "a", "c"]);
  assert.deepEqual(likedPlaybackUris(["a", "b"], "missing"), ["a", "b"]);
+});
+test("waits for the chosen song before restoring shuffle", async () => {
+ const calls = [];
+ await playSelectedWithShuffle({shuffle: true, setShuffle: async enabled => calls.push(["shuffle", enabled]), waitForShuffleOff: async () => calls.push("off confirmed"), start: async () => calls.push("start playlist at song"), waitForSelection: async () => calls.push("song confirmed")});
+ assert.deepEqual(calls, [["shuffle", false], "off confirmed", "start playlist at song", "song confirmed", ["shuffle", true]]);
+});
+test("restores shuffle when playback fails", async () => {
+ const calls = [];
+ await assert.rejects(playSelectedWithShuffle({shuffle: true, setShuffle: async enabled => calls.push(enabled), waitForShuffleOff: async () => {}, start: async () => { throw new Error("failed"); }, waitForSelection: async () => {}}), /failed/);
+ assert.deepEqual(calls, [false, true]);
+});
+test("does not change shuffle when it was off", async () => {
+ const calls = [];
+ await playSelectedWithShuffle({shuffle: false, setShuffle: async () => calls.push("shuffle"), waitForShuffleOff: async () => calls.push("wait"), start: async () => calls.push("start"), waitForSelection: async () => calls.push("wait")});
+ assert.deepEqual(calls, ["start"]);
 });
