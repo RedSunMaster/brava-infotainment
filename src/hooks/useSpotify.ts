@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { playLikedSelection } from "../lib/spotifySelection";
+import { loadLikedUris } from "../lib/spotifySelection";
 import { inProgress, parseAudiobooks, parseEpisodes, parseShows, playBody, type SpotifyEpisode, type SpotifyShow } from "../lib/spotifyShows";
 export type { SpotifyEpisode, SpotifyShow } from "../lib/spotifyShows";
 
@@ -868,14 +868,10 @@ export function useSpotify(): UseSpotifyReturn {
 	);
 
 	const playLiked = useCallback(async (liked: SpotifyQueueItem[], index = 0) => {
-		const start = Math.max(0, index);
-		const uris = liked.map(item => item.uri).slice(start, start + 10);
+		const selected = liked[index]?.uri;
+		const uris = await loadLikedUris(offset => spotifyFetch(`/me/tracks?limit=50&offset=${offset}`));
 		if (!uris.length) return;
-		// Spotify may shuffle a URI list before choosing its first item, ignoring the song the user tapped.
-		// A single-item request always starts that song; subsequent tracks are added to the queue in order.
-		await playLikedSelection(uris,
-			async uri => { await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris: [uri] }); },
-			async uri => { await spotifyFetch(await onCarDevice(`/me/player/queue?uri=${encodeURIComponent(uri)}`), "POST"); });
+		await spotifyFetch(await onCarDevice("/me/player/play"), "PUT", { uris, ...(selected && uris.includes(selected) ? { offset: { uri: selected } } : {}) });
 		setTimeout(() => { void fetchPlayback().catch(() => setTrack(null)); }, 600);
 	}, [spotifyFetch, fetchPlayback, onCarDevice]);
 

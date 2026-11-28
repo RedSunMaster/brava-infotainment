@@ -57,14 +57,14 @@ export function registerWifiIpc() {
  ipcMain.handle("wifi:connect", async (_event, ssid: unknown, password: unknown) => {
   if (process.platform !== "linux" || typeof ssid !== "string" || !ssid || ssid.length > 128 || typeof password !== "string" || password.length > 128 || /[\r\n]/.test(password)) return { ok: false, message: "Invalid network or password." };
   return await new Promise(resolve => {
-   const args = password ? ["--passwd-file", "/dev/stdin", "device", "wifi", "connect", ssid] : ["device", "wifi", "connect", ssid];
+   const args = ["device", "wifi", "connect", ssid, ...(password ? ["password", password] : [])];
    const child = spawn("nmcli", args, { env: { ...process.env, LC_ALL: "C" }, stdio: ["pipe", "ignore", "pipe"] });
    let err = ""; child.stderr.on("data", data => { err += data; });
    const timer = setTimeout(() => child.kill(), 45000);
    child.on("error", () => { clearTimeout(timer); resolve({ ok: false, message: "Could not start NetworkManager." }); });
    child.on("close", code => { clearTimeout(timer); resolve({ ok: code === 0, message: code === 0 ? "Connected." : (err.trim() || "Could not connect.") }); });
    child.stdin.on("error", () => undefined);
-   child.stdin.end(password ? `802-11-wireless-security.psk:${password}\n` : "");
+   child.stdin.end();
   });
  });
 }

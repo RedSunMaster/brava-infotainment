@@ -268,7 +268,7 @@ function handleAuthRedirect(url: string, authWindow: BrowserWindow) {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.on("ready", async () => {
 	// Widevine (castlabs Electron) must be registered before the Spotify Web Playback SDK can play.
-	await components.whenReady().catch((e: unknown) => console.error("Widevine not ready:", e));
+	void components.whenReady().catch((e: unknown) => console.error("Widevine not ready:", e));
 	await loadDisplayPreview();
 	createWindow();
 });

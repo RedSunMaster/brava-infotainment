@@ -4,14 +4,17 @@ import test from "node:test";
 import ts from "typescript";
 const source = await readFile(new URL("../src/lib/spotifySelection.ts", import.meta.url), "utf8");
 const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } }).outputText;
-const { playLikedSelection } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
-test("the chosen song starts alone before later songs are queued", async () => {
- const calls = [];
- await playLikedSelection(["chosen", "next", "later"], async uri => calls.push(["play", uri]), async uri => calls.push(["queue", uri]));
- assert.deepEqual(calls, [["play", "chosen"], ["queue", "next"], ["queue", "later"]]);
+const { loadLikedUris } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+test("loads every page of liked songs and skips unavailable and local tracks", async () => {
+ const offsets = [];
+ const uris = await loadLikedUris(async offset => {
+  offsets.push(offset);
+  return offset === 0 ? { items: Array.from({length: 50}, (_, i) => ({track: {uri: `track:${i}`, type: "track"}})), next: "next" } : {items: [{track: {uri: "track:50", type: "track"}}, {track: null}, {track: {uri: "local", type: "track", is_local: true}}], next: null};
+ });
+ assert.deepEqual(offsets, [0, 50]);
+ assert.equal(uris.length, 51);
+ assert.equal(uris[50], "track:50");
 });
-test("a failed play never changes the queue", async () => {
- const calls = [];
- await assert.rejects(playLikedSelection(["chosen", "next"], async () => { throw new Error("offline"); }, async uri => calls.push(uri)));
- assert.deepEqual(calls, []);
+test("fails rather than playing a partial collection when a page is unavailable", async () => {
+ await assert.rejects(loadLikedUris(async offset => offset ? null : {items: [{track: {uri: "a", type: "track"}}], next: "next"}), /all liked songs/);
 });

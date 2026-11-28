@@ -1,13 +1,14 @@
 import { useEffect } from "react";
 import loopUrl from "../assets/boot/matrice-loop.webm";
 
-/** The opening screen stays up at least this long from the start of the page, and until the map is ready. */
+/** The opening screen has a minimum display time and a deadline if the map cannot load. */
 const MIN_SPLASH_MS = 2400;
 const FADE_MS = 1100;
+const MAX_SPLASH_MS = 8000;
 
 /**
  * Runs the opening screen (the Matrice end frame in index.html, the same picture the boot splash ends on): starts its gentle loop video
- * on top of the still, then fades the whole screen out once the map is loaded and it has been up long enough.
+ * on top of the still, then fades it out when the map is ready or the deadline is reached.
  */
 export function useSplash(ready: boolean) {
 	// The loop's first frame is the still underneath, so it can start whenever the bundle gets here without a visible change. It is only
@@ -35,14 +36,13 @@ export function useSplash(ready: boolean) {
 	}, []);
 
 	useEffect(() => {
-		if (!ready) return;
 		const splash = document.getElementById("splash");
 		if (!splash) return;
 		const timers: number[] = [];
 		timers.push(window.setTimeout(() => {
 			splash.classList.add("done");
 			timers.push(window.setTimeout(() => splash.remove(), FADE_MS + 100));
-		}, Math.max(0, MIN_SPLASH_MS - performance.now())));
+		}, Math.max(0, (ready ? MIN_SPLASH_MS : MAX_SPLASH_MS) - performance.now())));
 		return () => timers.forEach(timer => window.clearTimeout(timer));
 	}, [ready]);
 }
